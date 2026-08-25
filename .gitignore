@@ -1,17 +1,76 @@
+# ─────────────────────────────────────────────
+# Mizuki-Ts-Server .gitignore
+# pnpm monorepo · NestJS 后端 · Vue 3 前端 · TypeScript
+# ─────────────────────────────────────────────
+
+# ── Dependencies ──
 node_modules/
+.pnp/
+.pnp.js
+
+# ── Build output ──
 dist/
+build/
+.output/
+.vite/
+.turbo/
+*.tsbuildinfo
+
+# ── Test & coverage ──
 coverage/
-.env
+.nyc_output/
+
+# ── Logs ──
 *.log
-.DS_Store
+logs/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# ── Environment (secrets) ──
+.env
+.env.*
+!.env.example
+
+# ── Caches ──
+.cache/
+.eslintcache
+.stylelintcache
+
+# ── Runtime data: SQLite DB / configs / uploads ──
+# 这些由服务在运行时生成，绝不可入库（见 docs/REQUIREMENTS §10.5 / §15）
 apps/server/data/*
 !apps/server/data/README.md
 !apps/server/data/backups/
 !apps/server/data/backups/.gitkeep
-.workbuddy
 
-# Build / test / tool artifacts
+# ── OS / Editor ──
+.DS_Store
+Thumbs.db
+Desktop.ini
+ehthumbs.db
+$RECYCLE.BIN/
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# ── Tool scratch / experiment artifacts ──
+# lint / ast 解析器的临时产物（已在根目录出现，勿提交）
 *.out
+*.tmp
+.lint.full
+.linttest.js
 .pnpm-store-del-test-*
 .sdbulk/
 .store-wtest
+.safe-delete-state
+.trash
+.trash-test
+
+# ── Agent / tooling data (must not be committed) ──
+.workbuddy
+
+# ── Note ──
+# pnpm-lock.yaml 是锁定文件，必须有意提交（请勿忽略）。

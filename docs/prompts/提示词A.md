@@ -66,6 +66,7 @@
 - 事件与分层基建锚点：依赖 `@nestjs/event-emitter`；根加 `eslint-plugin-boundaries` 并配置 MASTER-PLAN §4.4 分层规则；创建 `shared/src/events.ts`（常量 + zod payload，照搬 MASTER-PLAN §4.4）；验收含"故意跨模块 import 被 lint 拒绝"
 - 测试：迁移后用 sqlite_master 断言 11 表存在；config 非法值报错；过滤器对 HttpException 与未知异常两种单测
 - 专属禁止：不得创建任何业务 service；不得读写 Mizuki 目录任何文件
+- 引入 pino 日志库，关键写入步骤打日志
 
 ### P1 安全基建
 - 文件：`safe-join.ts`、`zod-validation.pipe.ts`；`app.setup.ts` 追加 helmet / CORS 白名单（默认仅 localhost）/ 全局 zod pipe / 全局 throttler
@@ -148,6 +149,7 @@
 7. **事件发射方与订阅方配对**：每个事件在发射方阶段的提示词 §3/§4 中写明发射逻辑，在订阅方阶段的提示词中写明订阅逻辑与验收断言；
 8. **注册表模式**：凡涉及 `MediaReferenceContributor` 等注册表接口，接口签名逐字照搬 MASTER-PLAN §4.4，注册方与调用方分属不同阶段时须在两阶段提示词中均写明；
 9. **事件目录覆盖检查**：MASTER-PLAN §4.4 每个事件必须出现在发射方阶段的提示词中，且订阅方阶段有对应验收项；生成过程中逐一核对事件清单，遗漏即停下补齐。
+10. shared 包只放类型和常量，禁止业务逻辑
 
 ## 6. 自检（15 份全部写完后执行，结果写入交付报告）
 
