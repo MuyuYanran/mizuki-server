@@ -1,0 +1,260 @@
+import 'reflect-metadata';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { execFileSync } from 'node:child_process';
+import request from 'supertest';
+import { INestApplication } from '@nestjs/common';
+import { Test } from '@nestjs/testing';
+import { OnEvent } from '@nestjs/event-emitter';
+import Database from 'better-sqlite3';
+import { AppModule } from '../src/app.module';
+import { configureApp } from '../src/app.setup';
+import { BACKUP_OPTIONS } from '../src/infra/backup/backup.service';
+import { SQLITE_CONNECTION } from '../src/infra/db/db.module';
+import { ContentChangedPayload, EVENTS } from '../../../packages/shared/src/events';
+
+/**
+ * P4 §6.1–6.8 验收依据（supertest e2e，数据源 = P3 fixture 假 Mizuki 项目临时副本）：
+ * 六类 CRUD、grouped 空分组清理、未知 type 拒绝、写后 tsc、事件断言、
+ * 校验拒绝不落盘、id 生成与 409、timeline 默认映射。
+ */
+
+const FIXTURE_DIR = path.resolve(__dirname, 'fixtures/mizuki');
+const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'mizuki-p4-e2e-'));
+process.env['MIZUKI_DB_PATH'] = path.join(tmp, 'mizuki.db');
+const mizukiRoot = path.join(tmp, 'mizuki');
+
+/** 测试事件订阅者（P4 §6.5） */
+class ContentChangedSubscriber {
+  static received: { scope: string; type?: string; filePaths: string[] }[] = [];
+  @OnEvent(EVENTS.ContentChanged)
+  onContentChanged(payload: unknown): void {
+    ContentChangedSubscriber.received.push(ContentChangedPayload.parse(payload));
+  }
+}
+
+describe('P4 六类集合 CRUD e2e', () => {
+  let app: INestApplication;
+
+  beforeAll(async () => {
+    fs.cpSync(FIXTURE_DIR, mizukiRoot, { recursive: true });
+    ContentChangedSubscriber.received = [];
+    const moduleRef = await Test.createTestingModule({
+      imports: [AppModule],
+      providers: [ContentChangedSubscriber],
+    })
+      .overrideProvider(BACKUP_OPTIONS)
+      .useValue({
+        mizukiRoot,
+        backupDir: path.join(tmp, 'backups'),
+        dbPath: process.env['MIZUKI_DB_PATH'] as string,
+      })
+      .compile();
+    app = moduleRef.createNestApplication();
+    configureApp(app);
+    await app.init();
+  });
+
+  afterAll(async () => {
+    await app.close();
+    app.get<Database.Database>(SQLITE_CONNECTION).close();
+    fs.rmSync(tmp, { recursive: true, force: true });
+  });
+
+  const server = (): request.SuperTest<request.Test> => request(app.getHttpServer());
+
+  /** 通用 CRUD 循环：POST → GET 含 → PATCH → GET 变更 → DELETE → GET 移除 */
+  async function crudCycle(type: string, createBody: Record<string, unknown>, patch: Record<string, unknown>, assertChange: (item: Record<string, unknown>) => void): Promise<void> {
+    const created = await server().post(`/api/v1/admin/collections/${type}`).send(createBody);
+    expect(created.status).toBe(201);
+    const id = created.body.id as string;
+    expect(typeof id).toBe('string');
+
+    let list = await server().get(`/api/v1/admin/collections/${type}`);
+    expect(list.status).toBe(200);
+    expect((list.body as Record<string, unknown>[]).some((item) => item['id'] === id)).toBe(true);
+
+    const patched = await server().patch(`/api/v1/admin/collections/${type}/${id}`).send(patch);
+    expect(patched.status).toBe(200);
+    assertChange(patched.body as Record<string, unknown>);
+
+    list = await server().get(`/api/v1/admin/collections/${type}`);
+    const after = (list.body as Record<string, unknown>[]).find((item) => item['id'] === id);
+    assertChange(after as Record<string, unknown>);
+
+    const deleted = await server().delete(`/api/v1/admin/collections/${type}/${id}`);
+    expect(deleted.status).toBe(200);
+    expect(deleted.body.deleted).toBe(true);
+
+    list = await server().get(`/api/v1/admin/collections/${type}`);
+    expect((list.body as Record<string, unknown>[]).some((item) => item['id'] === id)).toBe(false);
+  }
+
+  it('§6.1 diary：POST→GET→PATCH→GET→DELETE→GET 全循环', async () => {
+    await crudCycle(
+      'diary',
+      { content: 'e2e 新日记', date: '2026-08-26T10:00:00+08:00', mood: 'ok' },
+      { content: '改后的正文', location: '上海' },
+      (item) => {
+        expect(item['content']).toBe('改后的正文');
+        expect(item['location']).toBe('上海');
+      },
+    );
+  });
+
+  it('§6.1 friends：全循环', async () => {
+    await crudCycle(
+      'friends',
+      { title: 'e2e 友链', imgurl: 'https://a.com/i.png', siteurl: 'https://a.com' },
+      { desc: '描述更新' },
+      (item) => {
+        expect(item['desc']).toBe('描述更新');
+        expect(item['title']).toBe('e2e 友链');
+      },
+    );
+  });
+
+  it('§6.1 projects：全循环', async () => {
+    await crudCycle(
+      'projects',
+      { title: 'e2e 项目', techStack: ['NestJS'] },
+      { featured: true, status: 'done' },
+      (item) => {
+        expect(item['featured']).toBe(true);
+        expect(item['status']).toBe('done');
+      },
+    );
+  });
+
+  it('§6.1 timeline：全循环', async () => {
+    await crudCycle(
+      'timeline',
+      { title: 'e2e 事件', type: 'other', startDate: '2026-08-26' },
+      { title: '改后事件' },
+      (item) => {
+        expect(item['title']).toBe('改后事件');
+        expect(item['type']).toBe('other');
+      },
+    );
+  });
+
+  it('§6.1 skills：全循环（含嵌套 experience）', async () => {
+    await crudCycle(
+      'skills',
+      { name: 'e2e 技能', experience: { years: 1, months: 2 } },
+      { level: 7 },
+      (item) => {
+        expect(item['level']).toBe(7);
+        expect(item['experience']).toEqual({ years: 1, months: 2 });
+      },
+    );
+  });
+
+  it('§6.2 devices（grouped）：新增（带 group）→ 分组结构 → 修改 → 删除最后一个 → 空分组清理', async () => {
+    // 新分组（新增时创建）
+    const created = await server()
+      .post('/api/v1/admin/collections/devices')
+      .send({ group: 'e2e 组', name: '测试设备', specs: '1T' });
+    expect(created.status).toBe(201);
+    expect(created.body.name).toBe('测试设备');
+
+    let data = await server().get('/api/v1/admin/collections/devices');
+    expect(data.status).toBe(200);
+    expect((data.body as Record<string, unknown[]>)['e2e 组']).toBeDefined();
+
+    // 修改
+    const patched = await server()
+      .patch('/api/v1/admin/collections/devices/测试设备')
+      .send({ description: '更新描述' });
+    expect(patched.status).toBe(200);
+    expect(patched.body.description).toBe('更新描述');
+
+    // 删除该分组唯一设备 → 空分组键被清理
+    const deleted = await server().delete('/api/v1/admin/collections/devices/测试设备');
+    expect(deleted.status).toBe(200);
+    data = await server().get('/api/v1/admin/collections/devices');
+    expect((data.body as Record<string, unknown[]>)['e2e 组']).toBeUndefined();
+    // 原有分组不受影响
+    expect((data.body as Record<string, unknown[]>)['电脑']).toBeDefined();
+  });
+
+  it('§6.3 未知 type 拒绝：GET/POST/PATCH/DELETE 均返回 400', async () => {
+    expect((await server().get('/api/v1/admin/collections/unknown')).status).toBe(400);
+    expect((await server().post('/api/v1/admin/collections/unknown').send({})).status).toBe(400);
+    expect((await server().patch('/api/v1/admin/collections/unknown/x').send({})).status).toBe(400);
+    expect((await server().delete('/api/v1/admin/collections/unknown/x')).status).toBe(400);
+  });
+
+  it('§6.5 事件断言：每次写入后收到 content.changed，payload 正确', async () => {
+    // 至此时点的写入数：五类 CRUD 各 3 次（POST/PATCH/DELETE）+ devices 3 次 = 18
+    expect(ContentChangedSubscriber.received.length).toBeGreaterThanOrEqual(18);
+    for (const payload of ContentChangedSubscriber.received) {
+      expect(payload.scope).toBe('collection');
+      expect(typeof payload.type).toBe('string');
+      expect(payload.filePaths.every((p) => p.startsWith('src/data/'))).toBe(true);
+    }
+    const diaryEvents = ContentChangedSubscriber.received.filter((e) => e.type === 'diary');
+    expect(diaryEvents.length).toBeGreaterThanOrEqual(3);
+    expect(diaryEvents[0]!.filePaths).toEqual(['src/data/diary.ts']);
+  });
+
+  it('§6.6 校验拒绝：friends 缺 siteurl → 400 且文件未被修改', async () => {
+    const file = path.join(mizukiRoot, 'src/data/friends.ts');
+    const before = fs.readFileSync(file, 'utf8');
+    const res = await server()
+      .post('/api/v1/admin/collections/friends')
+      .send({ id: 'bad-1', title: '缺字段', imgurl: 'x' });
+    expect(res.status).toBe(400);
+    expect(res.body.detail.issues.length).toBeGreaterThan(0);
+    expect(fs.readFileSync(file, 'utf8')).toBe(before);
+  });
+
+  it('§6.7 id 生成：POST 不带 id → 响应含 nanoid id；id 重复 → 409', async () => {
+    const first = await server()
+      .post('/api/v1/admin/collections/diary')
+      .send({ content: '无 id 新增', date: '2026-08-26' });
+    expect(first.status).toBe(201);
+    expect(typeof first.body.id).toBe('string');
+    expect(first.body.id.length).toBeGreaterThanOrEqual(10);
+
+    const conflict = await server()
+      .post('/api/v1/admin/collections/diary')
+      .send({ id: first.body.id, content: '重复 id', date: '2026-08-26' });
+    expect(conflict.status).toBe(409);
+
+    // 收尾删除，保持后续 tsc 断言数据干净
+    await server().delete(`/api/v1/admin/collections/diary/${first.body.id}`);
+  });
+
+  it('§6.8 timeline 默认映射：仅给 type=education → icon/color 被填充', async () => {
+    const res = await server()
+      .post('/api/v1/admin/collections/timeline')
+      .send({ title: '默认映射事件', type: 'education', startDate: '2026-08-26' });
+    expect(res.status).toBe(201);
+    expect(typeof res.body.icon).toBe('string');
+    expect(res.body.icon.length).toBeGreaterThan(0);
+    expect(typeof res.body.color).toBe('string');
+    expect(res.body.color).toMatch(/^#/);
+    await server().delete(`/api/v1/admin/collections/timeline/${res.body.id}`);
+  });
+
+  it('§6.4 写后文件可编译：全部 6 个数据文件 tsc --noEmit 通过', () => {
+    const dataDir = path.join(mizukiRoot, 'src/data');
+    const files = fs.readdirSync(dataDir).filter((f) => f.endsWith('.ts')).map((f) => path.join(dataDir, f));
+    expect(files).toHaveLength(6);
+    const tscBin = path.resolve(__dirname, '../node_modules/typescript/bin/tsc');
+    execFileSync(
+      process.execPath,
+      [tscBin, '--noEmit', '--target', 'ES2022', '--moduleResolution', 'node', '--module', 'ESNext', ...files],
+      { stdio: 'pipe' },
+    );
+  });
+
+  it('PATCH/DELETE 不存在的条目 → 404', async () => {
+    expect(
+      (await server().patch('/api/v1/admin/collections/friends/not-exists').send({ title: 'x' })).status,
+    ).toBe(404);
+    expect((await server().delete('/api/v1/admin/collections/friends/not-exists')).status).toBe(404);
+  });
+});

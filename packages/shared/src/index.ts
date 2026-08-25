@@ -8,3 +8,6 @@ export const MIZUKI_API_PREFIX = '/api/v1' as const;
 
 // [P0b] 事件目录骨架（事件名常量 + payload zod schema）
 export * from './events';
+
+// [P4] 六类集合条目 schema（前后端共用字段规格，P10 表单驱动）
+export * from './collections';

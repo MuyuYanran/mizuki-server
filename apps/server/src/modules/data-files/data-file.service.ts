@@ -72,7 +72,7 @@ export class DataFileService {
     relFile: string,
     varName: string,
     mutate: (value: T) => T | Promise<T>,
-    schema?: z.ZodType<T>,
+    schema?: z.ZodType,
   ): Promise<T> {
     const abs = this.resolveAbs(relFile);
     return this.lock.withLock(abs, () => this.attempt<T>(abs, relFile, varName, mutate, schema, 0));
@@ -86,7 +86,7 @@ export class DataFileService {
     relFile: string,
     varName: string,
     mutate: (value: T) => T | Promise<T>,
-    schema: z.ZodType<T> | undefined,
+    schema: z.ZodType | undefined,
     retry: number,
   ): Promise<T> {
     // 1. 读盘 + 记录原文哈希
