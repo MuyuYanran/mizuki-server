@@ -1,9 +1,17 @@
 /**
- * [阶段 P3] data-files 模块
- * [职责] ts-morph 引擎：门面 service / AST 求值 / 序列化 / 语法校验 / 文件锁 / mtime 读缓存
- * [状态] SKELETON — P0a 生成，待 P3 提示词实现
+ * [阶段 P3] data-files 模块 — ts-morph 引擎（L1）
+ * [职责] 装配引擎门面：FileLock / ValueCache 为可注入类，
+ *   evaluator / serializer / syntax-check 为纯函数模块（无需 DI）。
+ *   导出 DataFileService 供 L2 集合模块（P4）注入。
+ * [状态] ACTIVE
  */
 import { Module } from '@nestjs/common';
+import { DataFileService } from './data-file.service';
+import { FileLock } from './file-lock';
+import { ValueCache } from './value-cache';
 
-@Module({})
+@Module({
+  providers: [FileLock, ValueCache, DataFileService],
+  exports: [DataFileService],
+})
 export class DataFilesModule {}

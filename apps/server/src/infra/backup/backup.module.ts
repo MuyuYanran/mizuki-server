@@ -34,6 +34,6 @@ function serverRoot(): string {
     },
     BackupService,
   ],
-  exports: [BackupService],
+  exports: [BACKUP_OPTIONS, BackupService],
 })
 export class InfraBackupModule {}
