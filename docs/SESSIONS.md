@@ -410,3 +410,60 @@ boundaries 拦截测试两轮输出摘要：
 
 - `feat(P3): ts-morph 数据文件引擎与 golden-file 测试`（c8b815f）
 - `docs(P3): CHANGELOG 与 SESSIONS 关卡交付报告`（本提交）
+
+---
+
+## P4 交付报告 — 注册表驱动六类集合 CRUD
+
+- 日期：2026-08-26
+- 阶段：P4（C-Plus 连续执行模式）
+- 结论：**P4 功能完成，十项验收全部通过。** `pnpm test` 120/120、`pnpm build` 0 error、`pnpm lint` 0 error / 0 warning。
+
+### 1. 验收结果（§6）
+
+| 项 | 结果 | 说明 |
+|---|---|---|
+| §6.1 六类 CRUD | ✅ PASS | diary/friends/projects/timeline/skills 各走 POST→GET→PATCH→GET→DELETE→GET 全循环（e2e） |
+| §6.2 grouped（devices） | ✅ PASS | POST 带 group（新分组自动创建）→ GET 分组结构 → PATCH → 删除分组唯一设备 → 空分组键被清理、原有分组不受影响 |
+| §6.3 未知 type 拒绝 | ✅ PASS | GET/POST/PATCH/DELETE 四方法对未知 type 均 400（注册表白名单先行，零文件读写） |
+| §6.4 写后文件可编译 | ✅ PASS | 全部写操作完成后 6 个数据文件 `tsc --noEmit` 一次通过 |
+| §6.5 事件断言 | ✅ PASS | @OnEvent 测试订阅者收到全部 content.changed；payload 过 ContentChangedPayload.parse，scope='collection'、type/filePaths 正确 |
+| §6.6 校验拒绝 | ✅ PASS | friends 缺 siteurl → 400（detail.issues 非空）且文件字节未变（写前校验） |
+| §6.7 id 生成 | ✅ PASS | POST 不带 id → 响应与文件中出现 nanoid id；id 重复 → 409 |
+| §6.8 timeline 自动默认 | ✅ PASS | 仅给 type=education → icon（graduation-cap）/color（#3b82f6）被填充非空（ADR-004 暂定映射） |
+| §6.9 回归 | ✅ PASS | P0a–P3 全部用例绿 |
+| §6.10 测试下限 | ✅ PASS | 测试文件 2 个（≥2），用例 19 条（≥15） |
+
+### 2. 文件清单
+
+- 转正 stub（3）：`modules/collections/{collections.module, collections.controller, collections.service}.ts`
+- 新建（8）：`modules/collections/registry.ts`、`packages/shared/src/collections/{index, diary, friends, projects, timeline, skills, devices}.ts`（7 个文件）、`docs/decisions/ADR-004-timeline-default-mapping.md`
+- 修改（2）：`packages/shared/src/index.ts`（追加导出 collections）、`modules/data-files/data-file.service.ts`（schema 参数类型放宽为 z.ZodType）
+- 测试新建（2）：`test/p4-collections.e2e-spec.ts`（13 用例）、`test/modules/collections/schemas.spec.ts`（6 用例）
+- 无新增依赖、无数据库表变更（六类内容零入库）
+
+### 3. 偏差清单
+
+| # | 偏差 | 原因与处置 |
+|---|---|---|
+| 1 | timeline 默认 icon/color 为暂定映射 | 无法接触真实 Mizuki 主题源码（守则禁触真实目录），按 Lucide 图标名 + Tailwind 500 色暂定，已记 **ADR-004**（待真实源码核对后修订常量表） |
+| 2 | grouped POST body 采用 flat 结构（设备字段 + 顶层 `group` 字段） | 规格仅说「body 含 group 字段」未定结构；flat 对 P10 表单最简（表单字段 + 分组选择器），服务端 stripGroup 后落盘 |
+| 3 | engine schema 参数放宽为 `z.ZodType` | P4 传入 itemSchema.array() / record schema 时 zod v4 三参数型不变性导致泛型不匹配；引擎仅用 parse 校验、不消费输出类型，放宽无损 |
+| 4 | 字段与「真实 Mizuki interface」核对以 fixture 为准 | 本会话无真实 Mizuki 源码；schema 与 fixture 数据逐条核对通过（schemas.spec.ts），真实源码到位后如字段名有出入须记 ADR 修订（§6.0 第 5 条义务） |
+
+### 4. 确认声明（P4 §7.4）
+
+六个 zod schema 放置 `packages/shared` 的动机：**P10 管理面板将由这些 schema 驱动生成表单，前后端复用同一份字段规格**——本阶段已按此动机落地（schema 仅字段定义与类型，零业务逻辑），P10b 实施时直接从 `@mizuki/shared` 导入。
+
+### 5. 踩的坑（对后续阶段的提醒）
+
+1. **`@Post()` 忘写 `:type`**：动态控制器四个方法的路径模板都要带参数，漏写时 POST 404 而 PATCH/DELETE 正常，表象有迷惑性。
+2. **vitest 测试文件里的相对路径**：`__dirname` 层级逐次数清楚再写（本次 fixture 路径与 tsc bin 路径各错一级）；shared 源码直引从 `test/<子目录>/` 需 5 级向上。
+3. **P5 接入提醒**：posts 模块写文章文件不复用集合引擎（数据文件是 markdown + frontmatter），但仍必须走 safeJoin + zod + 备份 + 原子写的统一管线纪律（决策 3）；`content.changed` 的 scope 用 'post'/'about'。
+4. **P8 公开集合路由**：直接读 REGISTRY 中 public:true 的条目，值来自 readCollection（有 value-cache），不要另起解析逻辑。
+5. grouped PATCH 不支持移动分组（改 group 字段被剥离忽略）——如 P10 需要「移动设备到其他分组」须后续补设计。
+
+### 6. commit 记录
+
+- `feat(P4): 注册表驱动六类集合 CRUD 与 content.changed 事件`（4df92d8）
+- `docs(P4): CHANGELOG 与 SESSIONS 记录`（本提交）
