@@ -328,3 +328,85 @@ boundaries 拦截测试两轮输出摘要：
 
 - `feat(P2): 唯一备份实现与备份 REST API`（1d3570a）
 - `docs(P2): ADR-003、CHANGELOG 与 SESSIONS 记录`（本提交）
+
+---
+
+## P3 交付报告 — ts-morph 数据文件引擎（人工关卡：引擎定型）
+
+- 日期：2026-08-26
+- 阶段：P3（C-Plus 连续执行模式；P0b/P3/P6/P8 四关卡之一）
+- 结论：**P3 功能完成，十项验收全部通过。** `pnpm test` 101/101、`pnpm build` 0 error、`pnpm lint` 0 error / 0 warning。
+
+### 1. 验收结果（§6）
+
+| 项 | 结果 | 说明 |
+|---|---|---|
+| §6.1 golden ① 往返 | ✅ PASS | 6 个 fixture 数据文件各有用例：读 → 改（增/改字段/删）→ 写 → 再读深相等（含 as const/satisfies/模板字符串/grouped 各结构） |
+| §6.2 golden ② 外部字节不变 | ✅ PASS | 6 个文件写后与原文件相比，初始化表达式区域前后缀逐字节一致（`initializerSpan` 偏移切分断言） |
+| §6.3 不支持节点 | ✅ PASS | 模板插值/标识符/属性访问/Shorthand/Spread 各 1 条 + getter 单元条，全部抛 `UnsupportedLiteralError` 且 fileName 与行号正确（构造于第 2 行，断言「第 2 行」） |
+| §6.4 语法校验 | ✅ PASS | 坏文本（`export const x = [;` 等）→ 抛错含行号；fixture 原文与序列化产物 → 通过 |
+| §6.5 陈旧检测 | ✅ PASS | 持续外部修改 → 重试 1 次后 409（attempts=2，磁盘无引擎写入）；仅一次外部修改 → 重试后在新基底上成功 |
+| §6.6 文件锁 | ✅ PASS | 同文件并发 2 个 mutate：mutate 回调重叠计数恒为 1（串行）、终值正确、文件完好；不同文件并发：重叠计数达到 2（并行） |
+| §6.7 value-cache | ✅ PASS | 同 stat 命中（load 仅 1 次）；外部修改（mtime/size 变化）失效重读；写管线后缓存失效重读新值 |
+| §6.8 备份与原子性 | ✅ PASS | 写后备份目录含 pre_write 快照且产物=写前原文；无 `.tmp-*` 残留、文件完整可解析；新文件首写跳过备份仍成功 |
+| §6.9 回归 | ✅ PASS | P0a–P2 全部用例绿（health、11 表、过滤器、safe-join、备份 e2e 等） |
+| §6.10 测试下限 | ✅ PASS | 测试文件 2 个（≥2），用例 30 条（≥18） |
+
+### 2. 【关卡复核清单】P3：golden 三断言输出摘要（供人工补把关）
+
+**断言 ①（往返值正确）**：
+```
+✓ diary（数组）：改一条 content + 删一条 → 再读值正确；外部字节不变
+✓ friends（as const）：新增一条 → 再读值正确；外部字节不变
+✓ projects（satisfies）：改 featured 字段 → 再读值正确；外部字节不变
+✓ timeline（模板字符串）：新增一条（保留原有模板字符串条目）→ 值正确；外部字节不变
+✓ skills（嵌套对象/负数）：改嵌套 experience → 值正确；外部字节不变
+✓ devices（grouped 对象）：分组内增删改 → 值正确；外部字节不变
+```
+
+**断言 ②（外部字节不变）**：六条用例内联断言 `assertOutsideInitializerByteIdentical`——写后文件与原文件按初始化表达式 [start,end) 偏移切分，前缀（含文件头注释/import/interface/`export const xxx = `）与后缀（`;`、文件尾注释与代码）逐字节相等，全部通过。另附可选集成断言：`✓ 写后 fixture 副本对 diary.ts 执行 tsc --noEmit 通过`。
+
+**断言 ③（不支持节点报错含行号）**：
+```
+✓ 模板插值 `${}` → 错误含文件名与第 2 行
+✓ 标识符引用 → 错误含文件名与第 2 行
+✓ 属性访问 → 错误含文件名与第 2 行
+✓ Shorthand 属性 → 错误含文件名与第 2 行
+✓ Spread 元素 → 错误含文件名与第 2 行
+```
+错误消息格式：`不支持的字面量节点：<file> 第 <N> 行（<节点类型>）——数据文件必须自包含`；反向用例（as const/satisfies/括号/负数/无插值模板/null 不误伤）亦全绿。
+
+引擎定型要点：一次性 Project 每次重读磁盘（无陈旧 AST）；写路径唯一 = 8 步管线（顺序不可变）；文本 hack（括号计数/正则/JSON5）零出现（grep 可查：serializer 仅做 JSON 键去引号纯美化）。
+
+### 3. 文件清单
+
+- 转正 stub（7）：`modules/data-files/{data-files.module, data-file.service, evaluator, serializer, syntax-check, file-lock, value-cache}.ts`
+- 修改（1）：`infra/backup/backup.module.ts`（exports 补 `BACKUP_OPTIONS`，DataFileService 注入需要）
+- fixture 新建：`test/fixtures/mizuki/{package.json, astro.config.mjs, README.md, src/types.ts, src/content/posts/hello-world/index.md, src/data/{diary,friends,projects,timeline,skills,devices}.ts}`
+- 测试新建（2）：`test/modules/data-files/{golden, engine}.spec.ts`
+- 无新增依赖
+
+### 4. 偏差清单
+
+| # | 偏差 | 原因与处置 |
+|---|---|---|
+| 1 | 初始化表达式替换用 `initializer.replaceWithText()` 而非 `decl.setInitializer()` | 实测 setInitializer 对多行文本按声明列追加缩进（输出合法但缩进逐层漂移）；replaceWithText 精确替换节点文本区域，golden 字节断言②通过。规格 §6.3 明示的备选方案，以 golden 测试为准选择 |
+| 2 | `mutate` 回调签名扩展为 `(v: T) => T \| Promise<T>` | 规格 §6.4 伪代码为同步签名；await 非Promise 值为恒等操作，属向后兼容超集。动机：并发测试需要延迟窗、P4+ 调用方可能需要 async |
+| 3 | fixture 额外含 `src/types.ts`（集中类型定义） | 「其他检测所需最小结构」解释内：数据文件 `import type` 的目标必须真实存在，否则写后 tsc --noEmit 集成断言不成立；类型集中一处便于后续阶段对照 Mizuki 真实 interface |
+| 4 | zod 校验失败时引擎原样抛 `ZodError`（不包装为 400） | 引擎保持纯粹（L1 不感知 HTTP 语义）；P4 路由层负责捕获并转统一异常格式。已在踩坑提醒中注明 |
+| 5 | evaluator 的 `ExportNotFoundError` 继承 Nest `NotFoundException` | 规格伪代码即 `NotFoundError`；复用 Nest 异常使其直接被统一过滤器格式化为 404，省一层映射 |
+
+### 5. 踩的坑（对后续阶段的提醒）
+
+1. **setInitializer 缩进陷阱**（见偏差 1）——后续任何需要回写 AST 的场景（P8 settings 改 config.ts 等）一律用 `replaceWithText`。
+2. **Nest Symbol token 注入需显式 export**：`@Global()` 模块 export 列表漏掉 Symbol token 时，其他模块 `@Inject(token)` 报 "can't resolve dependencies"。P2 时只 export 了 BackupService；P3 已补 `BACKUP_OPTIONS`。后续新增 token 记得同步 export。
+3. **路由级 @UsePipes 会校验全部参数**（P2 已记，此处复述）：新代码统一 `@Body(new ZodValidationPipe(Schema))` 参数级挂载。
+4. **P4 接入指引**：集合 CRUD 经 `DataFileService.mutateCollection(relFile, varName, mutate, schema)`；schema 从注册表传 `itemSchema.array()`（grouped 传 record schema）；成功出口由 P4 发射 `content.changed`（payload 见 shared/events.ts），引擎已返回写入后的新值供组装事件；ZodError 在 P4 转 BadRequestException。
+5. **grouped 空分组清理在 mutate 回调内做**（P4）：mutate 返回前删除空数组键即可，引擎不感知业务规则。
+6. **value-cache 返回同一引用**：P4 公开 API 若直接外发缓存值，须注意调用方不得原地修改；引擎写路径已走深拷贝不受影响。
+7. fixture 是「唯一测试数据源」（守则 5）：P4/P5/P7 的 e2e 一律先 `fs.cpSync(FIXTURE_DIR, tmp)` 再操作。
+
+### 6. commit 记录
+
+- `feat(P3): ts-morph 数据文件引擎与 golden-file 测试`（c8b815f）
+- `docs(P3): CHANGELOG 与 SESSIONS 关卡交付报告`（本提交）
