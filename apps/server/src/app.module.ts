@@ -3,6 +3,7 @@ import { APP_GUARD } from '@nestjs/core';
 import { EventEmitterModule } from '@nestjs/event-emitter';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { DbModule } from './infra/db/db.module';
+import { InfraBackupModule } from './infra/backup/backup.module';
 import { SystemModule } from './modules/system/system.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { DataFilesModule } from './modules/data-files/data-files.module';
@@ -28,6 +29,8 @@ import { SettingsModule } from './modules/settings/settings.module';
     EventEmitterModule.forRoot(),
     // [P0b] 数据库 @Global 模块（better-sqlite3 + drizzle，启动自动迁移）
     DbModule,
+    // [P2] 备份基建 @Global 模块（唯一备份实现，业务模块直接注入）
+    InfraBackupModule,
     // [P0a] 健康检查与 Mizuki 探测
     SystemModule,
     // [P6] 认证（登录 / JWT 双 Token / me）

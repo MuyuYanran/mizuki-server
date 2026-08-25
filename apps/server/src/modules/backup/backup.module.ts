@@ -1,9 +1,13 @@
 /**
- * [阶段 P2] backup 模块
- * [职责] 备份 REST API（调用 infra/backup）
- * [状态] SKELETON — P0a 生成，待 P2 提示词实现
+ * [阶段 P2] backup 模块 — 备份 REST API 层
+ * [职责] 装配 BackupController（BackupService 由 infra/backup 的
+ *   @Global InfraBackupModule 提供，直接注入）。
+ * [状态] ACTIVE
  */
 import { Module } from '@nestjs/common';
+import { BackupController } from './backup.controller';
 
-@Module({})
+@Module({
+  controllers: [BackupController],
+})
 export class BackupModule {}
