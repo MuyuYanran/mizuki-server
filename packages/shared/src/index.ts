@@ -5,3 +5,6 @@
  */
 
 export const MIZUKI_API_PREFIX = '/api/v1' as const;
+
+// [P0b] 事件目录骨架（事件名常量 + payload zod schema）
+export * from './events';
