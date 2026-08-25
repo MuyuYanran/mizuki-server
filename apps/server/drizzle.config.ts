@@ -1,8 +1,16 @@
 /**
  * [阶段 P0b] Drizzle 配置（drizzle-kit）
- * [职责] 定义 schema 位置、迁移输出目录与数据库连接（better-sqlite3，指向 apps/server/data/mizuki.db）
- * [状态] SKELETON — P0a 生成，待 P0b 提示词实现
- *
- * P0b 将在此处 `export default defineConfig({ schema, out, dialect, dbCredentials })`
- * 并接入数据文件。当前为占位文件，刻意不导入任何依赖以保持零成本编译。
+ * [职责] schema 指向 infra/db/schema.ts，迁移产物输出 apps/server/drizzle/，
+ *   dialect sqlite，db 文件 apps/server/data/mizuki.db（不进 git）。
+ * [状态] ACTIVE
  */
+import { defineConfig } from 'drizzle-kit';
+
+export default defineConfig({
+  dialect: 'sqlite',
+  schema: './src/infra/db/schema.ts',
+  out: './drizzle',
+  dbCredentials: {
+    url: './data/mizuki.db',
+  },
+});

@@ -1,4 +1,6 @@
 import { Module } from '@nestjs/common';
+import { EventEmitterModule } from '@nestjs/event-emitter';
+import { DbModule } from './infra/db/db.module';
 import { SystemModule } from './modules/system/system.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { DataFilesModule } from './modules/data-files/data-files.module';
@@ -18,6 +20,10 @@ import { SettingsModule } from './modules/settings/settings.module';
  */
 @Module({
   imports: [
+    // [P0b] 事件总线（跨模块异步交互唯一通道，事件目录见 @mizuki/shared EVENTS）
+    EventEmitterModule.forRoot(),
+    // [P0b] 数据库 @Global 模块（better-sqlite3 + drizzle，启动自动迁移）
+    DbModule,
     // [P0a] 健康检查与 Mizuki 探测
     SystemModule,
     // [P6] 认证（登录 / JWT 双 Token / me）
