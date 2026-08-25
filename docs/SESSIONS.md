@@ -274,3 +274,57 @@ boundaries 拦截测试两轮输出摘要：
 
 - `feat(P1): safeJoin 路径监狱、zod 校验管道与 helmet/CORS/全局限流`（ed4d79d）
 - `docs(P1): CHANGELOG 与 SESSIONS 记录`（本提交）
+
+---
+
+## P2 交付报告 — 备份与恢复
+
+- 日期：2026-08-26
+- 阶段：P2（C-Plus 连续执行模式）
+- 结论：**P2 功能完成，八项验收全部通过。** `pnpm test` 71/71、`pnpm build` 0 error、`pnpm lint` 0 error / 0 warning。
+
+### 1. 验收结果（§6）
+
+| 项 | 结果 | 说明 |
+|---|---|---|
+| §6.1 备份→篡改→恢复→哈希一致 | ✅ PASS | pre_write 与 manual(content) 各一条：篡改源 → restore → sha256 与原始一致 |
+| §6.2 保留策略 | ✅ PASS | 同一文件连续 11 份 pre_write → 仅剩最近 10 份；最旧目录物理删除、记录行删除（restore 404） |
+| §6.3 manifest 完整性 | ✅ PASS | 每条目含原路径 + sha256 且与产物实际哈希一致；产物被篡改时恢复被拒（400） |
+| §6.4 db 备份恢复 | ✅ PASS | 写入→备份→改库→恢复→回到备份时刻；恢复前自动生成当前状态快照且记录可查（重登记） |
+| §6.5 REST e2e | ✅ PASS | 四 scope 创建（full/data/content→manual、db→db）、列表、restore 无/假 confirm 400、confirm:true 200 且文件恢复、DELETE 后列表不含、不存在 id 404 |
+| §6.6 事件断言 | ✅ PASS | e2e 用 @OnEvent 订阅者收到 backup.completed，payload 过 BackupCompletedPayload.parse（≥4 次）；单测断言 pre_write/manual/db 三种 scope 各一次 |
+| §6.7 路径防护 | ✅ PASS | preWriteBackup 目标逃逸 mizukiRoot → 403；manifest 篡改为 ../ 路径 → 恢复被 safeJoin 拒绝 |
+| §6.8 测试下限 | ✅ PASS | 测试文件 2 个（≥2），用例 27 条（≥12） |
+
+### 2. 文件清单
+
+- 转正 stub（3）：`infra/backup/backup.service.ts`、`modules/backup/backup.module.ts`、`modules/backup/backup.controller.ts`
+- 新建（2）：`infra/backup/backup.module.ts`（@Global，BACKUP_OPTIONS 注入）、`docs/decisions/ADR-003-full-scope-backup-set.md`
+- 修改（1）：`app.module.ts`（imports 头部追加 InfraBackupModule）
+- 新建测试（2）：`test/infra/backup.service.spec.ts`（14 用例）、`test/p2-backup.e2e-spec.ts`（13 用例）
+- 无新增依赖
+
+### 3. 偏差清单
+
+| # | 偏差 | 原因与处置 |
+|---|---|---|
+| 1 | `full` scope 备份集合 = `src/data/*.ts` + `src/content/**`（非字面「整个项目目录」） | 按括号注「内容数据文件 + 内容目录」保守解释，避免备份 node_modules 等无关目录。已记 **ADR-003** |
+| 2 | mizukiRoot 未配置时仅文件类 scope（full/data/content）返回 400，`db` scope 仍可备份 | db 备份对象是服务端自身 SQLite，与 Mizuki 目录无关；「未配置 400」按语义只约束文件类。§6.5 e2e 有明示用例 |
+| 3 | db 恢复后自动重登记「恢复前快照」与「被恢复备份」两条记录 | db 文件整体回滚会丢失备份时刻之后写入的记录行（含快照记录），不重登记则 §6.4「记录可查」不成立。属「`.backup()` 逆向或等价安全方式」的必要补充 |
+| 4 | 目录名时间戳取本地时间 `YYYYMMDDTHHmmssSSS` + nanoid(8) | 规格「格式自定但须可排序」；毫秒精度降低同秒碰撞 |
+| 5 | pre_write 目标文件不存在时跳过（返回 undefined，不产生记录） | 规格未定义该场景（新文件首写无物可备）；保守取「跳过」，P3 写管线据此分支 |
+
+### 4. 踩的坑（对后续阶段的提醒）
+
+1. **路由级 @UsePipes 的 ZodValidationPipe 会校验该路由全部参数（含 @Param 字符串）**，导致参数也过 body schema → 400。P2 起统一用**参数级**挂载：`@Body(new ZodValidationPipe(Schema))`。P1 的 zod-validation.pipe.ts 本身无 bug（其 transform 不看 metadata），但后续阶段如需路由级用法，应给管道加 `metadata.type === 'body'` 判断（P2 无权限改 P1 文件，留给后续阶段顺手处理时记偏差）。
+2. **better-sqlite3 v13 的 `db.backup(dest)` 目标只接受文件路径字符串**（不接受 Database 实例）。db 恢复用「备份产物连接 → 现场 db 路径」实现；写回时活动连接必须空闲（无未决事务），否则 SQLITE_BUSY。
+3. **db 恢复 = 整文件回滚**：备份时刻之后写入的任何表数据（含 backup_record、后续阶段的业务数据）都会被抹掉。P2 已对备份记录做重登记；**后续阶段若在 db 中维护缓存/索引（P8 article 索引），恢复 db 后需自行重建**——事件层面可考虑 restore 完成后发 content.changed 类失效信号（届时按 P8 提示词定夺）。
+4. **DbModule 的 sqlite 句柄不随 app.close() 释放**（无 onModuleDestroy）。测试收尾删除临时目录前须手动 `app.get(SQLITE_CONNECTION).close()`，否则 Windows 下 rmSync EPERM。
+5. **e2e 的 DB 隔离用 `process.env.MIZUKI_DB_PATH`**（DbModule 工厂实例化时读取）；同文件多 app 实例共享该路径，句柄收集后统一关闭。
+6. **备份目录操作（rmSync）只允许作用于 options.backupDir 下的备份子目录**——deleteBackup/保留策略均从 manifestPath 推导目录，天然限定在备份根内，后续阶段不要传入其他路径。
+7. P3 写管线调用点：`preWriteBackup(absoluteTargetPath)`，在写入**前**调用；新文件（目标不存在）返回 undefined 属正常分支。
+
+### 5. commit 记录
+
+- `feat(P2): 唯一备份实现与备份 REST API`（1d3570a）
+- `docs(P2): ADR-003、CHANGELOG 与 SESSIONS 记录`（本提交）
