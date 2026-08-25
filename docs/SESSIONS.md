@@ -149,3 +149,80 @@ NestJS 系列锁定 `^11` major，其余 `latest` 解析为当时最新稳定版
 
 - P2 Backup / P3 DataFiles（evaluator / serializer / syntax-check）/ P4 Collections / P5 Posts / P6 Auth（JWT + argon2）/ P7 Media+Albums / P8 Articles+Settings / P9 Process 均有对应骨架文件与 `[阶段 X]` 标注，等待各阶段提示词驱动实现。
 - `docs/MASTER-PLAN.md` 与 `docs/REQUIREMENTS.md` 为总纲；`docs/decisions/ADR-001` 为依赖基线。
+---
+
+## P0b 交付报告 — 配置加载、数据库 11 表与统一异常
+
+- 日期：2026-08-26
+- 阶段：P0b（执行模式：C-Plus 连续执行，人工已授权自动 commit）
+- 结论：**P0b 功能完成，七项验收全部通过**，基线三连（test/build/lint）全绿。
+
+### 1. 验收结果（§6）
+
+| 项 | 结果 | 说明 |
+|---|---|---|
+| §6.1 迁移建表 | ✅ PASS | 临时库 runMigrations 后业务表恰好 11 张 + drizzle 记账表（见下方关卡复核清单）；重复执行幂等 |
+| §6.2 config 校验 | ✅ PASS | 非法值抛错含字段路径（uploadLimitMb/mode 两例）；缺省返回默认值；合法文件返回解析值 |
+| §6.3 异常过滤器 | ✅ PASS | NotFoundException → 404 含三键；未知 Error → 500 固定「内部服务器错误」，堆栈与内部细节不泄露 |
+| §6.4 分层拦截 | ✅ PASS | collections→posts 违规 import 两轮验证（仓库根与 apps/server 两个 cwd）均报 `boundaries/dependencies` error；移除后恢复 0 error |
+| §6.5 事件目录 | ✅ PASS | EVENTS 恰好 6 常量、值与 §3.5 一致；6 个 payload schema 各一正一反用例全过 |
+| §6.6 回归 | ✅ PASS | health 200 `{status:"ok"}`；e2e 启动后 data/mizuki.db 存在且含 11 业务表（迁移自动执行） |
+| §6.7 测试下限 | ✅ PASS | 测试文件 5 个（≥2），用例 17 条（≥12） |
+
+自检三连：`pnpm test` 17/17、`pnpm build` 0 error、`pnpm lint` 0 error / 0 warning。
+
+### 2. 文件清单
+
+- 转正 stub（5）：`config/app-config.ts`、`infra/db/schema.ts`、`infra/db/migrate.ts`、`common/filters/all-exceptions.filter.ts`、`drizzle.config.ts`
+- 新建（3 + 迁移产物 + 测试 4）：`common/logger.ts`、`infra/db/db.module.ts`、`packages/shared/src/events.ts`、`apps/server/drizzle/`（0000 迁移 + meta）、`test/{config,infra,common,shared}/*.spec.ts`
+- 修改（4 + 清单）：`app.setup.ts`（挂全局过滤器）、`app.module.ts`（EventEmitterModule + DbModule）、`packages/shared/src/index.ts`（导出 events）、`eslint.config.mjs`（boundaries 分层）、根/server/shared `package.json` + `pnpm-lock.yaml`
+
+### 3. 【关卡复核清单】P0b（数据库定型，供人工补把关）
+
+sqlite_master 断言的 11 个表名，逐一对着 INDEX/MASTER-PLAN §3 核对：
+
+| # | 表名 | 用途 | 核对 |
+|---|---|---|---|
+| 1 | admin_user | 管理员（argon2id 哈希、失败计数、锁定） | ✅ 一致 |
+| 2 | article | 统一文章索引（核心表，2 索引：status+pub_date、source_type） | ✅ 一致 |
+| 3 | article_content | 富文本正文（FK→article ON DELETE CASCADE） | ✅ 一致 |
+| 4 | category | 分类（name/slug UNIQUE） | ✅ 一致 |
+| 5 | tag | 标签（name/slug UNIQUE） | ✅ 一致 |
+| 6 | article_tag | 文章-标签复合主键 | ✅ 一致 |
+| 7 | comment | 评论（建表二期启用，status 默认 pending） | ✅ 一致 |
+| 8 | operation_log | 审计（detail 脱敏 JSON 文本） | ✅ 一致 |
+| 9 | backup_record | 备份记录（scope 四值） | ✅ 一致 |
+| 10 | media_file | 媒体索引（path UNIQUE、sha256） | ✅ 一致 |
+| 11 | site_setting | 运行态 key-value（启动配置在 config.json，不在此表） | ✅ 一致 |
+
+另：`__drizzle_migrations` 为 drizzle migrator 记账表（非业务表，决策见 ADR-002）。
+六类集合（diary/friends/projects/timeline/skills/devices）未建任何表（文件即数据库 ✅）。
+
+boundaries 拦截测试两轮输出摘要：
+1. 注入 `import { PostsService } from "../posts/posts.service"` 到 collections.service.ts → `pnpm lint` 报 `boundaries/dependencies: There is no policy allowing dependencies from elements of type "l2" to elements of type "l2"`（另有 no-unused-vars 1 条，同为 error）；
+2. 删除该行恢复原文件 → `pnpm lint` 回到 0 error / 0 warning。两轮均验证于仓库根与 apps/server 两个运行目录。
+
+### 4. 偏差清单
+
+| # | 偏差 | 原因与处置 |
+|---|---|---|
+| 1 | 新增 `@types/better-sqlite3`（devDep，P0a 清单外） | strict TS 下 import better-sqlite3 必需类型声明；与既有 @types/* 同模式。已记 ADR-001 |
+| 2 | 新增 `eslint-import-resolver-typescript`（根 devDep，§4.3 清单外） | boundaries 无法解析 TS 无扩展名 import，§6.4 验收不装它无法成立（官方 TS 支持方案）。已记 ADR-001 |
+| 3 | sqlite_master 实际为 11 业务表 + `__drizzle_migrations` | migrator 记账表固有行为，保守解释已记 ADR-002 |
+| 4 | shared package.json 声明 zod 依赖 | events.ts 需要；ADR-001 原备注即写明「zod 经 @mizuki/shared 复用」，属落实而非扩张 |
+| 5 | 引入环境变量 `MIZUKI_LOG_LEVEL`（§3.7 要求）与 `MIZUKI_DB_PATH`（测试注入钩子） | 前者为规格要求；后者用于后续阶段测试隔离 DB，已注释说明 |
+| 6 | boundaries v7 语法 | 规格写作时基于 v4/v5 语法（element-types + rules 数组）；v7.2.0 已迁移至 `boundaries/dependencies` + policies，语义等价实现同四层规则 |
+
+### 5. 踩的坑（对后续阶段的提醒）
+
+1. **pnpm 版本错位**：本机全局 pnpm 10.23，但仓库 node_modules 由 pnpm 11 装在自定义 store `C:\Users\暮雨烟然\.mizuki-pnpm-store3`。直接 `pnpm add` 会报 UNEXPECTED_STORE。**后续会话装依赖统一用：`pnpm dlx pnpm@11.24.0 --config.store-dir="C:/Users/暮雨烟然/.mizuki-pnpm-store3" ...`**。pnpm@11 对原生模块构建脚本默认忽略（approve-builds 提示），但既有构建产物完好，验证 better-sqlite3/argon2/sharp 均 require 成功；另 pnpm@11 会向 pnpm-workspace.yaml 自动追加 allowBuilds 占位块，本次已填为 true（原生依赖必须允许构建），后续会话留意勿提交占位值。
+2. **__dirname 层级**：`src/infra/db` → `apps/server` 是**3 级**向上（infra/db→infra→src→server），不是 2 级；`src/config` → server 才是 2 级。已修复并写进注释。
+3. **lint 挂起问题依旧**：必须清洁环境（`unset BASH_ENV && export NODE_OPTIONS=""`）后运行，与 P0a 相同。
+4. **events 测试引用方式**：apps/server 的 vitest 未配 alias，测试用相对路径 `../../../../packages/shared/src/events` 直引源码（test/shared/events.spec.ts），避免依赖 shared/dist 新鲜度——后续阶段若需在测试里用 @mizuki/shared，沿用此法或届时配 alias（配 alias 属 vitest.config 微调，P0a 偏差 2 先例允许）。
+5. P0a 遗留调试文件 3 个（.lint.full、.lintbg.log、.linttest.js）本次已成功移入回收站（上次会话无权限删除，本次 PowerShell 回收站调用成功）；其余均在 .gitignore 覆盖内，未进入任何 commit。
+
+### 6. commit 记录
+
+- `chore(P0b): 依赖与 lint 分层基建`（新增依赖 + boundaries 配置 + events 骨架 + logger）
+- `feat(P0b): config zod 加载、Drizzle 11 表迁移与统一异常过滤器`（实现 + 接线 + 测试）
+- `docs(P0b): ADR-001/002、CHANGELOG 与 SESSIONS 记录`

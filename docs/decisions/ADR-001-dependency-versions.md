@@ -43,6 +43,8 @@ P0a 阶段需锁定 Mizuki-Server 技术栈依赖。规格要求：Node ≥ 22 L
 | helmet | 8.3.0 | latest |
 | @mizuki/shared | 0.0.0 (workspace:*) | workspace:* |
 
+> P0b 追加（2026-08-26）：`@nestjs/event-emitter` 3.1.0（latest）、`pino` 10.3.1（latest）。
+
 ### apps/server — devDependencies
 
 | 包 | 解析版本 | 约束写法 |
@@ -60,6 +62,8 @@ P0a 阶段需锁定 Mizuki-Server 技术栈依赖。规格要求：Node ≥ 22 L
 | @types/express | 5.0.6 | latest |
 | @types/cross-spawn | 6.0.6 | latest |
 
+> P0b 追加（2026-08-26）：`@types/better-sqlite3` 9.6.0（latest）。P0a 清单未含它，因 P0a 无代码 import better-sqlite3；P0b 起 infra/db 在 strict TS 下 import 该包，类型声明为必需（与既有 @types/express、@types/cross-spawn 同一模式）。
+
 ### 根 / packages/shared
 
 | 包 | 解析版本 | 说明 |
@@ -67,6 +71,11 @@ P0a 阶段需锁定 Mizuki-Server 技术栈依赖。规格要求：Node ≥ 22 L
 | typescript | 5.9.3 | 经 workspace 根 tsconfig.base.json 共享 |
 | zod | 4.4.3 | 经 @mizuki/shared 复用 |
 | @mizuki/shared | 0.0.0 | workspace:*（仅含 build 脚本，无独立运行时依赖） |
+
+> P0b 追加（2026-08-26）：
+>
+> - 根 devDependencies：`eslint-plugin-boundaries` 7.2.0（latest，P0b §3.6 指定）、`eslint-import-resolver-typescript` 4.4.5（latest）。后者为 boundaries 正常工作所必需：TS 无扩展名 import 必须经它解析到文件路径，否则 §6.4「跨模块 import 被 lint 拒绝」验收无法成立（boundaries 官方 TypeScript 支持指南即此方案）。
+> - packages/shared dependencies：`zod` ^4.4.3（events.ts 的 payload schema 需要；与 P0a 备注一致，属既定复用而非新增包）。
 
 > 注：`@nestjs/config`、`@nestjs/jwt`、`@nestjs/swagger`、`class-validator`、`class-transformer` 在 P0a 未引入（属 P6 安全 / 后续阶段依赖），符合「骨架不接线」原则。
 
