@@ -1,0 +1,50 @@
+{
+  "name": "@mizuki/server",
+  "version": "0.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "nest start --watch",
+    "build": "nest build",
+    "test": "vitest run",
+    "lint": "eslint .",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "drizzle-kit migrate"
+  },
+  "dependencies": {
+    "@mizuki/shared": "workspace:*",
+    "@nestjs/common": "^11.0.0",
+    "@nestjs/core": "^11.0.0",
+    "@nestjs/platform-express": "^11.0.0",
+    "@nestjs/throttler": "latest",
+    "reflect-metadata": "^0.2.0",
+    "rxjs": "^7.8.0",
+    "drizzle-orm": "latest",
+    "better-sqlite3": "latest",
+    "ts-morph": "latest",
+    "zod": "latest",
+    "nanoid": "latest",
+    "jose": "latest",
+    "argon2": "latest",
+    "cross-spawn": "latest",
+    "tree-kill": "latest",
+    "sharp": "latest",
+    "gray-matter": "latest",
+    "marked": "latest",
+    "sanitize-html": "latest",
+    "helmet": "latest"
+  },
+  "devDependencies": {
+    "@nestjs/cli": "^11.0.0",
+    "@nestjs/testing": "^11.0.0",
+    "typescript": "^5.5.0",
+    "vitest": "latest",
+    "supertest": "latest",
+    "@types/supertest": "latest",
+    "unplugin-swc": "latest",
+    "@swc/core": "latest",
+    "drizzle-kit": "latest",
+    "@types/node": "latest",
+    "@types/express": "latest",
+    "@types/cross-spawn": "latest"
+  }
+}

@@ -1,0 +1,17 @@
+node_modules/
+dist/
+coverage/
+.env
+*.log
+.DS_Store
+apps/server/data/*
+!apps/server/data/README.md
+!apps/server/data/backups/
+!apps/server/data/backups/.gitkeep
+.workbuddy
+
+# Build / test / tool artifacts
+*.out
+.pnpm-store-del-test-*
+.sdbulk/
+.store-wtest
