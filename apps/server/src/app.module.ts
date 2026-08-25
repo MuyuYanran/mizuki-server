@@ -1,5 +1,7 @@
 import { Module } from '@nestjs/common';
+import { APP_GUARD } from '@nestjs/core';
 import { EventEmitterModule } from '@nestjs/event-emitter';
+import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { DbModule } from './infra/db/db.module';
 import { SystemModule } from './modules/system/system.module';
 import { AuthModule } from './modules/auth/auth.module';
@@ -20,6 +22,8 @@ import { SettingsModule } from './modules/settings/settings.module';
  */
 @Module({
   imports: [
+    // [P1] 全局限流：60 次/分钟/IP（登录 5 次/分独立限流在 P6 auth 挂载时启用）
+    ThrottlerModule.forRoot([{ ttl: 60_000, limit: 60 }]),
     // [P0b] 事件总线（跨模块异步交互唯一通道，事件目录见 @mizuki/shared EVENTS）
     EventEmitterModule.forRoot(),
     // [P0b] 数据库 @Global 模块（better-sqlite3 + drizzle，启动自动迁移）
@@ -46,6 +50,10 @@ import { SettingsModule } from './modules/settings/settings.module';
     BackupModule,
     // [P8] 站点设置与 Mizuki config 接管
     SettingsModule,
+  ],
+  providers: [
+    // [P1] 全局 ThrottlerGuard（配合上方 ThrottlerModule 的 60 次/分/IP 配置）
+    { provide: APP_GUARD, useClass: ThrottlerGuard },
   ],
 })
 export class AppModule {}
