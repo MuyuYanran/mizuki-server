@@ -226,3 +226,51 @@ boundaries 拦截测试两轮输出摘要：
 - `chore(P0b): 依赖与 lint 分层基建`（新增依赖 + boundaries 配置 + events 骨架 + logger）
 - `feat(P0b): config zod 加载、Drizzle 11 表迁移与统一异常过滤器`（实现 + 接线 + 测试）
 - `docs(P0b): ADR-001/002、CHANGELOG 与 SESSIONS 记录`
+
+---
+
+## P1 交付报告 — 安全基建：路径监狱、zod 管道与全局防护
+
+- 日期：2026-08-26
+- 阶段：P1（C-Plus 连续执行模式，人工已授权自动 commit）
+- 结论：**P1 功能完成，七项验收全部通过。** `pnpm test` 44/44、`pnpm build` 0 error、`pnpm lint` 0 error / 0 warning。
+
+### 1. 验收结果（§6）
+
+| 项 | 结果 | 说明 |
+|---|---|---|
+| §6.1 攻击用例 | ✅ PASS | 9 条攻击（`../`、绝对路径、多层穿越、`..\`、`%2e%2e%2f`、`..%5C`、混合编码、空字节×2）全部抛 `ForbiddenPathError`；正常 4 条返回正确绝对路径 |
+| §6.2 realpath 防护 | ✅ PASS | root 内 junction/symlink 指向外部目录，`safeRealJoin(root,'link/x')` 拒绝（目标已存在同样拒绝）；root 内部互指 symlink 与无 symlink 合法路径放行 |
+| §6.3 zod pipe | ✅ PASS | e2e：合法 body 201 回显；非法 body 400 且 `{code:'BadRequestException',message,detail.issues[{path,message}]}`，字段路径可定位 |
+| §6.4 helmet/CORS | ✅ PASS | 响应含 `x-content-type-options: nosniff` 与 CSP；`Origin: http://localhost:20154` 命中 ACAO；非白名单 origin 与预检均无 ACAO 头 |
+| §6.5 全局限流 | ✅ PASS | 同 IP 连续 61 次，前 60 次 200、第 61 次 429（`code:'ThrottlerException'`），AppModule 真实 60 次/分配置 |
+| §6.6 回归 | ✅ PASS | P0a/P0b 既有 17 用例全绿（health 200、11 表迁移、异常过滤器、config、events） |
+| §6.7 测试下限 | ✅ PASS | 本阶段测试文件 2 个（≥2），用例 27 条（≥12） |
+
+### 2. 文件清单
+
+- 转正 stub（2）：`common/security/safe-join.ts`、`common/pipes/zod-validation.pipe.ts`
+- 修改（2）：`app.setup.ts`（helmet / CORS 白名单 / 全局 zod 管道挂载点）、`app.module.ts`（ThrottlerModule + APP_GUARD ThrottlerGuard）
+- 新建测试（2）：`test/common/safe-join.spec.ts`（19 用例）、`test/p1-security.e2e-spec.ts`（8 用例，含仅存于 test/ 侧的演示控制器 TestZodController）
+- 无新增依赖、无 ADR 变更
+
+### 3. 偏差清单
+
+| # | 偏差 | 原因与处置 |
+|---|---|---|
+| 1 | 「白名单可由配置扩展（读 P0b 的 AppConfig）」按保守解释实现 | P0b 定型的 `AppConfigSchema` 无 `corsOrigins` 字段亦无 port 字段，且 P1 §2 不允许修改 `app-config.ts`。实现为：默认仅 `http://localhost:${MIZUKI_SERVER_PORT ?? 20154}`（端口逻辑与 main.ts 一致）；白名单构建函数读取 AppConfig 的 `corsOrigins` 可选字段，若未来 schema 扩展该字段将自动并入（当前无此字段，读取结果恒为空）。属指令歧义的「更保守、更少代码」解释（P1 §8 授权），未改 config schema |
+| 2 | realpath 校验采用「最深层已存在祖先 realpath」策略 | P1 §3.1 给出的两种实现（逐级 realpath / 自下而上找第一个存在祖先后 realpath）中取后者语义；realpath 解析整条祖先链的符号链接，等价覆盖前者的检查目标，非取舍性变更，未记 ADR |
+| 3 | safeJoin 附加「反斜杠翻转到正斜杠再校验」防御 | POSIX 下 `..\` 是合法文件名字符，但客户端可能提交 Windows 风格路径；复查仅扩大拒绝面，不改变合法路径返回值。服务于验收 §6.1 的 `..\` 用例跨平台成立 |
+
+### 4. 踩的坑（对后续阶段的提醒）
+
+1. **Windows 下测试目录 symlink 用 junction**：`fs.symlinkSync(dir)` 的 `'dir'` 类型在无管理员/开发者模式的 Windows 上抛 `EPERM`；目录链接统一用 `'junction'`（无需特权，realpathSync 正常解析）。safe-join.spec 已按平台分支处理。
+2. **ThrottlerGuard 计数按「路由 + IP」隔离**：同一 app 实例内不同路由互不累计；e2e 中限流用例须用独立 app 实例（新 TestingModule → 新内存 storage），避免与其他用例的请求计数串扰。
+3. **@nestjs/throttler v6 的 ttl 单位是毫秒**（`ThrottlerModule.forRoot([{ ttl: 60_000, limit: 60 }])`），不是 v3 时代的秒。
+4. **PipeTransform 实现可省略第二参数**：`transform(value: unknown)` 即满足接口（TS 逆变允许），避免未使用参数触发 no-unused-vars。
+5. 后续阶段所有文件读写必须经 `safeJoin`/`safeRealJoin`（守则 4）；涉及「已存在目录下的新文件」用 `safeRealJoin`，纯字符串定位用 `safeJoin`。
+
+### 5. commit 记录
+
+- `feat(P1): safeJoin 路径监狱、zod 校验管道与 helmet/CORS/全局限流`（ed4d79d）
+- `docs(P1): CHANGELOG 与 SESSIONS 记录`（本提交）
