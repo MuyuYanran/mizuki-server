@@ -4,6 +4,7 @@ import { EventEmitterModule } from '@nestjs/event-emitter';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
 import { OperationLogInterceptor } from './common/interceptors/operation-log.interceptor';
+import { MediaReferenceRegistryModule } from './common/registry/media-reference.registry';
 import { DbModule } from './infra/db/db.module';
 import { InfraBackupModule } from './infra/backup/backup.module';
 import { SystemModule } from './modules/system/system.module';
@@ -33,6 +34,8 @@ import { SettingsModule } from './modules/settings/settings.module';
     DbModule,
     // [P2] 备份基建 @Global 模块（唯一备份实现，业务模块直接注入）
     InfraBackupModule,
+    // [P7] 媒体引用注册表 @Global 模块（同步反查通道，注册方自注册）
+    MediaReferenceRegistryModule,
     // [P0a] 健康检查与 Mizuki 探测
     SystemModule,
     // [P6] 认证（登录 / JWT 双 Token / me）
