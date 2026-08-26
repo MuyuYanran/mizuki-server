@@ -611,3 +611,59 @@ boundaries 拦截测试两轮输出摘要：
 - `feat(P6): argon2id + jose 双 Token 认证、全局守卫与一次性初始化`（0e48bb2）
 - `test(P6): 认证/初始化验收 24 用例与既有 e2e 守卫适配`（6554149）
 - `docs(P6): ADR-005、CHANGELOG 与 SESSIONS 关卡交付报告`（本提交）
+
+---
+
+## P7 交付报告 — 媒体上传管线、相册与引用检查注册表
+
+- 日期：2026-08-26
+- 阶段：P7（C-Plus 连续执行模式）
+- 结论：**P7 功能完成，十项验收全部通过。** `pnpm test` 187/187、`pnpm build` 0 error、`pnpm lint` 0 error / 0 warning。
+
+### 1. 验收结果（§6）
+
+| 项 | 结果 | 说明 |
+|---|---|---|
+| §6.1 伪造扩展名被拒 | ✅ PASS | 文本改名 `.png` → 400（魔数不符）；jpg/png/webp 合法上传 201 且落 `media_file`（path/宽/高/sha256 断言 + 物理文件存在） |
+| §6.2 10MB 上限 | ✅ PASS | 10MB+1KB（带 JPEG 魔数，先过嗅探）→ 413 |
+| §6.3 重编码去元数据 | ✅ PASS | `withMetadata({exif})` 构造含 EXIF 源（源 `metadata().exif` 有值）→ 上传产物 `exif` undefined |
+| §6.4 被引用删除被拒 | ✅ PASS | 文章 frontmatter.image 指向媒体 → DELETE 409 且 `detail.references` 含 `{refType:'post-cover', targetLabel:'<slug>'}`，文件仍在；删文章后同媒体删除成功（文件与表行均消失） |
+| §6.5 四模块注册 | ✅ PASS | `registry.names()` 含 posts/collections/albums 且唯一；测试贡献者验证第 4 插槽（articles 留 P8），collectAll 聚合到其引用 |
+| §6.6 相册 CRUD 往返 | ✅ PASS | 创建（7 字段全量）→ 列表 → PATCH（改 2 留 5）→ 重读一致；PNG 上传 → 产物 `sunset.jpg` 且 `format==='jpeg'`；删单张 → 目录与列表更新 |
+| §6.7 路径防护 | ✅ PASS | 相册名 `../evil` 创建 400；`..%2F` 参数 400/404；图片名 `..%2F..%2Fx.jpg` 400 且零落盘 |
+| §6.8 事件断言 | ✅ PASS | `media.changed` save ≥4（含 uploads 路径）/ delete ≥2（含相册图片路径），均过 `MediaChangedPayload.parse`；`content.changed` scope='album' ≥2（create+patch），filePaths 为 `public/images/albums/<名>/info.json` |
+| §6.9 回归 | ✅ PASS | 全仓 187/187（P0a–P6 全绿） |
+| §6.10 测试下限 | ✅ PASS | 测试文件 2 个（≥2），用例 20 条（≥16） |
+
+### 2. 文件清单
+
+- 转正 stub（6）：`modules/media/{media.module, media.controller, media.service}.ts`、`modules/albums/{albums.module, albums.controller, albums.service}.ts`
+- 新建（3 + 检查器 2 + 测试 2）：`packages/shared/src/media-reference.ts`、`common/registry/media-reference.registry.ts`（含 @Global 模块）、`common/security/magic-sniff.ts`；`modules/posts/media-reference.ts`、`modules/collections/media-reference.ts`；`test/common/security/magic-sniff.spec.ts`、`test/p7-media-albums.e2e-spec.ts`
+- 修改（3）：`posts.module.ts`、`collections.module.ts`（onModuleInit 注册贡献者）、`app.module.ts`（注册 MediaReferenceRegistryModule）、`packages/shared/src/index.ts`（导出 media-reference）
+- 新增 ADR-006（不引入 file-type 的裁决记录）；零新增依赖
+
+### 3. 偏差清单
+
+| # | 偏差 | 原因与处置 |
+|---|---|---|
+| 1 | **相册封面引用口径**：albums 贡献者 `collectReferences()` 返回空数组 | REQUIREMENTS §6.9 的 info.json 字段表**无 cover 字段**，「以相册图片目录互查为准」若解释为「相册图片全部视为被引用」，则相册图片永远无法删除（与 §6.6 验收「删除单张图片成功」矛盾）。取保守解释：当前无内容引用相册图片 → 空集；机制占位（info.json 若扩展 cover 字段，在贡献者内聚合即可，消费方零改动） |
+| 2 | 相册图片不进 `media_file` 索引 | MASTER-PLAN §5 Media 路由仅管 `public/images/uploads/`；相册目录由 albums 自管（§6.9 目录约定）。相册图片经 `media.changed` 事件可被统计订阅（P10d） |
+| 3 | 相册图片同名冲突处理 | 保持 `<原名>.jpg` 语义优先，冲突时 `<原名>-<nanoid(6)>.jpg` 并记 pino（§3.3 要求「记报告」即此） |
+| 4 | `UploadedFileLike` 在 media/albums 各自局部声明（与 posts 同构 4 行接口重复） | 复用 posts 的定义会构成 L2→L2 import（boundaries error 实测拦截）；提升至 common 需新建清单外文件。取「重复 4 行 > 违规/越清单」，三处接口结构一致，若 P11 收尾愿收敛可提 common 类型 |
+| 5 | 相册删除的引用检查按**路径前缀**匹配（`public/images/albums/<名>/`） | 相册内容含多文件（图片 + info），逐条等值匹配等价但前缀更稳健；当前贡献者集合为空，该分支为机制预留 |
+
+### 4. 踩的坑（对后续阶段的提醒）
+
+1. **`import type` 会擦除运行时 DI token**：`import type { BACKUP_OPTIONS }` 导致 `@Inject(BACKUP_OPTIONS)` 运行期 ReferenceError（全 e2e 雪崩）。凡注入用的 Symbol/类，必须走**值导入**（`import { BACKUP_OPTIONS }` 或内联 `type` 修饰符分开写）。
+2. **sharp 类型**：`export = sharp` 风格下 `sharp.Sharp` 命名空间类型在 esModuleInterop 默认导入中不可用——用 `ReturnType<typeof sharp>` 或显式 `import sharp = require('sharp')`。
+3. **withMetadata({exif:{IFD0:{...}}})** 可构造含 EXIF 测试图（sharp ≥0.33）；重编码默认剥离全部元数据（不带 withMetadata 即可）。
+4. **注册时机**：贡献者在模块 `onModuleInit` 注册——早于任何请求、晚于 DI 装配；测试中 `app.get(MediaReferenceRegistry)` 拿到的是同一实例，可直接补注册测试贡献者。
+5. **409 明细走统一过滤器**：`ConflictException({ message, detail })` 的 detail 会被 AllExceptionsFilter 原样透出（P0b 既有能力），引用明细无需另造响应格式。
+6. **P8 articles 注册检查器**：与 posts 同构——读 `article.cover`（source_type='richtext' 行）即可；注册方式照抄 posts.module 的 onModuleInit 模式。
+7. multer 无大小限制配置（服务层按 `uploadLimitMb` 拦截 → 413）；若未来公开上传入口，应在装饰器层加 `limits`。
+
+### 5. commit 记录
+
+- `feat(P7): 媒体上传五件套、相册管理与 MediaReferenceContributor 注册表`（fc98b57）
+- `test(P7): 媒体/相册验收 20 用例（魔数单测 6 + e2e 14）`（a344e3f）
+- `docs(P7): ADR-006、CHANGELOG 与 SESSIONS 记录`（本提交）

@@ -1,5 +1,16 @@
 # 变更日志
 
+## P7 — 媒体上传管线、相册与引用检查注册表
+
+- `media/{media.module, media.controller, media.service}.ts`：三 stub 转正——上传五件套顺序执行：① 扩展名白名单（`jpg/jpeg/png/webp/gif`）→ ② 魔数嗅探与扩展名比对（不符即拒）→ ③ 配置上限（默认 10MB，413）→ ④ 随机文件名 `<nanoid>.<ext>` 写 `public/images/uploads/`（safeJoin + 自动建目录）→ ⑤ sharp 按原格式重编码（`.rotate()` 应用 EXIF 方向后剥离全部元数据）并读宽高的确；`media_file` 索引入库（path/original_name/mime/size/width/height/sha256）；列表倒序；`DELETE /admin/media/:id`：注册表 `collectAll()` 聚合引用 → 命中 → **409 + `detail.references[{refType,targetLabel}]`**；无引用 → `preWriteBackup` → 删文件与行；成功出口发射 `media.changed`
+- `albums/{albums.module, albums.controller, albums.service}.ts`：三 stub 转正——目录 `public/images/albums/<名>/` + `info.json`（REQUIREMENTS §6.9 字段逐字，zod 校验）；创建（重名 409）/ 修改（增量合并整体校验 + pre_write 备份）/ 删除（引用前缀检查 → 逐文件备份 → 删目录）；图片上传复用五件套校验 + **非 JPG 自动转 JPG**（文件名保持 `<原名>.jpg` 语义，同名冲突追加 `-${nanoid(6)}` 并记日志）；图片删除（引用检查后备份删除）；相册元数据写入发射 `content.changed`（scope='album'），图片保存/删除发射 `media.changed`
+- `packages/shared/src/media-reference.ts`（新建）：`MediaReference` / `MediaReferenceContributor` 纯类型（P7 §3.4 签名逐字，字段名不可改）；`index.ts` 追加导出
+- `common/registry/media-reference.registry.ts`（新建）：注册表宿主 + `@Global MediaReferenceRegistryModule`——`register`（重名拒绝告警）/ `names()` / `collectAll()`（单贡献者失败记日志不冒泡）；`app.module.ts` 注册
+- 注册方检查器（新建）：`posts/media-reference.ts`（frontmatter `image` → `post-cover`；无前缀 `/` 的值按相对文章目录归一）、`collections/media-reference.ts`（diary `images[]`/projects `image`/devices grouped `image`，按注册表 `imageDir` 归一，DataFileService 只读）；`posts.module.ts` / `collections.module.ts` 以 `onModuleInit` 注册；`AlbumsService` 自身实现贡献者（info 无封面字段 → 空集占位，取舍记报告）。**articles 注册留 P8**
+- `common/security/magic-sniff.ts`（新建）：最小魔数嗅探器纯函数（JPEG `FF D8 FF` / PNG `89 50 4E 47` / WebP `RIFF…WEBP` / GIF `GIF87a|GIF89a`）+ 扩展名映射表——**人工定案不引入 `file-type`**（v16 停维、v17+ ESM-only 与 CJS 不兼容），已记 **ADR-006**
+- 分层决策：上传文件结构接口 `UploadedFileLike` 在 media/albums 各自局部声明（与 posts 同构），避免 L2 互 import（boundaries error 拦截过一次，见交付报告）
+- 测试新增 2 文件 20 用例：magic-sniff 单测 6（四格式 + 非图片 + 映射表）+ e2e 14（伪造拒绝、合法入库、413、EXIF 剥离、引用 409 + 明细、无引用删除、四模块注册 + 第 4 插槽、相册 CRUD + 转 JPG、路径防护、事件、边界）。全仓 187/187 绿
+
 ## P6 — 认证与初始化（关卡：安全边界定型）
 
 - `auth/{auth.module, auth.controller, auth.service}.ts`：三 stub 转正——登录（argon2id 校验、用户不存在时哑元哈希恒定时间行为、失败计数 5 次 → `locked_until` 锁 15 分钟并清零计数、锁定期正确密码也拒 423）、jose HS256 双 Token（access 15m / refresh 7d；claims：sub/username/type/jti/iat/exp；`setExpirationTime` 相对时间串——jose v6 无 setExpirationIn）、`POST /admin/auth/refresh` 轮换签发新对（校验 type='refresh' + 用户仍存在）、无状态 `logout`、`GET /admin/auth/me`；JWT secret 三级解析（env `MIZUKI_JWT_SECRET` → config.jwtSecret → 兜底生成持久化，见 **ADR-005**）；`initialize`：已初始化 409 先行 → detector 四项检测（失败 400 附 checks 明细）→ argon2id 建管理员 → config.json 合并原子写（mizukiRoot/mode/jwtSecret）→ 刷新配置单例。登录路由级 `@Throttle` 5 次/分（独立于 P1 全局 60 次/分）
