@@ -467,3 +467,59 @@ boundaries 拦截测试两轮输出摘要：
 
 - `feat(P4): 注册表驱动六类集合 CRUD 与 content.changed 事件`（4df92d8）
 - `docs(P4): CHANGELOG 与 SESSIONS 记录`（本提交）
+
+---
+
+## P5 交付报告 — Markdown 文章读写与索引同步
+
+- 日期：2026-08-26
+- 阶段：P5（C-Plus 连续执行模式）
+- 结论：**P5 功能完成，九项验收全部通过。** `pnpm test` 143/143、`pnpm build` 0 error、`pnpm lint` 0 error / 0 warning。
+
+### 1. 验收结果（§6）
+
+| 项 | 结果 | 说明 |
+|---|---|---|
+| §6.1 CRUD e2e | ✅ PASS | 创建→读回→修改（frontmatter+正文）→读回→删除→目录不存在；`../` 穿越在 POST body、GET param（`..%2F`）、DELETE param 三路径均被拒（400/403）且零落盘 |
+| §6.2 删除可恢复 | ✅ PASS | 删除响应返回 backupIds；经 REST `POST /admin/backups/:id/restore {confirm:true}` 恢复后，文章目录、frontmatter 与正文完整回来 |
+| §6.3 frontmatter 往返 | ✅ PASS | 12 已知字段 + 1 自定义字段写入后重读：字段集合一致（自定义保留）、boolean/数组类型不变；另有 frontmatter 单测覆盖键序与 YAML 日期语义 |
+| §6.4 封面上传 | ✅ PASS | PNG 上传 → `cover.jpg` 生成且 `sharp metadata().format === 'jpeg'`、frontmatter `image='cover.jpg'`；文本改名 `.png` 伪造件被拒（400） |
+| §6.5 sync 幂等 | ✅ PASS | 3 篇（fixture + API 创建 + 直接写盘）入库，`file_hash` 与文件实际 sha256 逐一相等；第二次执行 inserted/updated/softDeleted 全 0 且表内容逐行一致（含 updated_at） |
+| §6.6 事件断言 | ✅ PASS | 创建/修改收 `post.changed`（deleted:false）+ `content.changed`（scope='post'）；草稿转正收 `article.published`（sourceType='markdown'、行 id 非空）；删除收 `post.changed` deleted:true（frontmatter/哈希为删除前值）；`PUT /admin/about` 收 `content.changed` scope='about' |
+| §6.7 about 往返与备份 | ✅ PASS | 首次 GET 404 → PUT v1 → 读回一致 → PUT v2 → pre_write 快照（manifest 含 about.md 原路径）→ 经备份恢复回到 v1 |
+| §6.8 回归 | ✅ PASS | P0a–P4 全部用例绿（全仓 143/143） |
+| §6.9 测试下限 | ✅ PASS | 测试文件 2 个（≥2），用例 23 条（≥16） |
+
+### 2. 文件清单
+
+- 转正 stub（3）：`modules/posts/{posts.module, posts.controller, posts.service}.ts`
+- 新建（1）：`common/markdown/frontmatter.ts`（gray-matter 包装，L0 纯工具提升）
+- 测试新建（2）：`test/common/markdown/frontmatter.spec.ts`（6 用例）、`test/p5-posts.e2e-spec.ts`（17 用例）
+- 无修改其他文件（app.module.ts 的 PostsModule 注册为 P0a 既有）、无新增依赖、无 ADR 新增（偏差均为解释性，见下）
+
+### 3. 偏差清单
+
+| # | 偏差 | 原因与处置 |
+|---|---|---|
+| 1 | `article.category_id` 列直接存 frontmatter `category` 名称（非 category 表行 id） | drizzle schema 该列未声明 FK 约束；P5 映射规则只有 frontmatter 值可用（「对齐 frontmatter」）。取「更保守、更少代码」解释（§8 授权），不引入 category 表写入。**P8 公开 API/搜索消费该列时须按「分类名」语义处理，或届时补 category 表映射** |
+| 2 | 创建/修改成功出口一律 upsert 索引行（不限 published） | §3.8 仅强制 published 场景「未入库先 upsert」；统一 upsert 使索引始终新鲜且代码单一路径，sync 仍为权威重建。超集行为，不改变验收语义 |
+| 3 | `article.published` 在「创建/修改后状态为 published」时均发射（非仅 draft→published 转变） | 按 §3.8 字面「创建/修改后 status === 'published'」；订阅者幂等纪律下重复发射无害（P8 缓存失效幂等） |
+| 4 | 封面前端引用值固定为 `'cover.jpg'`（相对文章目录） | 规格未定值形态；封面与文章同目录，相对名最简且与 REQUIREMENTS §6.10「同目录封面图片（如 cover.jpg）」一致 |
+| 5 | `published`/`date`/`pubDate` schema 放宽为 `boolean \| string \| Date`（published）与 `string \| Date`（日期） | ⚠ 注「类型以 Mizuki 为准（可能为日期）」+ YAML 无引号日期天然解析为 Date；放宽避免「读回自身数据再保存」被 400（往返保真优先），字段名未动 |
+| 6 | fs.writeFileSync 用于 posts 的 `.tmp-*` 临时文件 | MASTER-PLAN §9 守则 3 禁「裸 fs.writeFile」（意图=无备份直接覆盖）；P5 §3.3 明文规定 posts 写管线为「写同目录临时文件 → fs.rename」，临时文件写入前已完成 pre_write 备份，属统一管线组成部分而非裸写（模式与 P3 data-file.service.ts 完全一致）。两文档按「lex specialis + 意图解释」调和，未静默变更 |
+
+### 4. 踩的坑（对后续阶段的提醒）
+
+1. **gray-matter stringify 追加换行**：对无结尾换行的正文会补 `'\n'`。frontmatter 包装层已做剥离补偿（`stringifyMarkdown`），P8 复用该工具即可获得正文逐字节往返，不要绕过它直接调 `matter.stringify`。
+2. **multer 无独立 @types**：上传文件用 `UploadedFileLike` 最小结构接口类型化（buffer/originalname/size/mimetype），P7 媒体上传可直接复用该模式；`FileInterceptor` 从 `@nestjs/platform-express` 导入（multer 已内置）。
+3. **自定义 `UploadedFile` 类型名与 @nestjs/common 装饰器冲突**（TS2300），已改名 `UploadedFileLike`——后续阶段自定义类型避开框架装饰器名。
+4. **slug 参数校验用参数级管道**：`@Param('slug', new ZodValidationPipe(PostSlugSchema))`；路由级管道会把全部参数过同一个 schema（P2 已记录的坑）。`..%2F` 经 express 解码后由管道拒绝为 400。
+5. **删除 = 逐文件 pre_write + rmSync 目录**：BackupService 无「目录备份」公开方法（P5 不允许改 infra），用逐文件 preWriteBackup 实现；恢复侧按 backupIds 逐个 REST restore（restore 会自动重建父目录）。P7 相册删除若遇同构问题可沿用。
+6. **sync 的「哈希一致但软删态」分支**：文件被恢复后，行需清除 `deleted_at`（即使哈希未变），否则公开列表永远看不到恢复的文章。P8 订阅 `post.changed` 做增量时同样要处理该分支。
+7. **e2e 事件断言用静态数组订阅者**（沿用 P4 模式）：`@OnEvent` 类作为 testing module 的 provider 注册，payload 入口即 `parse`（发射方若发错 payload 会直接使测试红）。
+8. `POST /admin/posts/sync` 默认 201（Nest POST 默认），测试按 201 断言；若 P11 Swagger 分组觉得 200 更语义化，属装饰器微调，勿改路径。
+
+### 5. commit 记录
+
+- `feat(P5): Markdown 文章读写、封面转 JPG 与 article 索引同步`（023dcc7）
+- `docs(P5): CHANGELOG 与 SESSIONS 记录`（本提交）

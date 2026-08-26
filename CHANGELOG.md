@@ -1,5 +1,15 @@
 # 变更日志
 
+## P5 — Markdown 文章（Posts）读写与索引同步
+
+- `common/markdown/frontmatter.ts`（新建）：gray-matter 包装提升至 L0 纯工具层（MASTER-PLAN §4 合法解耦通道，供 posts 与 P8 复用）——`parseMarkdown`/`stringifyMarkdown` 往返保真：未知字段原样保留、键序不变、已知字段类型不漂移；补偿 gray-matter stringify 追加换行行为，正文逐字节精确往返；空 frontmatter 不产生分隔符块
+- `posts/posts.service.ts`：文章目录管理转正——列表（含 frontmatter 摘要与派生 status）/ 读单篇 / 创建（目录已存在 409）/ 修改（frontmatter 增量合并 + 正文可选）/ 删除（目录逐文件 `preWriteBackup` 后删目录，返回 backupIds 可经备份恢复；索引行软删对齐回收站语义）；封面上传（扩展名白名单 `jpg/jpeg/png/webp/gif` + sharp 可解码校验替代魔数嗅探 + 配置上限检查 → `sharp().rotate().jpeg()` 转 JPG 去 EXIF → 原子写 `cover.jpg` → frontmatter `image` 更新）；`syncIndex` 重建 `article` 表 `source_type='markdown'` 索引（磁盘有表无→insert；哈希变化或软删态→update；哈希一致→零写入；表有磁盘无→`deleted_at` 软删；幂等）；about 页读写（`src/content/spec/about.md`，pre_write 备份 + 原子写，覆盖不删除）。全部写入走统一管线：safeJoin 路径监狱（越界 403）→ zod → `preWriteBackup` → 同目录 `.tmp-<nanoid>` + rename 原子写；slug 白名单校验（禁分隔符与 `..`，纵深防御再过 safeJoin）；创建/修改成功出口 upsert 索引行（published 事件需行 id）
+- `posts/posts.controller.ts`：REST 转正——`GET/POST /admin/posts`、`POST /admin/posts/sync`、`GET/PATCH/DELETE /admin/posts/:slug`、`POST /admin/posts/:slug/cover`（multipart `file`，FileInterceptor）、`GET/PUT /admin/about`（归入 posts 控制器）；全部输入参数级 `ZodValidationPipe`；状态推导 `draft===true || published===false → 'draft'`
+- `posts/posts.module.ts`：controllers/providers 填充（DbModule/InfraBackupModule 为 @Global 无需 imports）
+- 事件发射（写入成功出口恰好一次，payload 先过 zod parse）：`post.changed`（创建/修改/删除，删除场景 `deleted:true` 携带删除前 frontmatter 与哈希）、`article.published`（结果状态 published 时，`sourceType:'markdown'`，upsert 后以行 id 发射）、`content.changed`（scope='post' 与 about 写入的 scope='about'，后者落地 events.ts 的 'about' 枚举）
+- 零新增依赖（gray-matter/sharp/nanoid/multer 均在既有清单，multer 经 @nestjs/platform-express 内置引入；上传文件以最小结构接口 `UploadedFileLike` 类型化，不依赖 @types/multer）
+- 测试新增 2 文件 23 用例：frontmatter 单测 6（解析/往返保真 12+1 字段/键序/空 frontmatter/YAML 日期语义）+ e2e 17（CRUD 全循环、`../` 穿越三路径拒绝、frontmatter 往返、封面转 JPEG + 伪造扩展名拒绝、删除经 REST restore 恢复、sync 三篇入库 + sha256 断言 + 幂等零写入、事件四类场景断言、about 往返/备份/恢复、404/409、列表）。全仓 143/143 绿
+
 ## P4 — 注册表驱动六类集合 CRUD
 
 - `packages/shared/src/collections/`：六个 zod schema 转正（`DiaryItemSchema` / `FriendsItemSchema` / `ProjectsItemSchema` / `TimelineItemSchema`（含 `TimelineTypeSchema`）/ `SkillsItemSchema` / `DeviceItemSchema` + `DeviceGroupedSchema`），字段逐字对齐 REQUIREMENTS §6.3–6.8；**放 shared 的动机：P10 管理面板将由这些 schema 驱动生成表单，前后端复用同一份字段规格**；`src/index.ts` 追加导出
