@@ -1,5 +1,20 @@
 # 变更日志
 
+## P10c — 管理面板文章模块：Markdown 编辑、富文本编辑与 about 页
+
+- `src/views/posts/PostListPage.vue`（新建）：Markdown 文章列表——三 tab 视图（全部 / 草稿箱 / 回收站）：草稿箱按 `status==='draft'` 前端筛选（与后端 status 口径一致）；回收站为**前端 localStorage 跟踪**（后端无 list-deleted 端点）——删除时记录 `{slug, backupIds}`，恢复 = 逐备份 `POST /admin/backups/:id/restore {confirm:true}` → `POST /admin/posts/sync` 重建索引（取舍记报告）；操作：新建 / 编辑 / 删除（二次确认）/ 置顶切换（PATCH frontmatter.pinned）
+- `src/views/posts/PostEditPage.vue`（新建）：Markdown 编辑页——CodeMirror 6 正文编辑（语法高亮 + 行号 + 等宽字体）；侧栏 frontmatter 表单（§6.10 全部 12 个已知字段）；**往返保真**：编辑时持有读取的完整 frontmatter，提交 `{...fullFm, ...formFm}` 合并，未知键原样保留并在侧栏展示「额外字段」区块；封面上传（`POST /admin/posts/:slug/cover`，先保存后上传）；「上传 Markdown 文件」入口（读文本填入编辑器）；新建时输入 slug（目录名）→ `POST /admin/posts` → 跳编辑态
+- `src/views/posts/AboutEditPage.vue`（新建）：about 页编辑器——CodeMirror 复用，编辑 `src/content/spec/about.md`；`PUT /admin/about` 保存（后端 pre_write 自动备份），保存后展示「已自动备份」提示；「上传替换」入口读本地 .md 文本后走同一保存链路（§6.11）
+- `src/views/articles/RichArticleListPage.vue`、`RichArticleEditPage.vue`（新建）：富文本列表（新建 / 编辑 / 删除二次确认；软删不可从面板恢复，提示用户）与 TipTap 编辑页——`editor.getJSON()` → `doc_json` → `POST/PATCH /admin/articles`（服务端生成 html_cache）；元数据表单（title / slug / status / pubDate / pinned / summary / cover / categoryId）；**导出 HTML** 用服务端 `html_cache`（编辑态未保存时先触发保存）；**导出 Markdown 降级**为「HTML 包入代码块」（不引入重型转换器，取舍记报告）
+- `src/lib/editors/CodeMirrorEditor.vue`（新建）：CodeMirror 6 封装——v-model 双向绑定（单向数据流：输入时 emit、外部值变化时 dispatch 重建，`applyingExternal` 标记防回环）；`@codemirror/{state,view,commands,language}` 子包直接导入（元包不导出基础构件，见 ADR-001 修订）
+- `src/lib/editors/TipTapEditor.vue`（新建）：TipTap 3 封装——工具栏（H1-3 / 粗斜删除 / 有序无序列表 / 引用 / 代码块 / 链接 / 图片 / 表格 / 撤销重做）；图片与链接经 URL 提示框插入（媒体库打通留 P10d）；v-model（JSON）；**前端不执行后端返回的 HTML**（v-html 零使用，预览仅 TipTap 自身渲染）
+- `src/api/posts.ts`（新建）：posts 端点客户端（list / read / create / update / remove / uploadCover / sync / readAbout / writeAbout）+ `recycleStore`（localStorage 回收站）+ `restorePost` 恢复链
+- `src/api/articles.ts`（新建）：articles 端点客户端（list / read / create / update / remove）+ `extractArticleIssues`（后端 400 `detail.issues` → 字段错误映射）
+- `src/api/http.ts`：追加 FormData 支持（multipart 上传封面不设 Content-Type，让浏览器带 boundary）
+- 路由与菜单：`/posts`、`/posts/new`、`/posts/:slug/edit`、`/about`、`/articles`、`/articles/new`、`/articles/:id/edit` 七条路由接入主布局；菜单「文章」拆分为「Markdown 文章」「富文本文章」两项并新增「关于页」菜单项（§4.2 授权接线）
+- 依赖（已记 ADR-001 P10c 修订）：`@codemirror/state` 6.7.1 / `@codemirror/view` 6.43.9 / `@codemirror/commands` 6.11.0 / `@codemirror/language` 6.12.4 / `@codemirror/lang-markdown` 6.5.2；`@tiptap/vue-3`、`@tiptap/starter-kit`、`@tiptap/extension-{link,image,table,table-row,table-header,table-cell}` 均 3.30.3；**移除 `codemirror` 元包**（仅导出 basicSetup/minimalSetup，代码零引用）；`vite.config.ts` optimizeDeps 同步更新
+- 验收：根三连全绿（test 223/223、`pnpm -r build` 三项目、lint 0/0）；`pnpm --filter @mizuki/web build`（vue-tsc strict + vite build）通过；手动交互项（Markdown 往返 / 草稿箱 / 回收站恢复 / 置顶封面 / 富文本往返 / 导出）列人工补验清单（SESSIONS）
+
 ## P10b — 六类集合管理页（zod schema 驱动表单）
 
 - `src/lib/schema-form/`（新建，核心）：`mapper.ts` 自写 zod→表单描述符映射器（ADR-007）——遍历 `ZodObject.shape`，按 `constructor.name` 分派到 string/boolean/number/array/object/enum/optional 八类分支，产出 `FieldDescriptor[]`（含 widget/required/options/children）；`SchemaForm.vue` 按描述符渲染 Element Plus 控件，提交前用**同一份 schema** 在浏览器端 `safeParse` 一次（错误按 `issue.path` 逐字段提示）；后端 400 的 `detail.issues` 同样按 path 映射到字段

@@ -103,6 +103,15 @@ P0a 阶段需锁定 Mizuki-Server 技术栈依赖。规格要求：Node ≥ 22 L
 > - `zod`：shared 的 CJS 产物运行时 `require('zod')`，vite dev 经 `optimizeDeps.include` 预打包转 ESM；生产构建由 rollup commonjs 插件处理。版本与 server 侧一致（^4.4.3），前后端共用同一份 schema 实例。
 > - **未引入** `zod-to-json-schema` / `@formkit/zod`：六类字段类型有限，自写映射器代码量更小、零新依赖（ADR-007）。
 
+> P10c 追加（2026-08-26）：apps/web dependencies 新增编辑器依赖——CodeMirror 6 系与 TipTap 3 系（REQUIREMENTS §12 锁定栈）。
+>
+> - `@codemirror/state` `^6.7.1` / `@codemirror/view` `^6.43.9` / `@codemirror/commands` `^6.11.0` / `@codemirror/language` `^6.12.4` + `@codemirror/lang-markdown` `^6.5.2`：Markdown 正文编辑（语法高亮 + 行号 + 等宽字体）。封装为 `src/lib/editors/CodeMirrorEditor.vue`（v-model 双向绑定）。
+>   - **修订（本会话续做时）**：最初方案经 `codemirror` 元包统一导入，实测该元包仅导出 `basicSetup` / `minimalSetup`，**不导出** EditorState / keymap / history / syntaxHighlighting 等基础构件；pnpm 严格布局下也不能直接 import 传递依赖。故改为直接声明上述 4 个子包依赖（版本与 lockfile 既有解析一致，未引入新版本），并**移除 `codemirror` 元包声明**（代码零引用，避免死依赖）。
+> - `@tiptap/vue-3` `^3.30.3` + `@tiptap/starter-kit` `^3.30.3` + `@tiptap/extension-{link,image,table,table-row,table-header,table-cell}` 均 `^3.30.3`：富文本编辑器（标题/列表/引用/代码块/图片/链接/表格）。封装为 `src/lib/editors/TipTapEditor.vue`。StarterKit 含 Document/Paragraph/Text/Heading/Bold/Italic/Strike/Code/CodeBlock/Blockquote/BulletList/OrderedList/ListItem/History。
+>   - **修订（本会话续做时，TipTap v3 API 差异）**：① `@tiptap/extension-table` 无默认导出，须命名导入 `import { Table } from '@tiptap/extension-table'`（row/cell/header 三个子包仍有默认导出，且均 re-export 自 extension-table）；② `setContent(content, false)` 的第二参数在 v3 改为选项对象，写作 `setContent(next, { emitUpdate: false })`。
+> - 安全纪律：**前端不执行后端返回的 HTML**（§5 专属禁止 `v-html`）——TipTap 自身渲染编辑内容，导出 HTML 用服务端 `html_cache`。
+> - `src/api/http.ts` 追加 FormData 支持（multipart 上传封面），最小改动。
+
 ## 备选方案
 
 - 全部写死精确版本号：可复现性最佳，但需在安装前人工确定每个包的最新稳定版，成本高且易过时。

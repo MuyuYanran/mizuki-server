@@ -950,3 +950,90 @@ vue 3.5.41、vue-router 4.6.4、element-plus 2.14.5、vite 7.3.6、@vitejs/plugi
 
 - `feat(P10b): 六类集合管理页——zod schema 驱动表单（mapper+SchemaForm+通用列表页）`（本提交）
 - `docs(P10b): CHANGELOG、SESSIONS、ADR-007 与 ADR-001 追加`（随本提交或紧随的下一次）
+
+---
+
+## P10c 交付报告 — 管理面板文章模块：Markdown 编辑、富文本编辑与 about 页
+
+- 日期：2026-08-26
+- 阶段：P10c（C-Plus 连续执行模式；**本会话为中断续做**——上一会话已完成全部代码编写与依赖安装，但未自检、未写文档、未 commit）
+- 结论：**P10c 功能完成。** 根三连全绿：`pnpm test` 223/223、`pnpm -r build`（shared/web/server 三项目，含前端 `vue-tsc --noEmit` strict）、`pnpm lint` 0 error / 0 warning；前端产物 `apps/web/dist/` 生成。
+
+### 1. 验收结果（§6）
+
+| 项 | 结果 | 说明 |
+|---|---|---|
+| §6.1 Markdown 往返（手动） | ⏳ 人工补验 | 代码链路：`PostEditPage` 读取时 `fullFm = {...post.frontmatter}`，提交 `{...fullFm, ...formFm}` 合并——未知键经此合并保留，侧栏「额外字段」区块可视化确认；后端 P5 e2e 已覆盖 frontmatter 往返。走查见 §4 |
+| §6.2 CodeMirror（手动） | ⏳ 人工补验 | 编辑器封装完成：markdown 语法高亮（`@codemirror/lang-markdown`）、行号与等宽字体（theme 配置）、v-model 双向绑定（输入回环防护见代码 `applyingExternal`）。走查见 §4 |
+| §6.3 草稿箱（手动） | ⏳ 人工补验 | `draftPosts = posts.filter(p => p.status === 'draft')`，tab 切换视图；后端 status 派生口径（P5：`draft===true || published===false → 'draft'`）。走查见 §4 |
+| §6.4 删除与回收站（手动） | ⏳ 人工补验 | 回收站 = 前端 `localStorage`（`mizuki.recycle.posts`）跟踪删除时的 `backupIds`；恢复 = 逐备份 `POST /admin/backups/:id/restore {confirm:true}` → `POST /admin/posts/sync` 重建索引（链路取舍见疑问清单 1）。走查见 §4 |
+| §6.5 置顶与封面（手动） | ⏳ 人工补验 | 置顶 = `PATCH {frontmatter:{pinned}}` 增量合并（后端 P5 语义）；封面 = `POST /admin/posts/:slug/cover` multipart（http.ts 已支持 FormData）。走查见 §4 |
+| §6.6 富文本（手动） | ⏳ 人工补验 | TipTap 工具栏覆盖 §7 第 4 条能力：标题(1-6 工具栏 1-3)/列表/引用/代码块/图片/链接/表格；保存 `getJSON()` → `doc_json`，后端 P8 e2e 覆盖往返与 `html_cache` 生成。走查见 §4 |
+| §6.7 导出（手动） | ⏳ 人工补验 | HTML 导出 = 服务端 `html_cache`（未保存先触发保存）；Markdown 导出为降级输出（HTML 包代码块 + 注释说明，不引入重型转换器）。走查见 §4 |
+| §6.8 构建与回归 | ✅ PASS | `pnpm --filter @mizuki/web build` 通过（vue-tsc strict + vite build，1827 modules）；根 `pnpm test` 223/223；`pnpm lint` 0/0 |
+
+### 2. 续做修复记录（中断代码的类型错误，均已修复）
+
+上一会话（中断前）的代码存在 3 类 `vue-tsc` 类型错误，本会话逐一核实依赖包实际导出后修复（未静默变更，均记 ADR-001 P10c 修订）：
+
+| # | 问题 | 修复 |
+|---|---|---|
+| 1 | `CodeMirrorEditor.vue` 从 `codemirror` 元包导入 EditorState/keymap/history 等 8 个成员——**元包只导出 `basicSetup`/`minimalSetup`**（v6 起），基础构件不在其中；且 pnpm 严格布局下传递依赖不可直接 import | 新增 `@codemirror/{state,view,commands,language}` 四个子包为直接依赖（版本与 lockfile 既有解析一致：6.7.1/6.43.9/6.11.0/6.12.4），按实际导出分派导入来源；**移除零引用的 `codemirror` 元包声明**（死依赖清理） |
+| 2 | `TipTapEditor.vue` 默认导入 `Table`——**TipTap v3 的 `@tiptap/extension-table` 无默认导出**（row/cell/header 子包有） | 改命名导入 `import { Table } from '@tiptap/extension-table'` |
+| 3 | `setContent(next, false)`——TipTap v3 第二参数改为选项对象（`SetContentOptions`） | 改 `setContent(next, { emitUpdate: false })` |
+
+另同步：`vite.config.ts` 的 `optimizeDeps.include` 更新为四个 @codemirror 子包（移除元包条目）。
+
+### 3. 文件清单
+
+新建（`apps/web` 下，10 个）：
+- `src/views/posts/PostListPage.vue`、`PostEditPage.vue`、`AboutEditPage.vue`
+- `src/views/articles/RichArticleListPage.vue`、`RichArticleEditPage.vue`
+- `src/lib/editors/CodeMirrorEditor.vue`、`TipTapEditor.vue`、`index.ts`
+- `src/api/posts.ts`、`src/api/articles.ts`
+
+修改：
+- `src/router/index.ts`（七条路由接入）、`src/layouts/MainLayout.vue`（菜单拆三项：Markdown 文章/富文本文章/关于页）
+- `src/api/http.ts`（FormData 支持）、`apps/web/package.json`（编辑器依赖）、`apps/web/vite.config.ts`（optimizeDeps）
+- `pnpm-lock.yaml`、`.gitignore`（追加 `.pnpm-shim/`）、`docs/decisions/ADR-001-dependency-versions.md`（P10c 依赖与修订记录）
+
+未触碰 `apps/server/` 任何源码文件、`src/views/collections/`（P10b 成果）✅
+
+### 4. 人工补验清单（手动交互项，供事后走查）
+
+前置：`node apps/server/dist/main.js` 起后端（指向假项目），`pnpm --filter @mizuki/web dev` 起前端（20155），登录：
+
+1. **Markdown 往返**：新建文章（slug + 12 字段全填 + 正文）→ 保存 → 重开断言字段完整 → 直接改假项目 `index.md` 加一个自定义 frontmatter 键 → 面板重开并保存 → 自定义键仍在（侧栏「额外字段」可见）。
+2. **CodeMirror**：语法高亮、行号、多行编辑保存后与文件一致。
+3. **草稿箱**：`draft: true` 文章只在草稿箱出现；取消草稿回主列表。
+4. **回收站**：删除 → 回收站出现 → 恢复 → 回主列表（文件经备份链路回来）。注意：回收站记录仅存当前浏览器。
+5. **置顶与封面**：置顶切换即时生效；编辑页上传封面（须先保存文章）成功后预览。
+6. **富文本**：新建富文本——插入标题/列表/引用/代码块/图片/链接/表格 → 保存 → 重开结构一致；发布后 `GET /api/v1/public/articles` 可见。
+7. **导出**：HTML 导出产出 `html_cache` 内容；Markdown 导出为降级格式（与报告一致）。
+8. **about 页**：编辑保存 → 「已自动备份」提示；上传替换 → 填入后保存生效。
+
+### 5. 疑问清单（取舍决策）
+
+| # | 事项 | 决定 |
+|---|---|---|
+| 1 | **回收站恢复链路**（后端无 list-deleted 端点） | 前端 `localStorage` 跟踪：删除时记录 `{slug, title, backupIds, deletedAt}`；恢复 = 逐备份 `restore {confirm:true}` + `sync`。**已知限制**：仅记录当前浏览器的删除；pre_write 备份保留 10 份，超限后旧备份被清理则不可恢复。富文本软删无恢复入口（后端无对应端点），删除确认框已提示 |
+| 2 | **Markdown 导出能力** | 降级实现：`html_cache` 包入 ```` ```html ```` 代码块 + 注释说明。未引入 turndown 等重型转换器（§3.3 授权降级） |
+| 3 | **列表/草稿视图组织** | 单页三 tab（全部/草稿箱/回收站），取简者（§4.2 授权记报告）；菜单按「拆分两项 + 关于页独立项」组织 |
+| 4 | **图片/链接插入方式** | URL 提示框输入（`ElMessageBox.prompt`），未接媒体库选择器——媒体库打通留 P10d（届时可增强为弹窗选图） |
+| 5 | **表格操作范围** | 工具栏仅「插入 3×3 表格（带表头）」；行列增删命令 TipTap v3 已有（`addRowAfter` 等），本阶段未暴露按钮（§7 第 4 条只要求「表格」能力成立） |
+| 6 | **构建产物体积** | 主 chunk 2.09MB / gzip 686KB（Element Plus 完整引入 + 双编辑器），超 500KB 警告；代码分割（路由级 `import()`）留 P10d/P11 评估 |
+| 7 | **本会话为续做** | 上一会话中断于「代码完成、未自检未提交」；本会话按 C-Plus §6 断点续做协议处理：修复中断代码的 3 类类型错误后完成自检与文档（§2 修复记录），未重做已完成工作 |
+
+### 6. 踩的坑（对后续阶段的提醒）
+
+1. **`codemirror` 元包陷阱**：v6 起只导出 `basicSetup`/`minimalSetup`，需要哪个构件就声明哪个 `@codemirror/*` 子包直接依赖（pnpm 严格布局下传递依赖 import 会失败）。
+2. **TipTap v3 破坏性变更**（相对 v2 文档习惯）：`@tiptap/extension-table` 无默认导出；`setContent`/`insertContent` 的第二参数从 `boolean` 改为选项对象（`{ emitUpdate }`）。P10d 若扩展富文本节点照此处理。
+3. **P10d 封面上传前置**：`POST /admin/posts/:slug/cover` 要求文章已存在——新建文章必须先保存再传封面（PostEditPage 已按此约束提示）。
+4. **回收站 localStorage 键** `mizuki.recycle.posts`：P10d 仪表盘若要展示回收站统计可读此键，勿改键名。
+5. **依赖安装沿用** `pnpm install`（pnpm 11.24.0 全局直连，本会话未遇 UNEXPECTED_STORE；若遇，回退 `pnpm dlx pnpm@11.24.0 --config.store-dir=...` 方案，P0b 坑 1）。
+6. **前端 chunk 警告**：若 P11 要消掉 500KB 警告，路由级动态导入（`() => import('...')`）是最低成本方案，`vite.config.ts` 无需大改。
+
+### 7. commit 记录
+
+- `feat(P10c): 管理面板文章模块——Markdown/About 编辑（CodeMirror 6）与富文本（TipTap）`（本提交）
+- `docs(P10c): CHANGELOG、SESSIONS 与 ADR-001 修订记录`（随本提交或紧随的下一次）
