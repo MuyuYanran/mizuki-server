@@ -10,6 +10,9 @@ export default defineConfig({
     // （目录树已固定该文件名，故在此扩展 include 而非改动文件名）
     include: ['test/**/*.spec.ts', 'test/**/*-spec.ts'],
     environment: 'node',
+    // 沙盒/慢机环境下 tsc --noEmit 子进程调用等集成测试可能逼近 5s 默认上限；
+    // 30s 留足缓冲，避免非确定性超时（P3 golden 集成测试受此影响）。
+    testTimeout: 30000,
   },
   plugins: [swc.vite()],
 });
