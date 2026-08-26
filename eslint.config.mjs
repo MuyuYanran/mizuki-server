@@ -7,7 +7,9 @@ const repoRoot = fileURLToPath(new URL('.', import.meta.url));
 
 export default tseslint.config(
   {
-    ignores: ['**/dist/**', '**/node_modules/**', '**/data/**', '**/coverage/**'],
+    // [P10a] apps/web 为 Vue 工程：根 lint 显式排除（取「显式排除」选项，
+    // 不引入 eslint-plugin-vue 新依赖；取舍见 P10a 交付报告）
+    ignores: ['**/dist/**', '**/node_modules/**', '**/data/**', '**/coverage/**', 'apps/web/**'],
   },
   ...tseslint.configs.recommended,
   // ── [P0b] 依赖分层（MASTER-PLAN §4「依赖分层」段，eslint-plugin-boundaries 强制）──
