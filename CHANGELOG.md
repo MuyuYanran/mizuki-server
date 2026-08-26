@@ -1,5 +1,17 @@
 # 变更日志
 
+## P10a — 管理面板外壳：工程、登录、向导、布局与请求层
+
+- `apps/web` 完整 Vite + Vue 3 + TS(strict) 工程落地：`index.html`、`vite.config.ts`（dev 端口 20155，`/api` 代理 → `http://localhost:20154`）、`tsconfig.json`（strict + noUncheckedIndexedAccess，独立于根 base 的 CJS 配置）、`src/{main.ts, App.vue, env.d.ts}`
+- `src/router/index.ts`：路由表 + 守卫——白名单 `/login`、`/init`（meta.public）；无 accessToken 一律回 `/login`（携带 redirect）；已登录访问 `/login` 重定向主页；主布局子路由 13 项（仪表盘 + 12 占位，P10b/c/d 替换）
+- `src/views/`：`LoginView.vue`（表单 → login → 存 token → `me` → 主布局；401/423/429 分别提示；挂载时经 `GET /system/health` 的 `initialized` 判断未初始化并引导向导——P6 §3.2 定口径）、`InitWizardView.vue`（四步：欢迎 → 目录 + `detect` 逐项明细展示 + 包管理器探测 → 三模式说明选择 → 账号（含确认密码）→ `init`；409 → 提示并跳登录）、`DashboardPlaceholder.vue`、`PlaceholderView.vue`（单组件复用，标题取自路由 meta）
+- `src/layouts/MainLayout.vue`：顶栏（项目名 + 管理员 + 登出）+ 侧边栏（仪表盘/文章/日记/友链/项目/时间线/技能/设备/相册/媒体库/备份/构建预览/设置 全 13 项，el-menu router 模式）+ 内容区
+- `src/api/`：`http.ts` 统一请求层（**401 自动 refresh 并重放一次；并发 401 共享同一 refresh Promise 去重**；刷新失败清 token + 会话失效回调；适配 `{code,message,detail}` 异常格式抛 `ApiError`）、`auth.ts`、`system.ts`（路径常量集中，组件零裸 URL）
+- `src/stores/auth.ts`：reactive store + localStorage 持久化（`mizuki.accessToken` / `mizuki.refreshToken`）；refreshToken 仅用于 refresh 调用（纪律）
+- 依赖（已记 ADR-001）：vue 3.5.41 / vue-router 4.6.4 / element-plus 2.14.5（**完整引入**，取舍记报告）/ vite 7.3.6 / @vitejs/plugin-vue 6.0.8 / vue-tsc 3.3.11 / typescript 5.9.3；**未引入 axios/pinia**（fetch 封装 + reactive store，取舍记报告）
+- 根 `eslint.config.mjs`：ignores 追加 `apps/web/**`（§4.2「显式排除」选项，不新增 lint 依赖）；`apps/web/README.md` 更新
+- 验收：根三连全绿（test 223/223、`pnpm -r build` 三项目、lint 0/0）；`pnpm --filter @mizuki/web build` 成功（`dist/` 产物）；集成冒烟：后端 dist 全路由注册 + 前端产物经 `vite preview` 可服务；手动交互项（登录/守卫/401 刷新/向导走查）列人工补验清单（SESSIONS）
+
 ## P9 — 进程管理：白名单子进程与 SSE 日志
 
 - `process/{process.module, process.controller, process-manager.service}.ts`：三 stub 转正——任务白名单硬编码 `install/dev/build/preview`（zod enum，注入串/未知任务 → 400）；参数映射逐字固定（`install`：yarn 无参、其余 `<PM> install`；`dev/build/preview`：`<PM> run <task>`），不接受用户附加参数；包管理器按工作目录 lockfile 探测（pnpm > yarn > npm，均无默认）

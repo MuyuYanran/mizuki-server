@@ -79,6 +79,24 @@ P0a 阶段需锁定 Mizuki-Server 技术栈依赖。规格要求：Node ≥ 22 L
 
 > 注：`@nestjs/config`、`@nestjs/jwt`、`@nestjs/swagger`、`class-validator`、`class-transformer` 在 P0a 未引入（属 P6 安全 / 后续阶段依赖），符合「骨架不接线」原则。
 
+### apps/web（P10a 追加，2026-08-26）
+
+| 包 | 解析版本 | 约束写法 |
+|---|---|---|
+| vue | 3.5.41 | ^3.5.0 |
+| vue-router | 4.6.4 | ^4.5.0 |
+| element-plus | 2.14.5 | ^2.8.0 |
+| vite | 7.3.6 | ^7.0.0 |
+| @vitejs/plugin-vue | 6.0.8 | ^6.0.0 |
+| vue-tsc | 3.3.11 | ^3.0.0 |
+| typescript | 5.9.3 | ^5.5.0 |
+
+> P10a 追加说明（2026-08-26）：
+>
+> - 请求层用原生 `fetch` 封装（§3.5 自实现 401 自动 refresh + 并发去重），**未引入 axios**（更少的依赖面，取舍见 P10a 报告）。
+> - 状态用 `reactive` 模块级 store，**未引入 pinia**（外壳阶段状态面小）。
+> - 根 `eslint.config.mjs` 对 `apps/web/**` **显式排除**（§4.2 两选项取「显式排除」，不引入 eslint-plugin-vue 等新 lint 依赖；web 类型安全由 `vue-tsc --noEmit`（strict）在 build 时把关）。
+
 ## 备选方案
 
 - 全部写死精确版本号：可复现性最佳，但需在安装前人工确定每个包的最新稳定版，成本高且易过时。

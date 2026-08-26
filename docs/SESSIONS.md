@@ -803,3 +803,70 @@ boundaries 拦截测试两轮输出摘要：
 - `feat(P9): 白名单子进程管理、SSE 日志与优雅停机`（24589f8）
 - `test(P9): 进程管理验收 14 用例（安全单测 6 + e2e 8）`（30a4110）
 - `docs(P9): CHANGELOG 与 SESSIONS 记录`（本提交）
+
+---
+
+## P10a 交付报告 — 管理面板外壳（工程、登录、向导、布局与请求层）
+
+- 日期：2026-08-26
+- 阶段：P10a（C-Plus 连续执行模式）
+- 结论：**P10a 功能完成。** 根三连全绿：`pnpm test` 223/223、`pnpm -r build`（shared/web/server 三项目）、`pnpm lint` 0 error / 0 warning；`@mizuki/web` strict 构建通过，产物 `apps/web/dist/` 生成。
+
+### 1. 验收结果（§6）
+
+| 项 | 结果 | 说明 |
+|---|---|---|
+| §6.1 构建与类型 | ✅ PASS | `pnpm --filter @mizuki/web build`（vue-tsc --noEmit strict + vite build）成功，`dist/` 生成（js ~1.04MB / gzip 341KB，完整引入 Element Plus，见疑问清单 2） |
+| §6.2 登录链路（手动） | ⏳ 人工补验 | 机械化部分已过（后端契约全部有 e2e 覆盖；集成冒烟：后端 dist 启动全路由注册成功、前端产物 `vite preview` 正常服务 index.html）。手动走查清单见 §4 |
+| §6.3 路由守卫（手动） | ⏳ 人工补验 | 代码断言：守卫逻辑位于 `router/index.ts` beforeEach（白名单/无 token → /login 带 redirect/已登录访问 /login → 主页）；手动走查见 §4 |
+| §6.4 401 自动 refresh | ✅ 代码断言 / ⏳ 手动补验 | **并发去重逻辑存在于 `src/api/http.ts` 的 `refreshTokensOnce()`**：`refreshPromise` 共享单例，窗口内并发 401 只发一次 `/admin/auth/refresh`，`.finally` 清引用；刷新成功重放原请求一次、失败清 token + 回调跳登录。手动网络面板验证见 §4 |
+| §6.5 初始化向导（手动） | ⏳ 人工补验 | 四步流程与检测明细展示已实现；后端 detect/init 契约有 P6 e2e 覆盖。手动走查见 §4 |
+| §6.6 回归 | ✅ PASS | 服务端 223/223 全绿；根 `pnpm lint` 通过（apps/web 显式排除） |
+
+### 2. 文件清单（全部新建，除标注外）
+
+- 工程：`apps/web/{index.html, vite.config.ts, tsconfig.json}`、`src/{main.ts, App.vue, env.d.ts}`
+- 路由/状态/请求：`src/router/index.ts`、`src/stores/auth.ts`、`src/api/{http.ts, auth.ts, system.ts}`
+- 视图/布局：`src/views/{LoginView.vue, InitWizardView.vue, DashboardPlaceholder.vue, PlaceholderView.vue}`、`src/layouts/MainLayout.vue`
+- 修改：`apps/web/package.json`（依赖与脚本）、`apps/web/README.md`、根 `eslint.config.mjs`（ignores 追加 `apps/web/**`，§4.2 授权）；`pnpm-workspace.yaml` 无需改动（`apps/*` 已含）
+- 未触碰 `apps/server/` 任何源码 ✅
+
+### 3. 新增前端依赖（已追加 ADR-001）
+
+vue 3.5.41、vue-router 4.6.4、element-plus 2.14.5、vite 7.3.6、@vitejs/plugin-vue 6.0.8、vue-tsc 3.3.11、typescript 5.9.3。**未引入**：axios（原生 fetch 封装）、pinia（reactive 模块 store）、eslint-plugin-vue（根 lint 显式排除 web，类型安全由 vue-tsc 把关）。
+
+### 4. 人工补验清单（手动交互项，供事后走查）
+
+前置：杀掉占用 20154 的旧实例（当前为 2026-08-25 13:52 启动的遗留进程），`node apps/server/dist/main.js` 起后端（空库），`pnpm --filter @mizuki/web dev` 起前端（20155）：
+
+1. **向导**：浏览器开 `http://localhost:20155` → 登录页应提示「系统尚未初始化」→ 进向导 → 输入假项目路径（如 `test/fixtures/mizuki` 绝对路径）→ 检测展示四项明细 + 包管理器 → 选「仅管理」→ 建管理员（两次密码）→ 完成跳登录；再访问向导提交 → 409 提示。
+2. **登录**：错误密码 → 「用户名或密码错误」；正确 → 主布局，侧边栏 13 项完整，顶栏显示用户名。
+3. **守卫**：登出后直接访问 `http://localhost:20155/` → 跳 `/login`；登录后刷新页面保持登录态（localStorage）。
+4. **401 自动 refresh**：登录后在 DevTools 删除 `mizuki.accessToken`（保留 refresh）→ 点任一菜单触发请求 → 网络面板应先见 401 → `/admin/auth/refresh` 200 → 原请求重放成功；并发触发多请求时 refresh 仅一次。
+5. **锁定/限流文案**：连续 5 次错误密码 → 第 6 次显示锁定提示（423）；快速连击 → 429 限流提示。
+
+### 5. 偏差与疑问清单
+
+| # | 事项 | 决定 |
+|---|---|---|
+| 1 | **未初始化状态检测方式** | 登录页挂载时 `GET /system/health` 读 `initialized`（P6 §3.2 口径）；请求失败不阻塞表单（后端不可达时仅无引导） |
+| 2 | **Element Plus 引入方式** | 完整引入（取简者；副作用：主 chunk ~1MB / gzip 341KB）。若后续在意体积，换按需引入 + `unplugin-vue-components`（届时新增依赖记 ADR） |
+| 3 | **请求层选型** | 原生 fetch 封装（401 refresh 逻辑自控，依赖面最小）；错误统一 `ApiError{status,code,message,detail}` |
+| 4 | **根 lint 对 web 的处理** | §4.2 两选项取「显式排除」——不引入 eslint-plugin-vue；web 代码质量由 `vue-tsc --noEmit`（strict）+ 代码审查保证。**遗留**：.vue 文件无 lint 规则，P11 收尾如需可评估引入 |
+| 5 | **dev 端口** | 20155（避开后端 20154）；`/api` 代理到 `http://localhost:20154`（§2 授权的纯前端配置） |
+| 6 | **SSE 登录态** | 后端 `/admin/process/tasks/:id/logs` 走全局守卫，浏览器 EventSource 无法带自定义头——P10d 控制台需用 `fetch` + ReadableStream（或后端加 query token 豁免，届时评估） |
+| 7 | 登出失败仍清本地态 | 后端登出为无状态语义（P6），前端以本地清理为准 |
+
+### 6. 踩的坑（对后续阶段的提醒）
+
+1. **web tsconfig 不能继承根 base**：根 `tsconfig.base.json` 是 `module: commonjs`（服务端用），web 需 `ESNext + moduleResolution: bundler`——独立 tsconfig。
+2. **localStorage key 命名** `mizuki.accessToken` / `mizuki.refreshToken`：P10d 若做「记住我」等扩展在此基础上加，勿改键名（会话恢复依赖）。
+3. **el-menu router 模式**以 `index` 为路由 path：菜单项 `index` 与路由 `path` 一一对应（'/' 与 '/xxx'），P10b/c/d 新增页面保持此约定。
+4. **占位路由组件**统一 `PlaceholderView`（meta.title 驱动）：替换真实页面时只改 `router/index.ts` 的 component，不动菜单。
+5. **Windows 上 20154 被遗留实例占用**：本会话集成冒烟时发现（2026-08-25 启动未退）；手动走查前先确认端口空闲。
+6. 安装依赖沿用 `pnpm dlx pnpm@11.24.0 --config.store-dir="C:/Users/暮雨烟然/.mizuki-pnpm-store3" install`（P0b 坑 1），本次顺利无 UNEXPECTED_STORE。
+
+### 7. commit 记录
+
+- `feat(P10a): 管理面板外壳——Vue3 工程、登录/向导/布局与 401 自动 refresh 请求层`（本提交）
+- `docs(P10a): CHANGELOG、SESSIONS 与 ADR-001 前端依赖追加`（随下一次提交或本提交）
