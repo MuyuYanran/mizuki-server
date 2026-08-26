@@ -97,6 +97,12 @@ P0a 阶段需锁定 Mizuki-Server 技术栈依赖。规格要求：Node ≥ 22 L
 > - 状态用 `reactive` 模块级 store，**未引入 pinia**（外壳阶段状态面小）。
 > - 根 `eslint.config.mjs` 对 `apps/web/**` **显式排除**（§4.2 两选项取「显式排除」，不引入 eslint-plugin-vue 等新 lint 依赖；web 类型安全由 `vue-tsc --noEmit`（strict）在 build 时把关）。
 
+> P10b 追加（2026-08-26）：apps/web dependencies 新增 `@mizuki/shared` `workspace:*` 与 `zod` `^4.4.3`。
+>
+> - `@mizuki/shared`：前端直接消费其构建产物（六个 itemSchema 的 zod 对象），驱动表单生成（P10b §3.2 核心设计）。workspace 协议链接，无独立包下载。
+> - `zod`：shared 的 CJS 产物运行时 `require('zod')`，vite dev 经 `optimizeDeps.include` 预打包转 ESM；生产构建由 rollup commonjs 插件处理。版本与 server 侧一致（^4.4.3），前后端共用同一份 schema 实例。
+> - **未引入** `zod-to-json-schema` / `@formkit/zod`：六类字段类型有限，自写映射器代码量更小、零新依赖（ADR-007）。
+
 ## 备选方案
 
 - 全部写死精确版本号：可复现性最佳，但需在安装前人工确定每个包的最新稳定版，成本高且易过时。

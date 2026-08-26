@@ -6,22 +6,21 @@ import { isLoggedIn } from '../stores/auth';
  * - 白名单：/login、/init（meta.public）；其余无 accessToken 一律回 /login；
  * - 已登录访问 /login 重定向主页；
  * - 主布局子路由除仪表盘外均为占位（P10b/c/d 逐阶段替换组件）。
+ *
+ * [P10b] 六类集合管理页接入：/collections/:type 单路由 + 动态组件实例，
+ *   CollectionListPage 按 :type 复用；六类占位路由（diary/friends/...）
+ *   由 /collections/:type 取代（菜单同步指向新路由）。
  */
 import MainLayout from '../layouts/MainLayout.vue';
 import LoginView from '../views/LoginView.vue';
 import InitWizardView from '../views/InitWizardView.vue';
 import DashboardPlaceholder from '../views/DashboardPlaceholder.vue';
 import PlaceholderView from '../views/PlaceholderView.vue';
+import CollectionListPage from '../views/collections/CollectionListPage.vue';
 
 /** 侧边栏菜单对应的占位子路由（标题经 meta 传递） */
 const placeholderRoutes: RouteRecordRaw[] = [
   { path: 'articles', component: PlaceholderView, meta: { title: '文章' } },
-  { path: 'diary', component: PlaceholderView, meta: { title: '日记' } },
-  { path: 'friends', component: PlaceholderView, meta: { title: '友链' } },
-  { path: 'projects', component: PlaceholderView, meta: { title: '项目' } },
-  { path: 'timeline', component: PlaceholderView, meta: { title: '时间线' } },
-  { path: 'skills', component: PlaceholderView, meta: { title: '技能' } },
-  { path: 'devices', component: PlaceholderView, meta: { title: '设备' } },
   { path: 'albums', component: PlaceholderView, meta: { title: '相册' } },
   { path: 'media', component: PlaceholderView, meta: { title: '媒体库' } },
   { path: 'backups', component: PlaceholderView, meta: { title: '备份' } },
@@ -37,6 +36,7 @@ const routes: RouteRecordRaw[] = [
     component: MainLayout,
     children: [
       { path: '', component: DashboardPlaceholder, meta: { title: '仪表盘' } },
+      { path: 'collections/:type', component: CollectionListPage, meta: { title: '集合管理' } },
       ...placeholderRoutes,
     ],
   },

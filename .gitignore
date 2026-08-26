@@ -39,6 +39,7 @@ pnpm-debug.log*
 .cache/
 .eslintcache
 .stylelintcache
+.pnpm-cache/
 
 # ── Runtime data: SQLite DB / configs / uploads ──
 # 这些由服务在运行时生成，绝不可入库（见 docs/REQUIREMENTS §10.5 / §15）
