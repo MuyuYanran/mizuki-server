@@ -13,16 +13,20 @@ import { configureApp } from '../src/app.setup';
 import { BACKUP_OPTIONS } from '../src/infra/backup/backup.service';
 import { SQLITE_CONNECTION } from '../src/infra/db/db.module';
 import { ContentChangedPayload, EVENTS } from '../../../packages/shared/src/events';
+import { initAndLogin, withAuth } from './helpers/admin-auth';
 
 /**
  * P4 §6.1–6.8 验收依据（supertest e2e，数据源 = P3 fixture 假 Mizuki 项目临时副本）：
  * 六类 CRUD、grouped 空分组清理、未知 type 拒绝、写后 tsc、事件断言、
  * 校验拒绝不落盘、id 生成与 409、timeline 默认映射。
+ * [P6 守卫适配] beforeAll 中 init + login 取得 access token，
+ * 全部请求经 withAuth 代理自动附加（适配方式见 P6 交付报告 §6.11）。
  */
 
 const FIXTURE_DIR = path.resolve(__dirname, 'fixtures/mizuki');
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'mizuki-p4-e2e-'));
 process.env['MIZUKI_DB_PATH'] = path.join(tmp, 'mizuki.db');
+process.env['MIZUKI_CONFIG_PATH'] = path.join(tmp, 'config.json');
 const mizukiRoot = path.join(tmp, 'mizuki');
 
 /** 测试事件订阅者（P4 §6.5） */
@@ -36,6 +40,7 @@ class ContentChangedSubscriber {
 
 describe('P4 六类集合 CRUD e2e', () => {
   let app: INestApplication;
+  let accessToken: string | undefined;
 
   beforeAll(async () => {
     fs.cpSync(FIXTURE_DIR, mizukiRoot, { recursive: true });
@@ -54,6 +59,8 @@ describe('P4 六类集合 CRUD e2e', () => {
     app = moduleRef.createNestApplication();
     configureApp(app);
     await app.init();
+    // [P6] 守卫适配：初始化 + 登录取得 access token
+    accessToken = await initAndLogin(request(app.getHttpServer()), mizukiRoot);
   });
 
   afterAll(async () => {
@@ -62,7 +69,8 @@ describe('P4 六类集合 CRUD e2e', () => {
     fs.rmSync(tmp, { recursive: true, force: true });
   });
 
-  const server = (): request.SuperTest<request.Test> => request(app.getHttpServer());
+  const server = (): request.SuperTest<request.Test> =>
+    withAuth(request(app.getHttpServer()), () => accessToken);
 
   /** 通用 CRUD 循环：POST → GET 含 → PATCH → GET 变更 → DELETE → GET 移除 */
   async function crudCycle(type: string, createBody: Record<string, unknown>, patch: Record<string, unknown>, assertChange: (item: Record<string, unknown>) => void): Promise<void> {

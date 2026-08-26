@@ -19,16 +19,20 @@ import {
   EVENTS,
   PostChangedPayload,
 } from '../../../packages/shared/src/events';
+import { initAndLogin, withAuth } from './helpers/admin-auth';
 
 /**
  * P5 §6.1–6.8 验收依据（supertest e2e，数据源 = fixture 假 Mizuki 项目临时副本）：
  * CRUD、路径穿越拒绝、frontmatter 往返保真、封面转 JPG、删除经备份恢复、
  * sync 幂等、事件断言（post.changed / article.published / content.changed）、about。
+ * [P6 守卫适配] beforeAll 中 init + login 取得 access token，
+ * 全部请求经 withAuth 代理自动附加（适配方式见 P6 交付报告 §6.11）。
  */
 
 const FIXTURE_DIR = path.resolve(__dirname, 'fixtures/mizuki');
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'mizuki-p5-e2e-'));
 process.env['MIZUKI_DB_PATH'] = path.join(tmp, 'mizuki.db');
+process.env['MIZUKI_CONFIG_PATH'] = path.join(tmp, 'config.json');
 const mizukiRoot = path.join(tmp, 'mizuki');
 
 /** 测试事件订阅者（P5 §6.6）：三个事件的 payload 均过 zod parse 后收集 */
@@ -55,6 +59,7 @@ class PostEventsSubscriber {
 
 describe('P5 Markdown 文章 e2e', () => {
   let app: INestApplication;
+  let accessToken: string | undefined;
 
   beforeAll(async () => {
     fs.cpSync(FIXTURE_DIR, mizukiRoot, { recursive: true });
@@ -75,6 +80,8 @@ describe('P5 Markdown 文章 e2e', () => {
     app = moduleRef.createNestApplication();
     configureApp(app);
     await app.init();
+    // [P6] 守卫适配：初始化 + 登录取得 access token
+    accessToken = await initAndLogin(request(app.getHttpServer()), mizukiRoot);
   });
 
   afterAll(async () => {
@@ -83,7 +90,8 @@ describe('P5 Markdown 文章 e2e', () => {
     fs.rmSync(tmp, { recursive: true, force: true });
   });
 
-  const server = (): request.SuperTest<request.Test> => request(app.getHttpServer());
+  const server = (): request.SuperTest<request.Test> =>
+    withAuth(request(app.getHttpServer()), () => accessToken);
 
   const fullFrontmatter: Record<string, unknown> = {
     title: '保真验收',

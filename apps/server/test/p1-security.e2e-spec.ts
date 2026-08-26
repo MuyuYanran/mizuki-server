@@ -5,6 +5,7 @@ import { Test } from '@nestjs/testing';
 import { z } from 'zod';
 import { AppModule } from '../src/app.module';
 import { configureApp } from '../src/app.setup';
+import { Public } from '../src/common/decorators/public.decorator';
 import { ZodValidationPipe } from '../src/common/pipes/zod-validation.pipe';
 
 /**
@@ -12,6 +13,9 @@ import { ZodValidationPipe } from '../src/common/pipes/zod-validation.pipe';
  * - zod 管道路由级用法（测试专用控制器，不入 src/ 正式目录）；
  * - helmet 安全头与 CORS 白名单行为；
  * - 全局限流：同 IP 第 61 次请求返回 429（AppModule 真实配置 60 次/分）。
+ *
+ * [P6 守卫适配] TestZodController 为测试侧演示控制器，以 @Public() 豁免——
+ * 与生产豁免清单无关（清单逐字不变），适配方式见 P6 交付报告 §6.11。
  */
 
 /** 演示用 schema（P1 §3.2：验证管道路由级用法） */
@@ -22,6 +26,7 @@ const EchoSchema = z.object({
 type EchoBody = z.infer<typeof EchoSchema>;
 
 /** 测试专用控制器：验证 ZodValidationPipe 路由级声明（仅存在于 test/ 侧） */
+@Public()
 @Controller('test-zod')
 class TestZodController {
   @Post('echo')
