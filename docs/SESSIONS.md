@@ -870,3 +870,83 @@ vue 3.5.41、vue-router 4.6.4、element-plus 2.14.5、vite 7.3.6、@vitejs/plugi
 
 - `feat(P10a): 管理面板外壳——Vue3 工程、登录/向导/布局与 401 自动 refresh 请求层`（本提交）
 - `docs(P10a): CHANGELOG、SESSIONS 与 ADR-001 前端依赖追加`（随下一次提交或本提交）
+
+---
+
+## P10b 交付报告 — 六类集合管理页（zod schema 驱动表单）
+
+- 日期：2026-08-26
+- 阶段：P10b（C-Plus 连续执行模式）
+- 结论：**P10b 功能完成。** 根三连全绿：`pnpm test` 223/223、`pnpm -r build`（shared/web/server 三项目）、`pnpm lint` 0 error / 0 warning；`@mizuki/web` strict 构建通过（vue-tsc --noEmit + vite build），产物 `apps/web/dist/` 生成。
+
+### 1. 验收结果（§6）
+
+| 项 | 结果 | 说明 |
+|---|---|---|
+| §6.1 日记 CRUD（手动） | ⏳ 人工补验 | 代码链路全通：CollectionListPage array 形 + SchemaForm 由 DiaryItemSchema 驱动；后端 P4 e2e 覆盖 CRUD + 事件。手动走查清单见 §4 |
+| §6.2 友链必填校验（手动） | ⏳ 人工补验 | 浏览器端 `schema.safeParse` 在 SchemaForm.onSubmit 跑一次，必填失败逐字段提示；手动走查见 §4 |
+| §6.3 时间线枚举 | ⏳ 人工补验 | mapper 将 `ZodEnum`→`el-select`，options 来自 `.options`；timeline.type 四项由 schema 定义，代码断言映射正确 |
+| §6.4 技能嵌套 | ⏳ 人工补验 | `ZodObject` 嵌套（skills.experience）→ 子字段组（years/months 用 input-number）；updateNestedField 递归更新 |
+| §6.5 设备 grouped（手动） | ⏳ 人工补验 | grouped 形：分组选择 → 列表 → 新增带 group → 删除后重新拉取（空分组由后端清理，P4 实现）；走查见 §4 |
+| §6.6 错误映射 | ⏳ 人工补验 | `extractFieldIssues` 将后端 400 `detail.issues`（zod 路径）→ 字段错误；SchemaForm 合并本地+后端错误（后端优先） |
+| §6.7 登录态 401 refresh（手动） | ⏳ 人工补验 | 复用 P10a `src/api/http.ts` 的 401 自动 refresh，collections 客户端零额外处理 |
+| §6.8 构建+回归 | ✅ PASS | `pnpm --filter @mizuki/web build` 通过；根 `pnpm test` 223/223 全绿；`pnpm lint` 0/0 |
+
+### 2. 文件清单
+
+新建（apps/web 下）：
+- `src/lib/schema-form/mapper.ts` — zod→FieldDescriptor 映射器（核心）
+- `src/lib/schema-form/SchemaForm.vue` — 描述符驱动表单渲染器
+- `src/lib/schema-form/index.ts` — 桶导出
+- `src/api/collections.ts` — collections 端点客户端
+- `src/views/collections/CollectionListPage.vue` — 通用列表页（六类复用）
+
+修改：
+- `src/router/index.ts` — 新增 `/collections/:type` 动态路由，从 placeholderRoutes 移除六类占位
+- `src/layouts/MainLayout.vue` — 菜单六类指向 `/collections/:type`
+- `apps/web/package.json` — 追加 `@mizuki/shared` workspace + `zod` 依赖
+- `apps/web/vite.config.ts` — 加 `resolve.alias`（@mizuki/shared→src/index.ts）+ `optimizeDeps.include:['zod']`
+- `packages/shared/package.json` — 追加 `typescript` devDep（tsc 构建需要）
+- `docs/decisions/ADR-001-dependency-versions.md` — 追加 P10b 前端依赖说明
+- `docs/decisions/ADR-007-zod-to-form-mapper.md` — 新建，渲染策略决策
+- `.gitignore` — 追加 `.test-tmp/`、`.pnpm-cache/`
+
+未触碰 `apps/server/src/` 任何业务文件 ✅
+
+### 3. 渲染策略（ADR-007）
+
+自写映射器（`mapper.ts`），不引入 `zod-to-json-schema`。理由：六类 schema 字段类型面 ≤8 分支，自写映射器代码量小、零新依赖、zod v4 直连内省 API（`constructor.name`/`.unwrap()`/`.options`/`.element`）。校验复用同一份 schema：提交前浏览器端 `safeParse`，后端 400 `detail.issues` 同按 path 映射——前后端校验逻辑同源（P4 schema 即权威）。
+
+### 4. 人工补验清单（手动交互项，供事后走查）
+
+前置：`node apps/server/dist/main.js` 起后端（指向 test/fixtures/mizuki 假项目），`pnpm --filter @mizuki/web dev` 起前端（20155），登录管理员：
+
+1. **日记**：进 `/collections/diary` → 新增（日期+正文+两标签+位置）→ 列表出现 → 编辑改正文 → 刷新仍在 → 删除（二次确认）→ 消失。
+2. **友链必填**：新增友链不填 `siteurl` → 表单阻止提交并提示必填；填全后成功。
+3. **时间线枚举**：新增时间线 → `type` 下拉恰含 `education/certificate/project/other` 四项。
+4. **技能嵌套**：新增技能 → `level` 数字输入、`experience.years/months` 嵌套正常往返。
+5. **设备 grouped**：切分组展示不同条目 → 新增条目到指定分组 → 删分组内最后一个 → 该分组从列表消失。
+6. **错误映射**：DevTools 改字段为空串直接提交 → 后端 400 → 页面提示来自 `message/detail.issues`。
+7. **401 refresh**：DevTools 删 accessToken → 点任一集合操作 → 自动 refresh 无感完成。
+
+### 5. 偏差与疑问清单
+
+| # | 事项 | 决定 |
+|---|---|---|
+| 1 | **shared 包消费方式** | web 走 `resolve.alias` 直消费 `packages/shared/src/index.ts`（ESM ts），避开 shared CJS 产物 `__exportStar` 动态 re-export 的 rollup 静态分析缺口；server 仍走 dist/index.js（CJS）不受影响 |
+| 2 | **图片字段** | diary.images/projects.image/devices.image 本阶段用文本输入（文件名/路径），上传组件留 P10d 媒体库打通后增强（§3.3 明确，预留） |
+| 3 | **分页** | 前端无分页（六类条目量小，取简者）；如后续需分页在 CollectionListPage 加前端分页即可 |
+| 4 | **zod v4 ZodEnum.options 类型** | zod v4 的 `.options` 类型为 `Values[keyof Values][]`（联合），mapper 中统一 `String()` 转字符串数组（六类枚举值均为字符串字面量） |
+
+### 6. 踩的坑（对后续阶段的提醒）
+
+1. **P9 e2e 在沙盒内的 PATH 顺序**：corepack shims 的 `npm` shim 在受限环境下会崩溃（导致 P9 §6.4/§6.5 失败）。运行测试时 PATH 必须把真实 node 目录（`node-v24.11.1`，含原生 npm）放在 corepack shims **之前**——这样 `npm` 解析到原生、`pnpm` 解析到 corepack shims，两者都可用。C-Plus 后续阶段跑 test 前必带此 PATH。
+2. **shared 包 typescript devDep**：shared 的 tsc 构建需要 typescript，之前缺失导致 `pnpm -r build` 失败；已在 `packages/shared/package.json` 追加 `typescript` 为 devDep。
+3. **vitest testTimeout**：apps/server 的 vitest.config.ts 已设 `testTimeout: 30000`（P9 slow 用例需要）；后续阶段如加更慢的 e2e 可酌情上调。
+4. **SchemaForm 嵌套字段索引**：`modelValue[field.key]` 类型为 unknown，索引子字段须断言 `Record<string, unknown>`；事件处理函数参数须显式注解 `unknown`（strict 下隐式 any 报错）。
+5. **vite resolve.alias 的必要性**：即便 shared 有 dist 产物，rollup 无法静态分析 `__exportStar` 动态 re-export 的命名导出——必须 alias 到 src（ESM ts）让 rollup 原生解析 `export *`。P10c/d 如再消费 shared 的运行时导出，alias 已就位无需再改。
+
+### 7. commit 记录
+
+- `feat(P10b): 六类集合管理页——zod schema 驱动表单（mapper+SchemaForm+通用列表页）`（本提交）
+- `docs(P10b): CHANGELOG、SESSIONS、ADR-007 与 ADR-001 追加`（随本提交或紧随的下一次）

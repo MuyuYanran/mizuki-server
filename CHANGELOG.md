@@ -1,5 +1,16 @@
 # 变更日志
 
+## P10b — 六类集合管理页（zod schema 驱动表单）
+
+- `src/lib/schema-form/`（新建，核心）：`mapper.ts` 自写 zod→表单描述符映射器（ADR-007）——遍历 `ZodObject.shape`，按 `constructor.name` 分派到 string/boolean/number/array/object/enum/optional 八类分支，产出 `FieldDescriptor[]`（含 widget/required/options/children）；`SchemaForm.vue` 按描述符渲染 Element Plus 控件，提交前用**同一份 schema** 在浏览器端 `safeParse` 一次（错误按 `issue.path` 逐字段提示）；后端 400 的 `detail.issues` 同样按 path 映射到字段
+- 映射规则：`ZodString` 长文本字段（content/description 白名单）→ textarea、URL 字段（含 url/site）→ 带占位提示、`ZodBoolean`→switch、`ZodNumber`→input-number、`ZodArray<ZodString>`→标签输入（回车追加/删尾）、`ZodEnum`→select、嵌套 `ZodObject`（skills.experience）→子字段组、`ZodOptional`→解包+非必填
+- `src/views/collections/CollectionListPage.vue`（新建）：单组件按路由 `:type` 复用六类——array 形表格展示+新增/编辑/删除；grouped 形（devices）先选分组再展示、新增带 group、删除后重新拉取（空分组由后端清理）；表格列由 schema 顶层字段推导；长文本/数组截断展示
+- `src/api/collections.ts`（新建）：collections 端点客户端——list/create/update/remove 四方法 + `isGrouped` 类型守卫 + `extractFieldIssues`（后端 `detail.issues`→字段错误映射）；复用 `src/api/http.ts` 的 401 自动 refresh
+- 路由：`/collections/:type` 单动态路由接入主布局（替换 P10a 占位），`:type` 非法时 404 占位；`MainLayout.vue` 菜单六类指向真实路由
+- 跨包：`packages/shared/package.json` 追加 `typescript` devDep（构建产物 tsc 需要）；`apps/web/package.json` 追加 `@mizuki/shared` workspace + `zod` 依赖；`apps/web/vite.config.ts` 加 `resolve.alias`（@mizuki/shared→src/index.ts，避开 CJS 产物 `__exportStar` 的 rollup 静态分析缺口）+ `optimizeDeps.include:['zod']`
+- 渲染策略 ADR-007：自写映射器，不引入 `zod-to-json-schema`（字段类型面 ≤8 分支，零新依赖，zod v4 直连内省 API）
+- 验收：根三连全绿（test 223/223、`pnpm -r build` 三项目、lint 0/0）；`pnpm --filter @mizuki/web build`（vue-tsc strict + vite build）通过；手动交互项（六类 CRUD/浏览器端 schema 校验/grouped 空分组清理/409 明细）列人工补验清单（SESSIONS）
+
 ## P10a — 管理面板外壳：工程、登录、向导、布局与请求层
 
 - `apps/web` 完整 Vite + Vue 3 + TS(strict) 工程落地：`index.html`、`vite.config.ts`（dev 端口 20155，`/api` 代理 → `http://localhost:20154`）、`tsconfig.json`（strict + noUncheckedIndexedAccess，独立于根 base 的 CJS 配置）、`src/{main.ts, App.vue, env.d.ts}`
