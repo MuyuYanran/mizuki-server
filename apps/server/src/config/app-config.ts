@@ -21,13 +21,20 @@ export const AppConfigSchema = z.object({
   backupDir: z.string().default('data/backups'),
   /** 上传上限 MB（与 MASTER-PLAN §7 的 10MB 一致） */
   uploadLimitMb: z.number().int().positive().default(10),
+  /** [P6] JWT HS256 密钥（init 时生成并持久化，保证重启后 refresh token 仍有效；
+   *   环境变量 MIZUKI_JWT_SECRET 优先，见 ADR-005） */
+  jwtSecret: z.string().optional(),
 });
 
 export type AppConfig = z.infer<typeof AppConfigSchema>;
 
-/** 默认配置文件位置：apps/server/data/config.json（src 与 dist 下相对层级一致） */
+/**
+ * 默认配置文件位置：apps/server/data/config.json（src 与 dist 下相对层级一致）。
+ * 可用环境变量 MIZUKI_CONFIG_PATH 覆盖（测试注入钩子，与 P0b 的
+ * MIZUKI_DB_PATH 同模式，见 ADR-005）。
+ */
 export function defaultConfigPath(): string {
-  return path.resolve(__dirname, '../../data/config.json');
+  return process.env['MIZUKI_CONFIG_PATH'] ?? path.resolve(__dirname, '../../data/config.json');
 }
 
 /**

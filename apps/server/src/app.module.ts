@@ -1,7 +1,9 @@
 import { Module } from '@nestjs/common';
-import { APP_GUARD } from '@nestjs/core';
+import { APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 import { EventEmitterModule } from '@nestjs/event-emitter';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
+import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
+import { OperationLogInterceptor } from './common/interceptors/operation-log.interceptor';
 import { DbModule } from './infra/db/db.module';
 import { InfraBackupModule } from './infra/backup/backup.module';
 import { SystemModule } from './modules/system/system.module';
@@ -57,6 +59,11 @@ import { SettingsModule } from './modules/settings/settings.module';
   providers: [
     // [P1] 全局 ThrottlerGuard（配合上方 ThrottlerModule 的 60 次/分/IP 配置）
     { provide: APP_GUARD, useClass: ThrottlerGuard },
+    // [P6] 全局 JWT 守卫：注册顺序在限流之后（限流先于认证，P6 §4.1）；
+    //   @Public() 路由豁免，其余一律要求 Bearer access token
+    { provide: APP_GUARD, useClass: JwtAuthGuard },
+    // [P6] 全局操作日志拦截器（管理端写操作审计，detail 脱敏）
+    { provide: APP_INTERCEPTOR, useClass: OperationLogInterceptor },
   ],
 })
 export class AppModule {}
