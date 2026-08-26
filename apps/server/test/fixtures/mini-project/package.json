@@ -1,0 +1,11 @@
+{
+  "name": "mizuki-mini-project",
+  "version": "0.0.0",
+  "private": true,
+  "description": "P9 进程管理测试用最小子项目（不依赖任何 npm 包，脚本仅用 node 内置能力）",
+  "scripts": {
+    "dev": "node scripts/dev.js",
+    "build": "node scripts/build.js",
+    "preview": "node scripts/preview.js"
+  }
+}
