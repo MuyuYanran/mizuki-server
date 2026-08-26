@@ -26,7 +26,7 @@ export default defineConfig({
     },
   },
   optimizeDeps: {
-    include: ['zod'],
+    include: ['zod', '@codemirror/state', '@codemirror/view', '@codemirror/commands', '@codemirror/language', '@codemirror/lang-markdown', '@tiptap/vue-3', '@tiptap/starter-kit', '@tiptap/extension-link', '@tiptap/extension-image', '@tiptap/extension-table', '@tiptap/extension-table-row', '@tiptap/extension-table-header', '@tiptap/extension-table-cell'],
   },
   server: {
     port: 20155,

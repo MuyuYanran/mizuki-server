@@ -66,6 +66,7 @@ $RECYCLE.BIN/
 .lint.full
 .linttest.js
 .pnpm-store-del-test-*
+.pnpm-shim/
 .sdbulk/
 .store-wtest
 .safe-delete-state

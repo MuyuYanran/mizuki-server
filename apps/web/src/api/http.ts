@@ -61,16 +61,18 @@ async function toApiError(res: Response): Promise<ApiError> {
 
 async function performFetch(method: HttpMethod, path: string, body: unknown, token: string | null): Promise<Response> {
   const headers: Record<string, string> = {};
-  if (body !== undefined) {
+  const isFormData = body instanceof FormData;
+  if (body !== undefined && !isFormData) {
     headers['Content-Type'] = 'application/json';
   }
   if (token) {
     headers['Authorization'] = `Bearer ${token}`;
   }
+  const bodyData = body === undefined ? undefined : isFormData ? body : JSON.stringify(body);
   return fetch(`${API_PREFIX}${path}`, {
     method,
     headers,
-    body: body === undefined ? undefined : JSON.stringify(body),
+    body: bodyData,
   });
 }
 

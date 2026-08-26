@@ -17,10 +17,12 @@ interface MenuItem {
   title: string;
 }
 
-/** 侧边栏菜单（§3.6 清单逐字） */
+/** 侧边栏菜单（§3.6 清单逐字；P10c 拆分文章为 Markdown / 富文本两项） */
 const MENU: MenuItem[] = [
   { path: '/', title: '仪表盘' },
-  { path: '/articles', title: '文章' },
+  { path: '/posts', title: 'Markdown 文章' },
+  { path: '/articles', title: '富文本文章' },
+  { path: '/about', title: '关于页' },
   { path: '/collections/diary', title: '日记' },
   { path: '/collections/friends', title: '友链' },
   { path: '/collections/projects', title: '项目' },
