@@ -9,9 +9,11 @@ import { Module, type OnModuleInit } from '@nestjs/common';
 import { MediaReferenceRegistry } from '../../common/registry/media-reference.registry';
 import { AlbumsController } from './albums.controller';
 import { AlbumsService } from './albums.service';
+import { PublicAlbumsController } from './public-albums.controller';
 
 @Module({
-  controllers: [AlbumsController],
+  // [P8] 追加公开相册只读控制器（/public/albums，@Public）
+  controllers: [AlbumsController, PublicAlbumsController],
   providers: [AlbumsService],
 })
 export class AlbumsModule implements OnModuleInit {

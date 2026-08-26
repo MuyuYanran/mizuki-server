@@ -13,10 +13,12 @@ import { DataFilesModule } from '../data-files/data-files.module';
 import { CollectionsController } from './collections.controller';
 import { CollectionsMediaReferenceContributor } from './media-reference';
 import { CollectionsService } from './collections.service';
+import { PublicCollectionsController } from './public-collections.controller';
 
 @Module({
   imports: [DataFilesModule],
-  controllers: [CollectionsController],
+  // [P8] 追加公开集合只读控制器（/public/collections/:type，@Public）
+  controllers: [CollectionsController, PublicCollectionsController],
   providers: [CollectionsService, CollectionsMediaReferenceContributor],
 })
 export class CollectionsModule implements OnModuleInit {
