@@ -747,3 +747,59 @@ boundaries 拦截测试两轮输出摘要：
 - `feat(P8): 富文本文章、混合公开 API（路径定型）与 settings`（cd1ec00）
 - `test(P8): 富文本/公开 API 验收 22 用例（渲染安全单测 8 + e2e 14）`（a4962c3）
 - `docs(P8): CHANGELOG 与 SESSIONS 关卡交付报告`（本提交）
+
+---
+
+## P9 交付报告 — 进程管理：白名单子进程与 SSE 日志
+
+- 日期：2026-08-26
+- 阶段：P9（C-Plus 连续执行模式）
+- 结论：**P9 功能完成，九项验收全部通过。** `pnpm test` 223/223、`pnpm build` 0 error、`pnpm lint` 0 error / 0 warning。
+
+### 1. 验收结果（§6）
+
+| 项 | 结果 | 说明 |
+|---|---|---|
+| §6.1 启停 + SSE（slow） | ✅ PASS | mini-project `dev` 任务启动 → SSE 收到 ≥1 条日志（'mini dev server ready' 起）→ DELETE 停止 → 收到 `exit` 事件、状态非 running（~1.5s） |
+| §6.2 优雅停机（slow） | ✅ PASS | 启动 `dev` → `app.close()` 触发 OnApplicationShutdown（与 SIGTERM 同一钩子链，取舍见偏差 1）→ 任务终态、`process.kill(pid,0)` 抛错（无孤儿）、停机后拒绝新任务（~1.2s） |
+| §6.3 白名单拒绝 | ✅ PASS | `'install;rm -rf /'`、`'shell'`、`'arbitrary'`、`'dev && echo pwned'` 均 400；白名单四项各 201 running 且可停止（~3.3s） |
+| §6.4 事件断言 | ✅ PASS | `build` 自然退出收 `{task:'build', exitCode:0, durationMs≥0}`（parse 过）；被杀 `dev` 收事件且 `exitCode` 为 number |
+| §6.5 环形缓冲 | ✅ PASS | `build` 输出 2500 行（`fs.writeSync` 同步防截断）→ 终态 SSE 回放：行数 ≤2000（实测 ~2000）、最后一行 `line-2500`（最新保留）、含 `exit` 事件 |
+| §6.6 端口检测 | ✅ PASS | 已监听端口 → `inUse:true`；关闭后 → `false`；`99999` → 400 |
+| §6.7 安全断言（代码级） | ✅ PASS | 单测：`buildSpawnOptions().shell === false`、detached 按平台、`childEnv()` 键 ⊆ {PATH,HOME,APPDATA}（注入 `MIZUKI_P9_LEAK_TEST` 断言不透传）、参数映射逐字、lockfile 探测优先级 |
+| §6.8 回归 | ✅ PASS | 全仓 223/223（P0a–P8 全绿） |
+| §6.9 测试下限 | ✅ PASS | 测试文件 2 个（≥2），用例 14 条（≥13） |
+
+### 2. 文件清单
+
+- 转正 stub（3）：`modules/process/{process.module, process.controller, process-manager.service}.ts`
+- 修改（1，§2 唯一授权）：`main.ts` 追加 `app.enableShutdownHooks()`
+- 夹具（§2 授权）：`test/fixtures/mini-project/{package.json, package-lock.json, scripts/{dev,preview,build}.js}`——零依赖（脚本仅 node 内置），不复用假 Mizuki 执行真实构建
+- 测试新建（2）：`test/modules/process/process-manager.spec.ts`（6 用例）、`test/p9-process.e2e-spec.ts`（8 用例，双实例装配：app A 假 Mizuki 拿 token / app B mini-project 跑任务，共享 DB 与 JWT secret）
+- 零新增依赖（cross-spawn/tree-kill 既有；未引入 @types/tree-kill——P0a 勘误，自带类型验证属实）
+
+### 3. 偏差清单
+
+| # | 偏差 | 原因与处置 |
+|---|---|---|
+| 1 | **优雅停机测试经 `app.close()` 触发**而非向测试进程自发自收 SIGTERM | vitest worker 内自发 SIGTERM 会杀死测试进程本身；`app.close()` 与 `enableShutdownHooks` 走同一 `OnApplicationShutdown` 钩子链（Nest 生命周期），停机逻辑覆盖等价；真实信号路径（生产）经 main.ts 入口同一钩子。记此取舍 |
+| 2 | `yarn install` 无参 | 按包管理器习惯（§3.1 授权记报告）：yarn 裸命令即安装 |
+| 3 | Windows 下不使用 `detached:true` | Windows 进程组语义不同（CREATE_NEW_PROCESS_GROUP 与 tree-kill 的 taskkill /T 组合更稳）；按平台行为记录（§3.2 授权） |
+| 4 | 被杀场景退出码约定 | 有实际退出码用实际值；被信号终止（code 为 null）记 **-1**（§3.5 授权约定负值） |
+| 5 | 端口探测实现 | `net.createServer().listen` 绑定探测（成功→空闲，error→占用）；`byCurrentTask` 字段保留但当前不填（子进程实际监听端口无协议通道可探知，避免误报） |
+| 6 | 夹具 `build.js` 用动态 `import('node:fs')` 而非 `require` | 仓库 lint 禁 require 风格；夹具不改 lint 配置（不在 §2 修改清单） |
+
+### 4. 踩的坑（对后续阶段的提醒）
+
+1. **SSE + JWT**：EventSource API 无法设自定义头；P10d 前端连 `/admin/process/tasks/:id/logs` 需用 `fetch` + ReadableStream 或等价方案携带 Bearer（本阶段 e2e 用原始 http 带头验证通过）。
+2. **Windows 测试清理**：npm 子进程退出后句柄释放有延迟，`rmSync(tmp)` 会 EPERM——测试收尾用重试清理（已内置于 p9 e2e afterAll）。
+3. **stdio 截断**：子进程快速大量输出后 `process.exit()` 会丢尾部（Windows 管道异步）；夹具用 `fs.writeSync` 同步写 + 自然退出规避。
+4. **双实例 token 复用**：同 worker 内多个 TestingModule 共享 `MIZUKI_DB_PATH`/`MIZUKI_CONFIG_PATH` → JWT 跨实例有效（无状态 + 同库用户 + 同 secret）；P10d 如需多实例场景可复用该模式。
+5. `POST /admin/process/tasks` 默认 201（Nest POST 语义），P10d 面板按 201 处理响应。
+6. `snapshotLogs` 为诊断方法保留在 service 上（未暴露 REST），P10d 无需它（SSE 回放已含全部缓冲）。
+
+### 5. commit 记录
+
+- `feat(P9): 白名单子进程管理、SSE 日志与优雅停机`（24589f8）
+- `test(P9): 进程管理验收 14 用例（安全单测 6 + e2e 8）`（30a4110）
+- `docs(P9): CHANGELOG 与 SESSIONS 记录`（本提交）

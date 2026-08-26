@@ -1,5 +1,16 @@
 # 变更日志
 
+## P9 — 进程管理：白名单子进程与 SSE 日志
+
+- `process/{process.module, process.controller, process-manager.service}.ts`：三 stub 转正——任务白名单硬编码 `install/dev/build/preview`（zod enum，注入串/未知任务 → 400）；参数映射逐字固定（`install`：yarn 无参、其余 `<PM> install`；`dev/build/preview`：`<PM> run <task>`），不接受用户附加参数；包管理器按工作目录 lockfile 探测（pnpm > yarn > npm，均无默认）
+- spawn 安全规格（MASTER-PLAN §7 逐字）：cross-spawn `shell:false`；env 仅透传 `PATH/HOME/APPDATA`（`childEnv` 白名单）；POSIX `detached:true` 进程组（Windows 按平台行为，取舍记报告）；工作目录锁定 `mizukiRoot`（safeJoin）；停止统一 `tree-kill(pid)` 整组
+- 日志：内存环形缓冲 2000 行（超丢最旧），stdout/stderr 合并按行切分（`[stderr] `/`[error] ` 标源，半残片保留）；`GET /admin/process/tasks/:id/logs`（@Sse）先回放缓冲再实时推送，终态发 `exit` 事件后 `complete`，连接断开清理订阅
+- 生命周期：内存任务表（status running/exited/killed、pid、exitCode、startedAt/finishedAt）；`POST /admin/process/tasks`（201 返回 id/pid）；`GET tasks/:id`；`DELETE tasks/:id`（tree-kill → killed）；`GET ports/:port`（`net.createServer().listen` 探测法，取舍记报告）
+- 优雅停机：`ProcessManagerService implements OnApplicationShutdown`——停全部 running → 等 5s → 超时 SIGKILL 强杀 → 关闭全部 SSE 观察者 → pino 停机摘要（停止数/强杀数）；停机后拒绝新任务；`main.ts` 追加 `app.enableShutdownHooks()`（§2 授权的唯一既有文件改动）
+- 事件：`process.finished`（自然/异常/被 kill 均发射；被杀无实际退出码时记 `-1`，约定记报告），`ProcessFinishedPayload.parse` 后恰好一次
+- 夹具：`test/fixtures/mini-project/`（§2 授权的最小子项目：零依赖，`dev/preview` 长驻心跳、`build` 同步写 2500 行后自然退出；不复用假 Mizuki 执行真实构建）
+- 测试新增 2 文件 14 用例：安全单测 6（shell:false / env 白名单泄漏断言 / 白名单恰四项 / 注入拒绝 / 参数映射 / 探测优先级）+ e2e 8（含 4 条 slow：启停+SSE、优雅停机、白名单四项、事件断言）。全仓 223/223 绿
+
 ## P8 — 富文本文章、混合公开 API（路径定型）与 settings（关卡：公开 API 定型）
 
 - `articles/{articles.module, articles.controller, articles.service}.ts`：三 stub 转正——富文本 CRUD（`POST/PATCH` 收 `docJson`：对象含 `type` 即合法，深层按信任源不过度约束，取舍记报告；服务端经转义渲染器 + sanitize 生成 `html_cache`；slug 显式指定冲突 409 / 未指定由 title 生成自动避碰；`status` 双态；DELETE 软删）；发布出口发射 `article.published`（`sourceType:'richtext'`，payload 先 parse）；`@OnEvent(post.changed)` 订阅者：删除→软删行，否则按 `file_hash` 幂等 upsert（哈希一致且未软删 → 零写入）；`@OnEvent(article.published)` → 公开列表首页缓存置空失效；公开列表（`status='published'` 且未软删，`pub_date` 降序 + `created_at` 次序，两源交错）；公开详情（markdown 读源文件 → marked + sanitize 渲染 + frontmatter；richtext 返回 `html_cache`）
