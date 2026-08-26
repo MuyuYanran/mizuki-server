@@ -667,3 +667,83 @@ boundaries 拦截测试两轮输出摘要：
 - `feat(P7): 媒体上传五件套、相册管理与 MediaReferenceContributor 注册表`（fc98b57）
 - `test(P7): 媒体/相册验收 20 用例（魔数单测 6 + e2e 14）`（a344e3f）
 - `docs(P7): ADR-006、CHANGELOG 与 SESSIONS 记录`（本提交）
+
+---
+
+## P8 交付报告 — 富文本文章、混合公开 API 与 settings（人工关卡：公开 API 定型）
+
+- 日期：2026-08-26
+- 阶段：P8（C-Plus 连续执行模式；P0b/P3/P6/P8 四关卡之末）
+- 结论：**P8 功能完成，十二项验收全部通过。** `pnpm test` 209/209、`pnpm build` 0 error、`pnpm lint` 0 error / 0 warning。
+
+### 1. 验收结果（§6）
+
+| 项 | 结果 | 说明 |
+|---|---|---|
+| §6.1 两源交错分页 | ✅ PASS | md/rt 各 3 篇日期交错 → page1(limit4) 全 published、pub_date 严格降序、sourceType 混合；page2 与 page1 无重复；`limit=51` → 400；默认 1/10 |
+| §6.2 `<script>` 注入清除 | ✅ PASS | 富文本含 `<script>`/`javascript:` 链接/`" onerror="` 属性注入 → `html_cache` 与公开详情均无 `<script`、无 `onerror="`、无 `javascript:`；markdown 正文注入同样被 sanitize |
+| §6.3 未发布不可见 | ✅ PASS | draft md、draft rt、软删 rt 均不在公开列表；详情各 404 |
+| §6.4 post.changed 增量 | ✅ PASS | posts API 新建 → 行出现（无 sync，轮询断言）；修改 → file_hash 变化；删除 → deleted_at 落库 |
+| §6.5 article.published 缓存 | ✅ PASS | 列表先请求（缓存建立）→ 发布新富文本 → 再请求新文章出现；事件 `sourceType:'richtext'` 断言 |
+| §6.6 公开免认证 + 守卫 | ✅ PASS | `/public/articles`（列表/详情）无 token 200；`/admin/articles` 无 token 401 |
+| §6.7 公开集合与相册 | ✅ PASS | `/public/collections/diary` 返回数组（文件缓存）；未知 type 400；`/public/albums` 返回元信息 + 图片列表（含转换后 `one.jpg`） |
+| §6.8 混合详情渲染 | ✅ PASS | markdown 详情含 `<p>` 渲染标记 + frontmatter；richtext 详情 html === 管理端读回的 `html_cache` |
+| §6.9 settings CRUD | ✅ PASS | PUT/GET 往返一致（对象值）、DELETE 后消失、重复删 404；`content.changed` scope='settings' 且 filePaths=[] |
+| §6.10 articles 媒体引用 | ✅ PASS | `registry.names()` 含 'articles'；富文本 `cover` 引用媒体 → 删媒体 409 + `{refType:'article-cover', targetLabel:slug}` |
+| §6.11 回归 | ✅ PASS | 全仓 209/209（P0a–P7 全绿） |
+| §6.12 测试下限 | ✅ PASS | 测试文件 2 个（≥2），用例 22 条（≥18） |
+
+### 2. 【关卡复核清单】P8（公开 API 定型——**自此冻结**）
+
+已定型公开路径清单（全部 `@Public()` 豁免 + 继承全局 60 次/分限流；前缀 `/api/v1`）：
+
+| # | 路径 | 方法 | 说明 | 冻结 |
+|---|---|---|---|---|
+| 1 | `/public/articles` | GET | 混合分页列表；`?page=&limit=`（默认 1/10，上限 50）；响应 `{items,total,page,limit}`；item 字段 `id,slug,title,sourceType,cover,summary,category,pinned,pubDate` | 🔒 |
+| 2 | `/public/articles/:slug` | GET | 详情；markdown → `{frontmatter, html(sanitized)}`；richtext → `{html(html_cache)}` | 🔒 |
+| 3 | `/public/collections/:type` | GET | 六类集合只读（`:type` 白名单同 P4） | 🔒 |
+| 4 | `/public/albums` | GET | 相册列表（info 元信息 + 图片文件名列表） | 🔒 |
+| 5 | `/public/comments/...` | GET/POST | **二期**，本阶段未实现（comment 表 P0b 已建） | ⏳ |
+
+面板与博客前端自此按上表集成，路径不再变更（MASTER-PLAN §9 守则 8）。
+
+### 3. 文件清单
+
+- 转正 stub（6）：`modules/articles/{articles.module, articles.controller, articles.service}.ts`、`modules/settings/{settings.module, settings.controller, settings.service}.ts`
+- 新建（3 + 测试 2）：`common/render/{render.ts, sanitize-html.d.ts}`、`modules/articles/media-reference.ts`、`modules/collections/public-collections.controller.ts`、`modules/albums/public-albums.controller.ts`；`test/common/render/render.spec.ts`、`test/p8-articles-public.e2e-spec.ts`
+- 修改（2）：`collections.module.ts`、`albums.module.ts`（controllers 追加公开控制器，§2 授权）
+- 零新增依赖（marked 18 / sanitize-html 2.17 均在清单）
+
+### 4. 疑问清单（不静默决定的取舍）
+
+| # | 事项 | 决定 |
+|---|---|---|
+| 1 | **settings REST 路径**（MASTER-PLAN §5 未列） | 定型为 `GET /admin/settings`、`PUT /admin/settings/:key`、`DELETE /admin/settings/:key`（最小规格；§3.7 授权补白） |
+| 2 | **doc_json 校验深度** | 仅校验「对象且含 type 字段」（信任源）；深层结构不约束——安全由输出侧保证（转义渲染 + sanitize 双保险）；P10c TipTap 对接时如需结构校验再补 |
+| 3 | **缓存实现策略** | 最简内存缓存：仅 `page=1&limit=10` 首页热数据，`article.published` 置空失效（双源发射方 posts/articles 全覆盖）；多实例部署需换共享缓存（当前单机定位不受影响） |
+| 4 | **sanitize 白名单细节** | 排版标签集（h1-6/p/list/blockquote/pre/code/a/img/figure/table/div/span 等）+ 受限属性（a: href/title/target/rel；img: src/alt/title/width/height）+ scheme `http/https/mailto/tel`；其余标签/属性/协议剥离 |
+| 5 | TipTap 渲染器覆盖面 | 最小节点集（doc/paragraph/heading/text/bulletList/orderedList/listItem/blockquote/codeBlock/hardBreak/horizontalRule/image + 5 种 marks）；未知节点仅渲染子节点不输出原始 HTML——P10c 若用更多节点类型（表格等）需扩展渲染器 |
+| 6 | marked v18 为 ESM-only | Node ≥22.12 原生支持 require(ESM)（本机 v25 验证），CJS 构建无需改动；若降级 Node <22.12 需处理 |
+
+### 5. 偏差清单
+
+| # | 偏差 | 原因与处置 |
+|---|---|---|
+| 1 | `article.published` 在「创建/修改后状态为 published」时均发射 | 与 P5 侧口径一致（P6 报告偏差 3 先例）；订阅者幂等（缓存失效天然幂等） |
+| 2 | 公开列表次序在 `pub_date` 降序之外追加 `created_at` 次序 | 同日发布的稳定次序（验收仅断言 pub_date 降序，追加次序不改变验收语义） |
+| 3 | sanitize-html 环境类型声明放 `common/render/sanitize-html.d.ts` | @types/sanitize-html 不在 P0a 依赖清单、本阶段禁新增依赖；声明文件在 §2 允许的新建目录内 |
+
+### 6. 踩的坑（对后续阶段的提醒）
+
+1. **订阅者写库的测试时序**：EventEmitter2 默认不 await 异步监听器；e2e 断言订阅者副作用（DB 行）用轮询（`waitFor` 2s 窗口），不要假设响应返回即副作用完成。
+2. **marked.parse 类型**：v18 重载下 `parse(md, { async: false })` 返回 `string`；不传选项时类型是 `string | Promise<string>`。
+3. **sanitize-html 无官方类型**：已放最小环境声明；若 P11 允许动依赖清单，可换 @types 包（需走变更流程）。
+4. **slug 唯一性是全局的**（markdown 目录名与 richtext 共用 `article.slug` UNIQUE）——P10c 富文本编辑器生成 slug 时避开已有文章目录名。
+5. **settings key 字符集**（`[A-Za-z0-9_.:-]`）是 P8 定的，P10d 设置页表单按此约束键名。
+6. 公开集合直读 value-cache：P10d 若做仪表盘统计，优先走事件聚合，不要在热路径重复读文件。
+
+### 7. commit 记录
+
+- `feat(P8): 富文本文章、混合公开 API（路径定型）与 settings`（cd1ec00）
+- `test(P8): 富文本/公开 API 验收 22 用例（渲染安全单测 8 + e2e 14）`（a4962c3）
+- `docs(P8): CHANGELOG 与 SESSIONS 关卡交付报告`（本提交）

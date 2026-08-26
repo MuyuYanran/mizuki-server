@@ -1,5 +1,16 @@
 # 变更日志
 
+## P8 — 富文本文章、混合公开 API（路径定型）与 settings（关卡：公开 API 定型）
+
+- `articles/{articles.module, articles.controller, articles.service}.ts`：三 stub 转正——富文本 CRUD（`POST/PATCH` 收 `docJson`：对象含 `type` 即合法，深层按信任源不过度约束，取舍记报告；服务端经转义渲染器 + sanitize 生成 `html_cache`；slug 显式指定冲突 409 / 未指定由 title 生成自动避碰；`status` 双态；DELETE 软删）；发布出口发射 `article.published`（`sourceType:'richtext'`，payload 先 parse）；`@OnEvent(post.changed)` 订阅者：删除→软删行，否则按 `file_hash` 幂等 upsert（哈希一致且未软删 → 零写入）；`@OnEvent(article.published)` → 公开列表首页缓存置空失效；公开列表（`status='published'` 且未软删，`pub_date` 降序 + `created_at` 次序，两源交错）；公开详情（markdown 读源文件 → marked + sanitize 渲染 + frontmatter；richtext 返回 `html_cache`）
+- `articles.controller.ts` 双控制器：`ArticlesController`（admin）+ `PublicArticlesController`（@Public，`/public/articles` 与 `/public/articles/:slug`）；分页 `?page=&limit=`（默认 1/10，limit>50 → 400）
+- `settings/{settings.module, settings.controller, settings.service}.ts`：三 stub 转正——`site_setting` key-value（GET 全量 / PUT `:key` upsert JSON 序列化 / DELETE，缺键 404；key 安全字符集校验）；写入成功发射 `content.changed`（scope='settings'，filePaths=[]）；**路径为规格补白**（MASTER-PLAN §5 未列，见交付报告疑问清单）
+- `common/render/`（新建）：渲染统一安全出口——`renderMarkdownToSafeHtml`（marked → sanitize-html）、`renderTipTapDoc`（最小 TipTap JSON → HTML 渲染器：文本/属性值全转义、未知节点仅渲染子节点、marks 支持 bold/italic/code/strike/link）、`sanitizeHtmlFragment`；白名单 = 排版标签集 + `a/img` 受限属性 + scheme 仅 `http/https/mailto/tel`，`script`/`on*`/`javascript:` 全部剥离；附 `sanitize-html.d.ts` 最小环境声明（@types 不在依赖清单且禁新增）
+- `articles/media-reference.ts`（新建）：第四个媒体引用贡献者（`article.cover` 非空未软删行 → `article-cover`），`ArticlesModule.onModuleInit` 注册——P7 注册表四方就位
+- `collections/public-collections.controller.ts`（新建）：`GET /public/collections/:type`（@Public；`:type` 白名单同 P4 未知 400；`public: false` → 404；读取经 DataFileService value-cache）；`albums/public-albums.controller.ts`（新建）：`GET /public/albums`（@Public；元信息 + 图片文件名列表）；两模块 `controllers` 数组追加（§2 授权）
+- **公开路径自此冻结**（MASTER-PLAN §9 守则 8）：`/public/articles`、`/public/articles/:slug`、`/public/collections/:type`、`/public/albums`；评论端点二期不实现（表已建，P0b）
+- 测试新增 2 文件 22 用例：render 单测 8（双渲染路径 × 三类注入 + 结构输出 + iframe 剥离）+ e2e 14。全仓 209/209 绿
+
 ## P7 — 媒体上传管线、相册与引用检查注册表
 
 - `media/{media.module, media.controller, media.service}.ts`：三 stub 转正——上传五件套顺序执行：① 扩展名白名单（`jpg/jpeg/png/webp/gif`）→ ② 魔数嗅探与扩展名比对（不符即拒）→ ③ 配置上限（默认 10MB，413）→ ④ 随机文件名 `<nanoid>.<ext>` 写 `public/images/uploads/`（safeJoin + 自动建目录）→ ⑤ sharp 按原格式重编码（`.rotate()` 应用 EXIF 方向后剥离全部元数据）并读宽高的确；`media_file` 索引入库（path/original_name/mime/size/width/height/sha256）；列表倒序；`DELETE /admin/media/:id`：注册表 `collectAll()` 聚合引用 → 命中 → **409 + `detail.references[{refType,targetLabel}]`**；无引用 → `preWriteBackup` → 删文件与行；成功出口发射 `media.changed`
