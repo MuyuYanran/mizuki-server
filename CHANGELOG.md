@@ -1,5 +1,19 @@
 # 变更日志
 
+## P6 — 认证与初始化（关卡：安全边界定型）
+
+- `auth/{auth.module, auth.controller, auth.service}.ts`：三 stub 转正——登录（argon2id 校验、用户不存在时哑元哈希恒定时间行为、失败计数 5 次 → `locked_until` 锁 15 分钟并清零计数、锁定期正确密码也拒 423）、jose HS256 双 Token（access 15m / refresh 7d；claims：sub/username/type/jti/iat/exp；`setExpirationTime` 相对时间串——jose v6 无 setExpirationIn）、`POST /admin/auth/refresh` 轮换签发新对（校验 type='refresh' + 用户仍存在）、无状态 `logout`、`GET /admin/auth/me`；JWT secret 三级解析（env `MIZUKI_JWT_SECRET` → config.jwtSecret → 兜底生成持久化，见 **ADR-005**）；`initialize`：已初始化 409 先行 → detector 四项检测（失败 400 附 checks 明细）→ argon2id 建管理员 → config.json 合并原子写（mizukiRoot/mode/jwtSecret）→ 刷新配置单例。登录路由级 `@Throttle` 5 次/分（独立于 P1 全局 60 次/分）
+- `common/guards/jwt-auth.guard.ts`：全局守卫转正——经 `APP_GUARD` 注册（顺序在 ThrottlerGuard 之后：限流先于认证）；`@Public()` 豁免（`IS_PUBLIC_KEY` 元数据）；Bearer 提取 + `verifyAccessToken`（签名/时效/类型/用户存在四重校验）；拒绝日志不输出 token 内容。**跨层解耦**：守卫（L0）不 import auth 模块（L3），经 `ACCESS_TOKEN_VERIFIER` Symbol token 注入 `AccessTokenVerifier` 接口，AuthModule 以 `useExisting: AuthService` 提供（boundaries 合规）
+- `common/decorators/public.decorator.ts`：`SetMetadata` 实现转正；豁免清单逐字：`/system/health`、`/admin/auth/login`、`/admin/auth/refresh`、`/system/detect`、`/system/init`（+ `/public/**` P8 落地）
+- `common/interceptors/operation-log.interceptor.ts`：转正——`APP_INTERCEPTOR` 全局（DI 注入 drizzle；与 §4.3 `useGlobalInterceptors` 等效的取舍见交付报告）；审计 `/api/v1/admin/**` 的 POST/PATCH/DELETE；detail = body 递归脱敏（键名含 password/token/secret/authorization/credential → `***`）+ authorization 头掩码；异步写失败仅记 pino 不影响响应
+- `modules/system/mizuki-detector.service.ts`：转正——MASTER-PLAN §4.3 四项检测（package.json 含 astro / astro.config.{mjs,ts,js} / src/data 含 diary|friends / src/content/posts）+ 包管理器 lockfile 探测（无 lockfile 默认 npm 并在 checks 注明）
+- `modules/system/system.controller.ts`：扩展——`GET /system/health` 标 `@Public()` 且响应追加 `initialized`（admin_user 有无行）；`GET /system/status`（需认证：initialized/mode/version/uptime）；`POST /system/detect`（@Public）；`POST /system/init`（@Public，一次性）；**`GET /admin/system/logs`（规格补白：operation_log `?page=&limit=` created_at 倒序，MASTER-PLAN §5 未列，处理同 P8 settings 补白，见交付报告疑问清单）**；控制器改 `@Controller()` 显式全路径以容纳双前缀路由
+- `modules/system/system.module.ts`：提供并导出 `MizukiDetectorService`；与 AuthModule 互为依赖（detector ← init 端点）双侧 `forwardRef` 破环（L3 互导合法）
+- `app.module.ts`：providers 追加 `{APP_GUARD: JwtAuthGuard}`（ThrottlerGuard 之后）与 `{APP_INTERCEPTOR: OperationLogInterceptor}`
+- `config/app-config.ts`：`AppConfigSchema` 追加可选 `jwtSecret`；`defaultConfigPath()` 支持 `MIZUKI_CONFIG_PATH` 覆盖（测试钩子，同 `MIZUKI_DB_PATH` 模式，见 ADR-005）
+- 测试：新增 2 文件 24 用例（p6 e2e 17 + detector 单测 7）+ `test/helpers/admin-auth.ts`（initAndLogin + withAuth 代理）；既有 e2e 守卫适配（交付报告 §6.11）：p2/p4/p5 经 init+login 取 token 全请求附加、p1 测试控制器 `@Public()`、p2 补齐检测结构。全仓 167/167 绿
+- 新增 ADR-005（JWT secret 管理与配置路径测试钩子）；零新增依赖（jose/argon2/@nestjs/throttler 均在 P0a 清单）
+
 ## P5 — Markdown 文章（Posts）读写与索引同步
 
 - `common/markdown/frontmatter.ts`（新建）：gray-matter 包装提升至 L0 纯工具层（MASTER-PLAN §4 合法解耦通道，供 posts 与 P8 复用）——`parseMarkdown`/`stringifyMarkdown` 往返保真：未知字段原样保留、键序不变、已知字段类型不漂移；补偿 gray-matter stringify 追加换行行为，正文逐字节精确往返；空 frontmatter 不产生分隔符块

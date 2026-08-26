@@ -523,3 +523,91 @@ boundaries 拦截测试两轮输出摘要：
 
 - `feat(P5): Markdown 文章读写、封面转 JPG 与 article 索引同步`（023dcc7）
 - `docs(P5): CHANGELOG 与 SESSIONS 记录`（本提交）
+
+---
+
+## P6 交付报告 — 认证与初始化（人工关卡：安全边界定型）
+
+- 日期：2026-08-26
+- 阶段：P6（C-Plus 连续执行模式；P0b/P3/P6/P8 四关卡之三）
+- 结论：**P6 功能完成，十二项验收全部通过。** `pnpm test` 167/167、`pnpm build` 0 error、`pnpm lint` 0 error / 0 warning。
+
+### 1. 验收结果（§6）
+
+| 项 | 结果 | 说明 |
+|---|---|---|
+| §6.1 既有路由挂守卫 | ✅ PASS | collections/posts/backups 无 Token 均 401；`GET /admin/auth/me` 无 Token 401、有效 Token 200（关卡复核清单附抽查矩阵） |
+| §6.2 登录流程 | ✅ PASS | init → login 正确凭据返回双 Token → me 通过；错误密码 401 且 `failed_login_count`=1 |
+| §6.3 失败锁定 | ✅ PASS | 连续错误第 5 次触发锁定（此后正确密码 423，独立实例验证）；`locked_until` 落库非空、计数清零 |
+| §6.4 登录限流 | ✅ PASS | 路由级 5 次/分：独立实例连续 6 次，第 6 次 429（`code:'ThrottlerException'`） |
+| §6.5 刷新与过期 | ✅ PASS | refresh 换新对（轮换，新值不同）且新 access 可用；篡改签名/过期（jose 伪造）/refresh 当 access 均 401 |
+| §6.6 init 一次性 | ✅ PASS | 首次 201；二次（不同凭据）409；无效目录场景 409 先行（一次性语义优先），检测明细由 detect 端点与单测覆盖 |
+| §6.7 detector 正反 | ✅ PASS | 单测 7 用例：正例（四项通过 + pnpm/yarn/npm 探测 + 无 lockfile 默认注明）+ 四反例各对应检查失败；REST 反例 1 条（缺 src/data） |
+| §6.8 @Public 豁免 | ✅ PASS | health/detect 无 Token 可访问；status 无 Token 401；health `initialized` init 前 false → init 后 true |
+| §6.9 操作日志脱敏 | ✅ PASS | 登录记录存在；`detail` 含 `"password":"***"` 且不含密码明文与任何 token 值（关卡复核清单附断言明细） |
+| §6.10 日志读取端点 | ✅ PASS | 无 Token 401；带 Token 返回 `{page,limit,total,items}`，created_at 倒序，含登录记录 |
+| §6.11 回归 | ✅ PASS | 全仓 167/167（适配方式见下） |
+| §6.12 测试下限 | ✅ PASS | 本阶段测试文件 2 个（≥2），用例 24 条（≥20；另有适配用 helper 1 个） |
+
+### 2. 【关卡复核清单】P6（安全边界定型，供人工补把关）
+
+**每模块无 Token 401 抽查结果**（`test/p6-auth.e2e-spec.ts`「§6.1 既有模块无 Token 一律 401」）：
+
+| # | 模块 | 抽查路由 | 无 Token | 带有效 Token |
+|---|---|---|---|---|
+| 1 | collections | `GET /admin/collections/diary` | 401 ✅ | —（P4 e2e 全绿覆盖） |
+| 2 | posts | `GET /admin/posts` | 401 ✅ | 200 ✅（同用例对照断言） |
+| 3 | backup | `GET /admin/backups` | 401 ✅ | —（P2 e2e 全绿覆盖） |
+| 4 | auth | `GET /admin/auth/me` | 401 ✅ | 200 ✅ |
+
+另：伪造签名 token / 过期 token / refresh 当 access 三种变体全部 401（守卫细节用例）。
+
+**操作日志脱敏断言结果**（「§6.9 操作日志」用例）：
+1. `operation_log` 中 `/admin/auth/login` 记录 ≥1 条 ✅；
+2. 每条 `detail` 均含 `"password":"***"`（键级掩码生效）✅；
+3. 每条 `detail` 均**不含**密码明文 `admin-pass-123`、不含 accessToken / refreshToken 值 ✅；
+4. 登出（`/admin/auth/logout`）同样被记录（需 Token 的写操作）✅。
+
+### 3. 文件清单
+
+- 转正 stub（7）：`modules/auth/{auth.module, auth.controller, auth.service}.ts`、`common/guards/jwt-auth.guard.ts`、`common/decorators/public.decorator.ts`、`common/interceptors/operation-log.interceptor.ts`、`modules/system/mizuki-detector.service.ts`
+- 修改（4）：`modules/system/system.controller.ts`（扩展 5 端点 + @Controller() 显式路径）、`modules/system/system.module.ts`（detector provider/export + forwardRef）、`app.module.ts`（APP_GUARD JwtAuthGuard + APP_INTERCEPTOR）、`config/app-config.ts`（jwtSecret 字段 + MIZUKI_CONFIG_PATH 钩子）
+- 新建（3 + 测试 3）：`docs/decisions/ADR-005-jwt-secret-management.md`；`test/p6-auth.e2e-spec.ts`（17 用例）、`test/modules/system/mizuki-detector.spec.ts`（7 用例）、`test/helpers/admin-auth.ts`（适配工具）
+- 适配修改（4）：`test/{p1-security,p2-backup,p4-collections,p5-posts}.e2e-spec.ts`（守卫适配）
+- 零新增依赖
+
+### 4. 疑问清单（不静默决定的取舍，P6 §7.3）
+
+| # | 事项 | 决定 |
+|---|---|---|
+| 1 | **JWT secret 持久化策略** | env `MIZUKI_JWT_SECRET` 优先 → config.jwtSecret（init 生成 384bit 随机持久化）→ 兜底生成；重启后 refresh 仍有效。已记 **ADR-005** |
+| 2 | **锁定阈值/时长** | 5 次失败 → 锁 15 分钟（§3.3 定值），锁定时计数清零、解锁后重新计 5 次；锁定响应 423 |
+| 3 | **logout 无状态** | 不维护黑名单，200 返回，客户端清除 token（§3.1 授权取舍）；后果：已签发 access token 在 15m 内技术上仍有效 |
+| 4 | **既有测试守卫适配方式** | §6.11 两选其一取「测试内先 init+login 拿 token」：helper `initAndLogin` + `withAuth` Proxy 自动附头（p2/p4/p5）；p1 测试专用控制器以 `@Public()` 标记（不触碰生产豁免清单）；p2 额外补齐检测所需 package.json/astro.config |
+| 5 | **`GET /admin/system/logs` 端点** | 规格补白（MASTER-PLAN §5 未列），处理方式同 P8 settings 路径补白：本阶段落地，需认证，分页倒序 |
+| 6 | 密码最短长度 | init schema `password.min(8)`（规格未定策略，取最小安全基线；测试凭据 14 位兼容） |
+| 7 | 拦截器接线方式 | §4.3 文字为 `useGlobalInterceptors`，因拦截器需注入 DRIZZLE_DB 改用 app.module 的 `APP_INTERCEPTOR`（DI 等效，全局生效一致） |
+| 8 | logout 认证要求 | §3.2 表格将其列于「Auth（公开）」，但 §3.3 豁免清单逐字不含 logout → 按清单执行（需 Token），与 §6.9「登出等管理写操作」表述一致 |
+
+### 5. 偏差清单（理想为空 → 实际：解释性偏差 2 条）
+
+| # | 偏差 | 原因与处置 |
+|---|---|---|
+| 1 | `system.module.ts` 修改超出 §2 字面清单 | §4.2 明文要求 detector 归 SystemModule 并供 auth 使用 → provider/export 必须修改该文件（隐性授权）；forwardRef 双侧破环为标准解 |
+| 2 | jose v6 API 差异 | 规格写作 `setExpirationIn`（jose v4 时代）；安装的 jose 6.2.10 为 `setExpirationTime`（接受相对时间串 '15m'/'7d'），语义等价 |
+
+### 6. 踩的坑（对后续阶段的提醒）
+
+1. **模块互引必须双侧 forwardRef**：单侧 forwardRef 不够——ES import 环导致被引方类在装饰器求值期为 undefined（Nest 报 "imports array is undefined"）。auth↔system 已双侧 forwardRef；后续若再出现 L3 互引（如 P9 process ↔ system 探测）照此办理。
+2. **L0 守卫/拦截器禁止 import modules/**：boundaries 会拦（l0→l3 无策略）。解法：Symbol token + 接口（`ACCESS_TOKEN_VERIFIER` 模式），实现方模块以 `useExisting` 提供并 export。
+3. **jose v6**：`setExpirationIn` 已移除；`setExpirationTime` 接 number|Date|相对串。P9/P10 若再签发 token 注意。
+4. **BACKUP_OPTIONS 工厂在启动时读配置快照**：同实例内 init 之后不会自动刷新（posts/backup 服务的 mizukiRoot 仍为启动时值）。生产路径无此问题（init 后重启服务才干活）；e2e 一律显式覆写 BACKUP_OPTIONS（P2/P4/P5/P6 均如此）。**P7/P8 新模块若直接读 BACKUP_OPTIONS.mizukiRoot，注意该快照语义**。
+5. **登录限流与锁定测试互扰**：限流计数按 app 实例内存隔离 → 锁定/限流用例各开独立实例（共享同一 MIZUKI_DB_PATH 即可）；同实例内 5 次/分上限会让「第 6 次正确密码」先撞 429。
+6. **init 的 409 优先于检测**：已初始化后即使给非法目录也返回 409（一次性语义先行）——前端向导应在未初始化状态下才展示 init 表单。
+7. **config.json 含 jwtSecret**：勿将 `apps/server/data/config.json` 提交或外发（.gitignore 已覆盖 data/；P11 全量回归时复查）。
+
+### 7. commit 记录
+
+- `feat(P6): argon2id + jose 双 Token 认证、全局守卫与一次性初始化`（0e48bb2）
+- `test(P6): 认证/初始化验收 24 用例与既有 e2e 守卫适配`（6554149）
+- `docs(P6): ADR-005、CHANGELOG 与 SESSIONS 关卡交付报告`（本提交）
