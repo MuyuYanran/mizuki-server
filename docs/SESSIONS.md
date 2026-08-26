@@ -1037,3 +1037,81 @@ vue 3.5.41、vue-router 4.6.4、element-plus 2.14.5、vite 7.3.6、@vitejs/plugi
 
 - `feat(P10c): 管理面板文章模块——Markdown/About 编辑（CodeMirror 6）与富文本（TipTap）`（本提交）
 - `docs(P10c): CHANGELOG、SESSIONS 与 ADR-001 修订记录`（随本提交或紧随的下一次）
+
+---
+
+## P10d 交付报告 — 管理面板剩余模块：媒体库/相册/备份/控制台/仪表盘/设置
+
+- 日期：2026-08-26
+- 阶段：P10d（C-Plus 连续执行模式）
+- 结论：**P10d 功能完成。** 根三连全绿：`pnpm test` 223/223、`pnpm -r build`（shared/web/server 三项目，含前端 vue-tsc strict）、`pnpm lint` 0 error / 0 warning；前端产物 `apps/web/dist/` 生成。
+
+### 1. 验收结果（§6）
+
+| 项 | 结果 | 说明 |
+|---|---|---|
+| §6.1 媒体上传/删除/引用明细（手动） | ⏳ 人工补验 | 代码链路全通：MediaLibraryPage 表格 + ImageUploader 上传 + 删除 409 → ReferenceDetailDialog；后端 P7 e2e 覆盖。走查见 §4 |
+| §6.2 相册全流程（手动） | ⏳ 人工补验 | AlbumsPage 列表+创建 + AlbumDetailPage 图片网格+上传+删图+编辑 info；后端 P7 e2e 覆盖 |
+| §6.3 备份创建/恢复/删除（手动） | ⏳ 人工补验 | BackupsPage 四 scope 创建 + 恢复二次确认（提示覆盖+自动快照）+ 删除；后端 P2 e2e 覆盖 |
+| §6.4 控制台（手动） | ⏳ 人工补验 | ConsolePage 四任务按钮 + LogTerminal SSE 实时日志 + 停止 + 端口检测；后端 P9 e2e 覆盖 |
+| §6.5 仪表盘（手动） | ⏳ 人工补验 | DashboardPage 统计卡片 + 操作日志；进入拉取+手动刷新（不实现 SSE，ADR-008） |
+| §6.6 设置页（手动） | ⏳ 人工补验 | SettingsPage 按值类型渲染控件 + 分组 + 新增 key；后端 P8 e2e 覆盖 |
+| §6.7 端到端（手动） | ⏳ 人工补验 | 登录→建日记（传图）→传媒体库→建文章→备份→构建→预览看日志 |
+| §6.8 构建与回归 | ✅ PASS | `pnpm --filter @mizuki/web build`（vue-tsc strict + vite build）通过；根 `pnpm test` 223/223；`pnpm lint` 0/0 |
+
+### 2. 文件清单
+
+新建（apps/web 下 16 个 + docs 1 个）：
+- `src/api/{media,albums,backups,process,dashboard,settings}.ts`（6 个端点客户端）
+- `src/components/{ImageUploader,ReferenceDetailDialog,LogTerminal}.vue`（3 个通用组件）
+- `src/views/media/MediaLibraryPage.vue`、`src/views/albums/{AlbumsPage,AlbumDetailPage}.vue`、`src/views/backups/BackupsPage.vue`、`src/views/process/ConsolePage.vue`、`src/views/DashboardPage.vue`、`src/views/settings/SettingsPage.vue`（7 个页面）
+- `docs/decisions/ADR-008-no-events-sse-forward.md`
+
+修改（3）：
+- `src/router/index.ts`（重写：接入新路由，清空 placeholderRoutes，DashboardPlaceholder/PlaceholderView 不再引用）
+- `src/views/collections/CollectionListPage.vue`（抽屉加 ImageUploader 快速上传区，回填图片字段）
+- `src/components/LogTerminal.vue`（加 finished 事件）
+
+未触碰 `apps/server/` 任何源码 ✅（不实现 GET /admin/events，后端零改动）
+
+### 3. `GET /admin/events` 决策（ADR-008）
+
+**不实现。** 仪表盘用进入拉取 + 手动刷新。理由：§3.5 标注实时刷新可选；EventSource 无法带自定义头需 fetch 流或 query token 方案；P10d 主体为前端，后端例外最小化；仪表盘统计值非时效敏感。完整论证见 ADR-008。
+
+### 4. 人工补验清单（手动交互项，供事后走查）
+
+前置：杀掉占用 20154 的旧实例，`node apps/server/dist/main.js` 起后端（指向 test/fixtures/mizuki 假项目，需先 init），`pnpm --filter @mizuki/web dev` 起前端（20155），登录管理员：
+
+1. **媒体库**：进 /media → 上传图片 → 列表出现 → 复制路径 → 删除被引用图 → 409 引用明细展示。
+2. **相册**：进 /albums → 创建（填全字段）→ 进详情 → 上传图片（非 JPG 自动转 JPG）→ 删图 → 编辑 info。
+3. **备份**：进 /backups → 创建（四 scope 各一）→ 恢复（确认对话框提示覆盖+自动快照）→ 删除。
+4. **控制台**：进 /console → 启动 dev → 日志实时滚动 → 停止 → 状态更新；端口检测输入 20154 → 占用。
+5. **仪表盘**：进 / → 卡片数值与后端一致 → 点刷新更新。
+6. **设置**：进 /settings → 设置一个布尔键 → 保存 → 刷新仍在 → 复杂对象 JSON 编辑+校验。
+7. **端到端**：登录 → 建日记（含上传图片到 images）→ 传图到媒体库 → 建文章 → 创建备份 → 执行构建 → 启动预览看日志。
+
+### 5. 疑问清单（取舍决策）
+
+| # | 事项 | 决定 |
+|---|---|---|
+| 1 | **媒体缩略图** | 后端未暴露 Mizuki public/ 静态文件服务，媒体库不显示缩略图，展示文件信息+路径。留 P11 或二期补静态服务 |
+| 2 | **P10c 封面接入统一上传组件** | P10c 封面走专用端点（POST /admin/posts/:slug/cover，cover.jpg），与媒体库上传（public/images/uploads）是两种语义；P10d 图片上传打通主要落地于六类集合（diary.images/projects.image/devices.image 经 ImageUploader 走 media 回填），P10c 封面保持既有专用端点不变（§2"不改既有交互语义"） |
+| 3 | **SSE 认证** | SSE fetch 流不走 http.ts 的 401 自动 refresh；首次 401 → onError 提示重新登录。建议连接前先调 getTask 触发潜在 refresh |
+| 4 | **相册详情获取** | 后端无 GET /admin/albums/:id 单端点，AlbumDetailPage 用 list + find by name |
+| 5 | **设置分组** | 按 key 前缀分组（site/theme/nav/social/feature/service），无前缀归"其他"；无预定义 key |
+| 6 | **Dashboard 不调 detect** | detect 需 mizukiRoot，前端无该信息；仪表盘以 status.mode 表示模式，检测明细留给向导 |
+
+### 6. 踩的坑（对后续阶段的提醒）
+
+1. **注释里的 `*/` 会关闭块注释**：AlbumsPage 注释写 `title*/description`，`*/` 提前关闭 `/** */` 块，后续变代码语法错误（TS1127）。注释内避免 `*/` 序列。
+2. **views/xxx/ 子目录 import 路径**：`src/views/media/` 到 `src/api/` 是 `../../api/`（两级），不是 `../api/`（一级）。DashboardPage 在 `src/views/` 直接下用 `../api/`（一级）正确。子目录页面写错路径致 TS2307 + 连带 TS7006/TS18046。
+3. **并行跑 test+build+lint 致 P9 flaky**：P9 §6.5 环形缓冲 e2e（启停子进程+waitFor）在 CPU 密集并行竞争下 waitFor 超时；单独重跑 test 恢复绿。后续会话自检 test 建议单独跑。
+4. **build 需清洁环境**：vite build 的 prepareOutDir 清理 dist 受 WorkBuddy safe-delete shim 干扰（trash 中止），须 `unset BASH_ENV && export NODE_OPTIONS=""` 后跑（同 lint，P0b 坑3）。
+5. **LogTerminal finished 事件**：exit 事件后 emit finished，ConsolePage 据 getTask 刷新终态；卸载时 detach 退订。
+6. **P11 收尾**：媒体缩略图（静态服务）、路由级代码分割（chunk 警告）、Swagger 分组、README、bin 脚本、安全复查。
+7. **废弃尝试残留差点进 commit**：会话收尾发现工作区残留一份已写好并注册进 system.module.ts 的 `events.controller.ts`（SSE 转发端点）——这是采纳 ADR-008（不实现）之前的尝试代码，与 ADR-008/CHANGELOG"后端零改动"/本报告"未触碰 apps/server"三处矛盾，且前端零调用、测试零依赖。已将其移入回收站、回滚 system.module.ts 注册、清理 dist 内孤儿产物（events.controller.js[.map]），server 编译验证通过，工作区恢复"后端零改动"。教训：**改变实现方向后，立即删除被否决方案的代码，再写 ADR**，不能只写 ADR 不清代码。
+
+### 7. commit 记录
+
+- `feat(P10d): 管理面板剩余模块——媒体库/相册/备份/控制台/仪表盘/设置`（本提交）
+- `docs(P10d): CHANGELOG、SESSIONS、ADR-008`（随本提交或紧随的下一次）

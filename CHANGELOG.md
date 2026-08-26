@@ -1,5 +1,22 @@
 # 变更日志
 
+## P10d — 管理面板剩余模块：媒体库/相册/备份/控制台/仪表盘/设置
+
+- `src/api/{media,albums,backups,process,dashboard,settings}.ts`（新建 6 个）：端点客户端，封装对应后端 REST，复用 http.ts 的 401 自动 refresh；`process.ts` 含 SSE 日志 fetch+ReadableStream 消费（EventSource 无法带 token，P9 踩坑）；`dashboard.ts` 聚合多端点（status/posts/collections/albums/backups/logs），单端点失败降级不阻塞整体展示
+- `src/components/{ImageUploader,ReferenceDetailDialog,LogTerminal}.vue`（新建 3 个）：ImageUploader（选图→POST /admin/media→emit uploaded，六类内容与媒体库复用）；ReferenceDetailDialog（409 引用明细展示 refType+targetLabel，纯文本禁 v-html）；LogTerminal（SSE 日志终端，fetch 流消费，stderr 标红，纯文本渲染禁 v-html，组件卸载退订，exit 事件 emit finished 通知父刷新）
+- `src/views/media/MediaLibraryPage.vue`（新建）：媒体表格（原名/尺寸/大小/路径）+ 上传 + 删除（409 引用明细 ReferenceDetailDialog）+ 复制路径到剪贴板；缩略图暂不实现（后端无 Mizuki public/ 静态文件服务，记报告）
+- `src/views/albums/{AlbumsPage,AlbumDetailPage}.vue`（新建 2 个）：相册卡片列表 + 创建对话框（info.json 全字段）+ 详情（图片网格 + 上传 + 删图二次确认 + 编辑 info 对话框）
+- `src/views/backups/BackupsPage.vue`（新建）：备份列表 + 创建（scope 选择 full/data/content/db + 备注）+ 恢复（二次确认，明确提示"将覆盖当前内容" + 说明覆盖前自动快照）+ 删除（二次确认）
+- `src/views/process/ConsolePage.vue`（新建）：四任务按钮（install/dev/build/preview）→ POST /admin/process/tasks + SSE 日志终端 LogTerminal + 停止 DELETE + 任务状态徽标（running/exited/killed）+ 端口检测 GET /admin/process/ports/:port
+- `src/views/DashboardPage.vue`（新建，替换 P10a DashboardPlaceholder）：统计卡片（服务状态/文章数/草稿数/日记数/友链数/相册数/备份状态/版本/运行时长）+ 最近操作日志（对接 P6 GET /admin/system/logs）；进入拉取 + 手动刷新（不实现 SSE 实时刷新，ADR-008）
+- `src/views/settings/SettingsPage.vue`（新建）：对接 P8 settings REST（GET/PUT/DELETE），按值类型渲染控件（布尔→开关、数字→文本输入、字符串→文本框、复杂对象→JSON 文本编辑 + 前端 JSON.parse 校验），按 key 前缀分组（site/theme/nav/social/feature/service/其他），支持新增 key；注明边界（仅 site_setting，config.json 不在此改，Mizuki config 接管属二期）
+- `src/router/index.ts`（重写）：接入 /media、/albums、/albums/:id、/backups、/console、/settings、/（仪表盘替换占位），placeholderRoutes 全部清空，菜单指向真实页面；DashboardPlaceholder 与 PlaceholderView 不再引用
+- `src/views/collections/CollectionListPage.vue`（修改）：抽屉加 ImageUploader 快速上传区，上传后回填 formValue 图片字段（diary.images 追加、projects/devices.image 设置，无图片字段提示复制路径），不改 SchemaForm 既有交互（文本输入仍在，上传为辅助入口，§2"不改既有交互语义"）
+- `src/components/LogTerminal.vue` 加 `finished` 事件（exit 事件后 emit，ConsolePage 据以刷新任务终态）
+- ADR-008（新建）：不实现 GET /admin/events SSE 事件转发——§3.5 标注实时刷新可选；EventSource 无法带头需 fetch 流或 query token 方案；后端例外最小化（P10d 主体为前端）；仪表盘进入拉取+手动刷新满足 MVP 实时性
+- 零新增依赖（fetch/ReadableStream/clipboard 浏览器原生 + Element Plus + 既有栈）；后端零改动（不实现 GET /admin/events，§2 后端例外最小化）
+- 验收：根三连全绿（test 223/223、`pnpm -r build` 含前端 vue-tsc strict + vite build、`pnpm lint` 0/0）；手动交互项（媒体/相册/备份/控制台/仪表盘/设置/端到端场景）列人工补验清单（SESSIONS）
+
 ## P10c — 管理面板文章模块：Markdown 编辑、富文本编辑与 about 页
 
 - `src/views/posts/PostListPage.vue`（新建）：Markdown 文章列表——三 tab 视图（全部 / 草稿箱 / 回收站）：草稿箱按 `status==='draft'` 前端筛选（与后端 status 口径一致）；回收站为**前端 localStorage 跟踪**（后端无 list-deleted 端点）——删除时记录 `{slug, backupIds}`，恢复 = 逐备份 `POST /admin/backups/:id/restore {confirm:true}` → `POST /admin/posts/sync` 重建索引（取舍记报告）；操作：新建 / 编辑 / 删除（二次确认）/ 置顶切换（PATCH frontmatter.pinned）
