@@ -31,6 +31,8 @@ import {
 } from '../../api/collections';
 import { ApiError } from '../../api/http';
 import { SchemaForm, describeSchema, emptyValueFromSchema, type FieldDescriptor } from '../../lib/schema-form';
+import ImageUploader from '../../components/ImageUploader.vue';
+import type { MediaInfo } from '../../api/media';
 
 /** 单类集合的渲染配置（与后端 registry 对齐，schema 实例复用 shared 导出） */
 interface CollectionConfig {
@@ -176,6 +178,24 @@ function openEdit(item: CollectionItem): void {
   drawerVisible.value = true;
 }
 
+/**
+ * [P10d] 快速上传图片：上传后按字段回填（diary.images 追加、
+ * projects/devices.image 设置；无图片字段的 type 提示复制路径）。
+ * 不改 SchemaForm 既有交互（文本输入仍在，上传为辅助入口）。
+ */
+function onImageUploaded(media: MediaInfo): void {
+  const fm = formValue.value;
+  if (Array.isArray(fm['images'])) {
+    formValue.value = { ...fm, images: [...(fm['images'] as string[]), media.path] };
+    ElMessage.success(`已添加到图片列表：${media.path}`);
+  } else if ('image' in fm) {
+    formValue.value = { ...fm, image: media.path };
+    ElMessage.success(`已设置图片：${media.path}`);
+  } else {
+    ElMessage.info(`图片已上传：${media.path}（请手动填入对应字段）`);
+  }
+}
+
 /** 提交：SchemaForm 内部已跑过 schema.parse，此处只发请求 */
 async function onSubmit(value: Record<string, unknown>): Promise<void> {
   if (config.value === null) {
@@ -318,6 +338,10 @@ function goHome(): void {
 
     <!-- 新增/编辑抽屉表单 -->
     <el-drawer v-model="drawerVisible" :title="isEdit ? `编辑${config.title}` : `新增${config.title}`" size="500px">
+      <div class="quick-upload">
+        <span class="quick-label">快速上传图片：</span>
+        <ImageUploader label="上传" @uploaded="onImageUploaded" />
+      </div>
       <SchemaForm
         v-if="drawerVisible"
         :schema="config.schema"
@@ -349,5 +373,18 @@ function goHome(): void {
 }
 .list-table {
   width: 100%;
+}
+.quick-upload {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 16px;
+  padding: 8px 12px;
+  background: #f5f7fa;
+  border-radius: 4px;
+}
+.quick-label {
+  color: #606266;
+  font-size: 13px;
 }
 </style>
