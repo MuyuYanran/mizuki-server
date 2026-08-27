@@ -1,5 +1,14 @@
 # 变更日志
 
+## Phase2-B3 — Vditor Markdown 编辑器与引擎切换（R2-11）
+
+- **Vditor 编辑器封装**：新建 `src/lib/editors/VditorEditor.vue`（`modelValue` + 300ms 防抖 `update:modelValue`；`wysiwyg`/`ir`/`sv` 三模式由父级 `mode` 传入；Vditor 初始化后无法切换模式，mode 变化时销毁重建且内容经 `modelValue` 保持；`cache.enable=false`；默认 20 项 toolbar，不含脑图/甘特/图表等）。CSS 显式 `import 'vditor/dist/index.css'`，`vite.config.ts` 已加 `optimizeDeps.include: ['vditor']`
+- **暗色复用同一信号源**：Vditor 主题切换接入 `lib/theme.ts` 的 `resolvedTheme` 三态广播（`classic`↔`dark`），与 CodeMirror 同一信号源，无独立 MutationObserver/监听
+- **站内图片预览层重写**：VditorEditor 内对容器内 `<img>` 用 `MutationObserver` 监听子树变化，经 `imageSrc()` 把 `/images/...`、`public/images/...` 重写为 `/site-assets/...`；modelValue 存储文本不被改写，保证保存往返字节级一致
+- **引擎切换**：`PostEditPage.vue`/`AboutEditPage.vue` 右上角增加引擎选择器（默认 Vditor，持久化 `localStorage['mizuki.editor.engine']`）；切换前调用当前编辑器 `getValue()` 把最新内容刷入 `content`，再切换组件，防止丢字符；保存仍走既有提交链路
+- **依赖（ADR-001 追加）**：`vditor ^3.11.3`（apps/web）。零后端改动；未触碰 TipTap、RichArticle、后端
+- **验收（§6）**：根三连全绿（test 250/250、build 含 web、lint 0/0）。无新增 e2e（纯前端交互），B1.5 用例数基线不变
+
 ## Phase2-B1.5 — 暗色适配修补 + /site-assets 站点资产通道（第三次规格补白，ADR-012）
 
 - **`/site-assets` 通道（ADR-012，人工裁决）**：`src/main.ts` 新增 `setupSiteAssets`——认证托管 Mizuki `public/`（`express.static`，`index:false`/`fallthrough:false`/`dotfiles:'ignore'`）；守卫链「配置活取值（init 后免重启，一次性 warn latch）→ JWT 认证（Bearer 头优先 + `mizuki_asset_token` cookie 兜底，无 query token）→ 逐段 decode + 走私拒绝 → 图片扩展名白名单（jpg/jpeg/png/webp/gif/svg/avif）→ `safeRealJoin` 路径监狱 → statSync 常规文件复查」；mizukiRoot 未配置或 public 缺失时该前缀整体 404，不影响其他路由；bootstrap 挂载顺序 Swagger → SiteAssets → StaticPanel，SPA 回退谓词排除 `/site-assets`

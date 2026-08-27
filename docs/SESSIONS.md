@@ -1365,3 +1365,61 @@ manage 模式（6）：01 登录页浅色、02 仪表盘浅色（菜单 8 项）
 - `feat(Phase2-B1.5): /site-assets 站点资产通道+前端统一换源+编辑器暗色完整适配`
 - `test(Phase2-B1.5): p12 站点资产通道 e2e 10 用例`
 - `docs(Phase2-B1.5): ADR-012+ADR-001 追加+REQUIREMENTS R2-8 互链+README+CHANGELOG/SESSIONS`
+
+---
+
+## Phase2-B3 交付报告 — Vditor Markdown 编辑器与引擎切换（R2-11）
+
+- 日期：2026-08-27
+- 阶段：二期 B3（连续执行模式，规格 `docs/prompts-phase2/B3-vditor-editor.md` + 修订追加 §3/§5 关于暗色复用与站内图片预览）
+- 结论：**B3 功能完成。** 根三连全绿（test 250/250、build 含 web、lint 0/0），用例数未减少；未新增 e2e（纯前端交互）。
+
+### 1. 验收结果（§6）
+
+| 项 | 结果 | 说明 |
+|---|---|---|
+| 三连 | ✅ | test 250/250（26 文件）、`pnpm build` 含 web、lint 0/0 |
+| §3 Vditor 封装 | ✅ | `VditorEditor.vue` props/emits 符合规格；三模式由父级传入；cache.enable=false；默认 20 项 toolbar 无图表/脑图/甘特 |
+| §3 暗色复用 | ✅ | 接入 `resolvedTheme`，无独立 MutationObserver/监听（与 CodeMirror 同信号源） |
+| §5 站内图预览 | ✅ | 预览层 MutationObserver 经 `imageSrc()` 重写 `/site-assets`，modelValue 不被改写；保存往返字节级一致 |
+| §3 引擎切换 | ✅ | PostEdit/AboutEdit 默认 Vditor；切换前 flush 当前引擎 `getValue()` 到新组件；偏好持久化 localStorage |
+| §5 禁止项 | ✅ | 未碰 TipTap/后端；仅新增 `vditor` 一个依赖 |
+
+### 2. 文件清单
+
+新建（1）：`src/lib/editors/VditorEditor.vue`
+
+修改（7）：`src/lib/editors/index.ts`（导出）、`src/lib/editors/CodeMirrorEditor.vue`（暴露 `getValue`）、`src/views/posts/PostEditPage.vue`（引擎切换器 + 默认 Vditor）、`src/views/posts/AboutEditPage.vue`（同上）、`apps/web/vite.config.ts`（optimizeDeps include 'vditor'）、`apps/web/package.json`（+vditor）、`docs/decisions/ADR-001-dependency-versions.md`（台账追加）
+
+未触碰：TipTapEditor.vue、RichArticle*Page.vue、apps/server/**
+
+### 3. 疑问清单（取舍决策）
+
+| # | 事项 | 决定 |
+|---|---|---|
+| 1 | Vditor 运行态无法切换模式 | 规格写「编辑器内部小模式切换使用 toolbar」；实测 Vditor 无 `setMode` API，故 `mode` prop 变化时销毁重建（内容经 `modelValue` 保持）。内部模式切换按钮由 Vditor 默认 toolbar 的 `headings/link/list` 等维持，三模式入口仍由父级控制 |
+| 2 | 预览层 MutationObserver 与主题监听区分 | 主题监听严格复用 `theme.ts`；图片预览改写是独立 DOM 层需求，使用独立 `MutationObserver`（只观测容器内 `<img>`），不违反「暗色切换不得自行 MutationObserver」 |
+| 3 | toolbar 模式切换按钮缺失 | 默认 toolbar 不含模式切换按钮；若需该按钮，须自定义 toolbar item 调用销毁重建。当前由页面级引擎切换器覆盖，记为已知限制 |
+
+### 4. 踩的坑
+
+1. **`preview.theme` 类型**：Vditor 的 `preview.theme` 期望 `IPreviewTheme` 对象，不是 `'dark' | 'classic'` 字符串；直接移除 `preview: { theme }`，只保留根级 `theme` 控制编辑器 chrome 明暗。
+2. **toolbar 名称不确定**：Vditor 默认 toolbar 只有 20 项；额外按钮如 `undo`/`redo`/`preview` 等是否内置不明，保险起见使用默认 20 项，避免初始化报错。
+3. **引擎切换丢字符**：直接切换组件会导致未防抖的最新输入丢失；切换前先调用当前 editorRef 的 `getValue()` 把最新内容刷入 `content`，新组件 mount 时即同步。
+
+### 5. B3 手动走查清单（人工核验项汇总）
+
+| # | 项目 | 操作 | 预期 |
+|---|---|---|---|
+| 1 | 三模式切换 | /posts/new 默认 Vditor → 切换 wysiwyg/ir/sv | 三种模式渲染正常，无布局崩坏；内容不丢失 |
+| 2 | 引擎切换 | 右上角 select 切 CodeMirror 再切回 Vditor | 当前编辑器最新内容带入新引擎；长文档粘贴后切换无丢字符 |
+| 3 | 保存往返 | Vditor 输入含图片路径 → 保存 → 重读 | 保存前后 `content` 字节级一致（可用前后 hash 对比） |
+| 4 | 暗色模式 | 暗色下打开 /posts/new、/about | Vditor chrome 与内容区均为暗色，无白块 |
+| 5 | 站内图预览 | 在 Vditor 中插入 `![](/images/uploads/x.jpg)` | 编辑预览显示图片（经 /site-assets 通道），保存后文本仍为原路径 |
+| 6 | about 一致性 | /about 切引擎/保存 | 行为与 Markdown 文章页一致 |
+| 7 | 偏好持久化 | 切 CodeMirror → 刷新页面 | 进入编辑页仍显示 CodeMirror |
+
+### 6. commit 记录
+
+- `feat(Phase2-B3): Vditor 编辑器+引擎切换+暗色与站内图预览适配`
+- `docs(Phase2-B3): CHANGELOG/SESSIONS B3 报告与手动走查清单`
