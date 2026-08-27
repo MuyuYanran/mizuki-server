@@ -140,6 +140,12 @@ watch(
     applyingExternal = false;
   },
 );
+/** 暴露 getValue，供引擎切换时读取 */
+function getValue(): string {
+  return viewRef.value?.state.doc.toString() ?? '';
+}
+
+defineExpose({ getValue });
 </script>
 
 <template>

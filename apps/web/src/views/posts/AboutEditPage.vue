@@ -8,7 +8,7 @@
  */
 import { onMounted, ref } from 'vue';
 import { ElMessage } from 'element-plus';
-import { CodeMirrorEditor } from '../../lib/editors';
+import { CodeMirrorEditor, VditorEditor } from '../../lib/editors';
 import { postsApi } from '../../api/posts';
 import { ApiError } from '../../api/http';
 
@@ -16,6 +16,20 @@ const content = ref('');
 const loading = ref(false);
 const saving = ref(false);
 const backupHint = ref('');
+
+/** 引擎偏好：vditor 默认，持久化 localStorage */
+const ENGINE_KEY = 'mizuki.editor.engine';
+type Engine = 'vditor' | 'codemirror';
+const engine = ref<Engine>((localStorage.getItem(ENGINE_KEY) as Engine | null) ?? 'vditor');
+const editorRef = ref<{ getValue: () => string } | null>(null);
+
+function onEngineChange(next: Engine): void {
+  if (editorRef.value) {
+    content.value = editorRef.value.getValue();
+  }
+  engine.value = next;
+  localStorage.setItem(ENGINE_KEY, next);
+}
 
 onMounted(async () => {
   loading.value = true;
@@ -72,6 +86,10 @@ function onUploadReplace(event: Event): void {
     <div class="page-header">
       <h2>关于页编辑</h2>
       <div class="header-actions">
+        <el-select v-model="engine" size="small" @change="onEngineChange" style="width: 100px">
+          <el-option label="Vditor" value="vditor" />
+          <el-option label="CodeMirror" value="codemirror" />
+        </el-select>
         <label class="upload-btn">
           <span>上传替换</span>
           <input type="file" accept=".md,.markdown,.txt" hidden @change="onUploadReplace" />
@@ -89,7 +107,21 @@ function onUploadReplace(event: Event): void {
       style="margin-bottom: 12px"
     />
 
-    <CodeMirrorEditor :model-value="content" @update:model-value="content = $event" />
+    <VditorEditor
+      v-if="engine === 'vditor'"
+      ref="editorRef"
+      :model-value="content"
+      @update:model-value="content = $event"
+      placeholder="输入 about 内容…"
+      height="600px"
+    />
+    <CodeMirrorEditor
+      v-else
+      ref="editorRef"
+      :model-value="content"
+      @update:model-value="content = $event"
+      placeholder="输入 about 内容…"
+    />
   </div>
 </template>
 

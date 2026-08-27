@@ -51,6 +51,8 @@ export default defineConfig({
       'vue-cropper',
       'v-viewer',
       'viewerjs',
+      // [Phase2-B3] vditor 预打包
+      'vditor',
     ],
   },
   server: {

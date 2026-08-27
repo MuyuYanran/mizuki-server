@@ -127,6 +127,12 @@ P0a 阶段需锁定 Mizuki-Server 技术栈依赖。规格要求：Node ≥ 22 L
 > - `express` `^5.2.1`（apps/server **dependencies**，由传递依赖显式化）：main.ts 直接使用 `express.static` 托管 Mizuki `public/`。NestJS Express adapter 底层既有同一 express，非新引入第三方能力；pnpm 严格布局下源码直接 import 传递依赖不可解析（幽灵依赖），故升为直接声明（解析 5.2.1，与 adapter 所用 major 一致，零版本新增）。
 > - `@codemirror/theme-one-dark` `^6.1.3`（apps/web dependencies，解析 6.1.3）：CodeMirror 6 暗色主题。oneDark 全量接管暗态编辑器 chrome（背景/gutter/选中态/光标/current-line），亮态由 `html:not(.dark)` 作用域样式确定性让位；经 Compartment 随 `resolvedTheme` 即时重配，明暗切换不刷新页面。
 
+> Phase2-B3 追加（2026-08-27）：apps/web dependencies 新增 `vditor` `^3.11.3`。
+>
+> - 用途：R2-11 Markdown/about 页默认编辑器（wysiwyg/ir/sv 三模式），替代 CodeMirror 作为默认引擎。封装为 `src/lib/editors/VditorEditor.vue`。
+> - 版本与集成注意：vditor 默认产物为 UMD/CJS 混合，vite dev 须 `optimizeDeps.include` 预打包；Vue3 中以 `new Vditor(element, options)` 初始化，CSS 需显式 `import 'vditor/dist/index.css'`。
+> - 暗色与站内图预览：暗色切换复用项目级 `lib/theme.ts` 的 `resolvedTheme` 信号（禁止独立 observer）；站内图片在编辑预览层经 `imageSrc()` 重写为 `/site-assets/...`（DOM 层，不修改 modelValue），存储文本保持原站内路径不变（ADR-012）。
+
 ## 备选方案
 
 - 全部写死精确版本号：可复现性最佳，但需在安装前人工确定每个包的最新稳定版，成本高且易过时。

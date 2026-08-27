@@ -15,7 +15,7 @@
 import { computed, onMounted, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { ElMessage } from 'element-plus';
-import { CodeMirrorEditor } from '../../lib/editors';
+import { CodeMirrorEditor, VditorEditor } from '../../lib/editors';
 import { postsApi, type PostView } from '../../api/posts';
 import { ApiError } from '../../api/http';
 
@@ -33,6 +33,21 @@ const saving = ref(false);
 const content = ref('');
 /** 读取时的完整 frontmatter（含未知键） */
 const fullFm = ref<Record<string, unknown>>({});
+
+/** 引擎偏好：vditor 默认，持久化 localStorage */
+const ENGINE_KEY = 'mizuki.editor.engine';
+type Engine = 'vditor' | 'codemirror';
+const engine = ref<Engine>((localStorage.getItem(ENGINE_KEY) as Engine | null) ?? 'vditor');
+const editorRef = ref<{ getValue: () => string } | null>(null);
+
+function onEngineChange(next: Engine): void {
+  // 切换前把当前引擎的最新值刷入 content，确保新引擎不丢字符
+  if (editorRef.value) {
+    content.value = editorRef.value.getValue();
+  }
+  engine.value = next;
+  localStorage.setItem(ENGINE_KEY, next);
+}
 
 /** 表单编辑的 12 个已知字段 */
 const fm = ref({
@@ -276,6 +291,10 @@ function formatValue(value: unknown): string {
       <el-button @click="goBack">返回</el-button>
       <h2>{{ isEdit ? '编辑文章' : '新建文章' }}</h2>
       <div class="header-actions">
+        <el-select v-model="engine" size="small" @change="onEngineChange" style="width: 100px">
+          <el-option label="Vditor" value="vditor" />
+          <el-option label="CodeMirror" value="codemirror" />
+        </el-select>
         <label class="upload-btn">
           <span>上传 Markdown</span>
           <input type="file" accept=".md,.markdown,.txt" hidden @change="onMdUpload" />
@@ -290,7 +309,21 @@ function formatValue(value: unknown): string {
         <div v-if="!isEdit" class="slug-input">
           <el-input v-model="newSlug" placeholder="slug（目录名）" />
         </div>
-        <CodeMirrorEditor :model-value="content" @update:model-value="content = $event" />
+        <VditorEditor
+          v-if="engine === 'vditor'"
+          ref="editorRef"
+          :model-value="content"
+          @update:model-value="content = $event"
+          placeholder="输入 Markdown 正文…"
+          height="600px"
+        />
+        <CodeMirrorEditor
+          v-else
+          ref="editorRef"
+          :model-value="content"
+          @update:model-value="content = $event"
+          placeholder="输入 Markdown 正文…"
+        />
       </div>
 
       <!-- frontmatter 侧栏 -->
