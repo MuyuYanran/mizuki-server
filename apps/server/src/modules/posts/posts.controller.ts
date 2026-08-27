@@ -30,6 +30,7 @@ import {
   UseInterceptors,
   BadRequestException,
 } from '@nestjs/common';
+import { ApiBearerAuth, ApiBody, ApiConsumes, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ZodValidationPipe } from '../../common/pipes/zod-validation.pipe';
 import {
@@ -41,33 +42,40 @@ import {
   type UploadedFileLike,
 } from './posts.service';
 
+@ApiTags('管理')
+@ApiBearerAuth()
 @Controller()
 export class PostsController {
   constructor(private readonly posts: PostsService) {}
 
   // ── Posts ──
 
+  @ApiOperation({ summary: 'Markdown 文章列表（含 frontmatter 摘要）' })
   @Get('admin/posts')
   list() {
     return this.posts.listPosts();
   }
 
+  @ApiOperation({ summary: '创建文章（body：slug/frontmatter/content）' })
   @Post('admin/posts')
   @HttpCode(HttpStatus.CREATED)
   create(@Body(new ZodValidationPipe(CreatePostBodySchema)) body: unknown) {
     return this.posts.createPost(body as Parameters<PostsService['createPost']>[0]);
   }
 
+  @ApiOperation({ summary: '重建 article 索引（幂等）' })
   @Post('admin/posts/sync')
   sync() {
     return this.posts.syncIndex();
   }
 
+  @ApiOperation({ summary: '读单篇文章（frontmatter + 正文）' })
   @Get('admin/posts/:slug')
   read(@Param('slug', new ZodValidationPipe(PostSlugSchema)) slug: string) {
     return this.posts.readPost(slug);
   }
 
+  @ApiOperation({ summary: '修改文章（frontmatter 增量合并 / 正文替换）' })
   @Patch('admin/posts/:slug')
   update(
     @Param('slug', new ZodValidationPipe(PostSlugSchema)) slug: string,
@@ -76,12 +84,16 @@ export class PostsController {
     return this.posts.updatePost(slug, body as Parameters<PostsService['updatePost']>[1]);
   }
 
+  @ApiOperation({ summary: '删除文章（先备份，可经备份恢复）' })
   @Delete('admin/posts/:slug')
   @HttpCode(HttpStatus.OK)
   remove(@Param('slug', new ZodValidationPipe(PostSlugSchema)) slug: string) {
     return this.posts.deletePost(slug);
   }
 
+  @ApiOperation({ summary: '上传文章封面（multipart 字段 file，非 JPG 自动转 JPG）' })
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({ schema: { type: 'object', properties: { file: { type: 'string', format: 'binary' } } } })
   @Post('admin/posts/:slug/cover')
   @UseInterceptors(FileInterceptor('file'))
   uploadCover(
@@ -96,11 +108,13 @@ export class PostsController {
 
   // ── about 页（归入 posts 控制器，P5 §3.5） ──
 
+  @ApiOperation({ summary: 'about 页原文' })
   @Get('admin/about')
   readAbout() {
     return this.posts.readAbout();
   }
 
+  @ApiOperation({ summary: '写入 about 页（写前备份，可回滚）' })
   @Put('admin/about')
   updateAbout(@Body(new ZodValidationPipe(UpdateAboutBodySchema)) body: { content: string }) {
     return this.posts.writeAbout(body.content);

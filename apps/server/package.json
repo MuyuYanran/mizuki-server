@@ -10,12 +10,16 @@
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate"
   },
+  "bin": {
+    "mizuki-server": "bin/mizuki-server"
+  },
   "dependencies": {
     "@mizuki/shared": "workspace:*",
     "@nestjs/common": "^11.0.0",
     "@nestjs/core": "^11.0.0",
     "@nestjs/event-emitter": "^3.1.0",
     "@nestjs/platform-express": "^11.0.0",
+    "@nestjs/swagger": "^11.4.7",
     "@nestjs/throttler": "latest",
     "argon2": "latest",
     "better-sqlite3": "latest",

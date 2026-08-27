@@ -9,6 +9,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { Body, Controller, Get, HttpCode, HttpStatus, Inject, Post, Query } from '@nestjs/common';
+import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { desc, sql } from 'drizzle-orm';
 import { Public } from '../../common/decorators/public.decorator';
 import { ZodValidationPipe } from '../../common/pipes/zod-validation.pipe';
@@ -27,6 +28,7 @@ const DetectBodySchema = z.object({
 /** 日志分页参数上限（防御深分页） */
 const LOGS_MAX_LIMIT = 100;
 
+@ApiTags('系统')
 @Controller()
 export class SystemController {
   constructor(
@@ -36,6 +38,7 @@ export class SystemController {
   ) {}
 
   /** 健康检查（@Public）：P6 起附加 initialized（admin_user 是否存在行） */
+  @ApiOperation({ summary: '健康检查（公开）：status/uptime/initialized' })
   @Public()
   @Get('system/health')
   async getHealth(): Promise<{ status: string; service: string; uptime: number; initialized: boolean }> {
@@ -48,6 +51,8 @@ export class SystemController {
   }
 
   /** 服务状态（需认证）：已初始化 / 运行模式 / 版本 */
+  @ApiBearerAuth()
+  @ApiOperation({ summary: '服务状态（需认证）：initialized/mode/version/uptime' })
   @Get('system/status')
   async getStatus(): Promise<{ initialized: boolean; mode: string; version: string; uptime: number }> {
     const config = getAppConfig();
@@ -60,6 +65,7 @@ export class SystemController {
   }
 
   /** Mizuki 目录检测（@Public，初始化向导前置）：四项检查 + 包管理器探测 */
+  @ApiOperation({ summary: 'Mizuki 目录检测（公开，初始化向导前置）：四项检查 + 包管理器探测' })
   @Public()
   @Post('system/detect')
   @HttpCode(HttpStatus.OK)
@@ -68,6 +74,7 @@ export class SystemController {
   }
 
   /** 一次性初始化（@Public）：已初始化 → 409；检测失败 → 400 附明细 */
+  @ApiOperation({ summary: '一次性初始化（公开）：创建管理员账号；已初始化 → 409' })
   @Public()
   @Post('system/init')
   init(@Body(new ZodValidationPipe(InitBodySchema)) body: InitBody) {
@@ -78,6 +85,9 @@ export class SystemController {
    * 操作日志分页读取（规格补白：MASTER-PLAN §5 未列，处理方式同 P8 settings
    * 路径补白，见交付报告疑问清单）。?page=&limit=，created_at 倒序。
    */
+  @ApiTags('管理') // 路径属 /admin/**（§5 管理组），同时保留系统组（模块归属）
+  @ApiBearerAuth()
+  @ApiOperation({ summary: '操作日志分页（?page=&limit=，limit 上限 100，created_at 倒序）' })
   @Get('admin/system/logs')
   async getLogs(@Query('page') pageRaw?: string, @Query('limit') limitRaw?: string) {
     const page = clampInt(pageRaw, 1, 1, Number.MAX_SAFE_INTEGER);

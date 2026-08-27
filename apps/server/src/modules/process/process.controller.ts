@@ -9,6 +9,7 @@
  * [状态] ACTIVE
  */
 import { Body, Controller, Delete, Get, HttpCode, HttpStatus, type MessageEvent, Param, Post, Sse } from '@nestjs/common';
+import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { Observable } from 'rxjs';
 import { ZodValidationPipe } from '../../common/pipes/zod-validation.pipe';
 import {
@@ -19,20 +20,25 @@ import {
   type ProcessTaskName,
 } from './process-manager.service';
 
+@ApiTags('管理')
+@ApiBearerAuth()
 @Controller('admin/process')
 export class ProcessController {
   constructor(private readonly manager: ProcessManagerService) {}
 
+  @ApiOperation({ summary: '启动子进程任务（body.task 白名单校验）' })
   @Post('tasks')
   start(@Body(new ZodValidationPipe(StartTaskBodySchema)) body: { task: ProcessTaskName }) {
     return this.manager.startTask(body.task);
   }
 
+  @ApiOperation({ summary: '任务状态查询' })
   @Get('tasks/:id')
   status(@Param('id', new ZodValidationPipe(ProcessTaskIdSchema)) id: string) {
     return this.manager.getTask(id);
   }
 
+  @ApiOperation({ summary: '停止任务（tree-kill 整组进程）' })
   @Delete('tasks/:id')
   @HttpCode(HttpStatus.OK)
   stop(@Param('id', new ZodValidationPipe(ProcessTaskIdSchema)) id: string) {
@@ -40,6 +46,7 @@ export class ProcessController {
   }
 
   /** SSE：先回放环形缓冲，再实时推送；任务终态 → 发 exit 事件后完成流 */
+  @ApiOperation({ summary: '任务日志 SSE 流（先回放环形缓冲，再实时推送）' })
   @Sse('tasks/:id/logs')
   logs(@Param('id', new ZodValidationPipe(ProcessTaskIdSchema)) id: string): Observable<MessageEvent> {
     return new Observable<MessageEvent>((subscriber) => {
@@ -57,6 +64,7 @@ export class ProcessController {
     });
   }
 
+  @ApiOperation({ summary: '端口占用检测（:port）' })
   @Get('ports/:port')
   probe(@Param('port', new ZodValidationPipe(PortParamSchema)) port: string) {
     return this.manager.probePort(Number(port));

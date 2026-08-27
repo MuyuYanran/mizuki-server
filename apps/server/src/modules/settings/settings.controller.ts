@@ -8,18 +8,23 @@
  * [状态] ACTIVE
  */
 import { Body, Controller, Delete, Get, HttpCode, HttpStatus, Param, Put } from '@nestjs/common';
+import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { ZodValidationPipe } from '../../common/pipes/zod-validation.pipe';
 import { PutSettingBodySchema, SettingKeySchema, SettingsService } from './settings.service';
 
+@ApiTags('管理')
+@ApiBearerAuth()
 @Controller('admin/settings')
 export class SettingsController {
   constructor(private readonly settings: SettingsService) {}
 
+  @ApiOperation({ summary: '全量站点设置键值' })
   @Get()
   getAll() {
     return this.settings.getAll();
   }
 
+  @ApiOperation({ summary: '设置单键（body { value }）' })
   @Put(':key')
   @HttpCode(HttpStatus.OK)
   put(
@@ -29,6 +34,7 @@ export class SettingsController {
     return this.settings.put(key, body.value);
   }
 
+  @ApiOperation({ summary: '删除单键' })
   @Delete(':key')
   @HttpCode(HttpStatus.OK)
   remove(@Param('key', new ZodValidationPipe(SettingKeySchema)) key: string) {

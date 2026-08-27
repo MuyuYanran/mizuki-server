@@ -3,6 +3,7 @@ packages:
   - 'packages/*'
 # [P0b] pnpm@11 构建脚本白名单（原生依赖必须允许 postinstall 构建）
 allowBuilds:
+  '@scarf/scarf': false # @nestjs/swagger 传递依赖（遥测），无需构建脚本
   '@swc/core': true
   argon2: true
   better-sqlite3: true

@@ -24,6 +24,7 @@ import {
   Post,
   Query,
 } from '@nestjs/common';
+import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { Public } from '../../common/decorators/public.decorator';
 import { ZodValidationPipe } from '../../common/pipes/zod-validation.pipe';
 import {
@@ -39,26 +40,32 @@ import {
 import { z } from 'zod';
 const ArticleIdSchema = z.string().min(1).max(64).regex(/^[A-Za-z0-9_-]+$/);
 
+@ApiTags('管理')
+@ApiBearerAuth()
 @Controller('admin/articles')
 export class ArticlesController {
   constructor(private readonly articles: ArticlesService) {}
 
+  @ApiOperation({ summary: '富文本文章全量列表（管理视图）' })
   @Get()
   list() {
     return this.articles.list();
   }
 
+  @ApiOperation({ summary: '创建富文本文章' })
   @Post()
   @HttpCode(HttpStatus.CREATED)
   create(@Body(new ZodValidationPipe(CreateArticleBodySchema)) body: CreateArticleBody) {
     return this.articles.create(body);
   }
 
+  @ApiOperation({ summary: '读单篇富文本文章（:id 为 nanoid）' })
   @Get(':id')
   read(@Param('id', new ZodValidationPipe(ArticleIdSchema)) id: string) {
     return this.articles.read(id);
   }
 
+  @ApiOperation({ summary: '修改富文本文章' })
   @Patch(':id')
   update(
     @Param('id', new ZodValidationPipe(ArticleIdSchema)) id: string,
@@ -67,6 +74,7 @@ export class ArticlesController {
     return this.articles.update(id, body);
   }
 
+  @ApiOperation({ summary: '删除富文本文章（引用检查后删除）' })
   @Delete(':id')
   @HttpCode(HttpStatus.OK)
   remove(@Param('id', new ZodValidationPipe(ArticleIdSchema)) id: string) {
@@ -75,12 +83,14 @@ export class ArticlesController {
 }
 
 /** 公开端点（豁免清单含 /public/**，P6 守卫识别 @Public；限流沿用全局 60 次/分） */
+@ApiTags('公开')
 @Public()
 @Controller('public/articles')
 export class PublicArticlesController {
   constructor(private readonly articles: ArticlesService) {}
 
   /** 混合列表：markdown+richtext 按 pub_date 降序聚合分页 */
+  @ApiOperation({ summary: '公开文章混合分页（?page=&limit=，默认 1/10，limit 上限 50）' })
   @Get()
   async list(@Query('page') pageRaw?: string, @Query('limit') limitRaw?: string) {
     const page = parsePageParam(pageRaw, 1);
@@ -89,6 +99,7 @@ export class PublicArticlesController {
   }
 
   /** 详情：一律返回安全 HTML（markdown 渲染过 sanitize；richtext 为存储的 html_cache） */
+  @ApiOperation({ summary: '公开文章详情（:slug，一律返回安全 HTML）' })
   @Get(':slug')
   detail(@Param('slug', new ZodValidationPipe(ArticleSlugSchema)) slug: string) {
     return this.articles.publicDetail(slug);

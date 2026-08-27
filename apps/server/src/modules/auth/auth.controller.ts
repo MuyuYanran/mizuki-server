@@ -10,6 +10,7 @@
  * @Public 豁免清单逐字见 P6 §3.3——logout 不在豁免清单内，需有效 Token。
  */
 import { Body, Controller, Get, HttpCode, HttpStatus, Post, Req } from '@nestjs/common';
+import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
 import { Public } from '../../common/decorators/public.decorator';
 import { ZodValidationPipe } from '../../common/pipes/zod-validation.pipe';
@@ -21,10 +22,12 @@ interface MeRequest {
   authUser?: AuthenticatedUser;
 }
 
+@ApiTags('管理')
 @Controller('admin/auth')
 export class AuthController {
   constructor(private readonly auth: AuthService) {}
 
+  @ApiOperation({ summary: '管理员登录（公开，独立限流 5 次/分）→ accessToken + refreshToken' })
   @Public()
   @Post('login')
   @Throttle({ default: { limit: 5, ttl: 60_000 } }) // 登录独立限流 5 次/分（P6 §3.3）
@@ -33,6 +36,7 @@ export class AuthController {
     return this.auth.login(body.username, body.password);
   }
 
+  @ApiOperation({ summary: '刷新 Token 对（公开，轮换；旧 refreshToken 失效）' })
   @Public()
   @Post('refresh')
   @HttpCode(HttpStatus.OK)
@@ -40,6 +44,8 @@ export class AuthController {
     return this.auth.refresh(body.refreshToken);
   }
 
+  @ApiBearerAuth()
+  @ApiOperation({ summary: '登出（无状态实现：客户端清除 Token 即可）' })
   @Post('logout')
   @HttpCode(HttpStatus.OK)
   logout(): { loggedOut: true } {
@@ -47,6 +53,8 @@ export class AuthController {
     return { loggedOut: true };
   }
 
+  @ApiBearerAuth()
+  @ApiOperation({ summary: '当前管理员信息（需 access token）' })
   @Get('me')
   me(@Req() req: MeRequest) {
     const user = req.authUser;

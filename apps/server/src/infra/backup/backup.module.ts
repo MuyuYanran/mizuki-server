@@ -24,8 +24,14 @@ function serverRoot(): string {
       useFactory: () => {
         const config = getAppConfig();
         return {
+          // [P11 §6.1 修复] mizukiRoot 改为活取值（getter）：init 向导在运行期
+          // 写入 config.json 并 resetAppConfigCache，若启动时快照（P2 原实现），
+          // 「init → 登录 → 面板立即可用」链路将 400 直到进程重启（冒烟实测）。
+          // backupDir / dbPath 不随 init 变化，仍为启动时静态值。
+          get mizukiRoot(): string {
+            return getAppConfig().mizukiRoot;
+          },
           // mizukiRoot 未初始化为空串（BackupService 内部按 400 处理）
-          mizukiRoot: config.mizukiRoot,
           // backupDir 相对 apps/server（AppConfig 默认 data/backups）
           backupDir: path.resolve(serverRoot(), config.backupDir),
           dbPath: resolveDbPath(),

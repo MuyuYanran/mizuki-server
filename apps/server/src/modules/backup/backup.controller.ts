@@ -20,6 +20,7 @@ import {
   Param,
   Post,
 } from '@nestjs/common';
+import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { z } from 'zod';
 import { ZodValidationPipe } from '../../common/pipes/zod-validation.pipe';
 import { BackupService, type BackupRecordInfo, type RestBackupScope } from '../../infra/backup/backup.service';
@@ -34,10 +35,13 @@ type CreateBackupBodyDto = z.infer<typeof CreateBackupBody>;
 const RestoreBody = z.object({ confirm: z.literal(true) });
 type RestoreBodyDto = z.infer<typeof RestoreBody>;
 
+@ApiTags('管理')
+@ApiBearerAuth()
 @Controller('admin/backups')
 export class BackupController {
   constructor(private readonly backupService: BackupService) {}
 
+  @ApiOperation({ summary: '创建备份（body：scope full/data/content/db + 可选 note）' })
   @Post()
   async create(@Body(new ZodValidationPipe(CreateBackupBody)) body: CreateBackupBodyDto): Promise<BackupRecordInfo> {
     const scope: RestBackupScope = body.scope;
@@ -47,11 +51,13 @@ export class BackupController {
     return this.backupService.manualBackup(scope, body.note);
   }
 
+  @ApiOperation({ summary: '备份记录列表' })
   @Get()
   async list(): Promise<BackupRecordInfo[]> {
     return this.backupService.listBackups();
   }
 
+  @ApiOperation({ summary: '恢复备份（侵入式：必须显式携带 confirm: true，否则 400；恢复前自动做安全备份）' })
   @Post(':id/restore')
   @HttpCode(HttpStatus.OK)
   async restore(
@@ -65,6 +71,7 @@ export class BackupController {
     return this.backupService.restore(id);
   }
 
+  @ApiOperation({ summary: '删除备份记录' })
   @Delete(':id')
   @HttpCode(HttpStatus.OK)
   async remove(@Param('id') id: string): Promise<{ deleted: true }> {

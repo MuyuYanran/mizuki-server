@@ -6,14 +6,17 @@
  * [状态] ACTIVE
  */
 import { Controller, Get } from '@nestjs/common';
+import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import { Public } from '../../common/decorators/public.decorator';
 import { AlbumsService } from './albums.service';
 
+@ApiTags('公开')
 @Public()
 @Controller('public/albums')
 export class PublicAlbumsController {
   constructor(private readonly albums: AlbumsService) {}
 
+  @ApiOperation({ summary: '公开相册列表（info.json 元信息 + 图片文件名列表）' })
   @Get()
   list() {
     return this.albums.list();

@@ -24,6 +24,7 @@ import {
   UploadedFile,
   UseInterceptors,
 } from '@nestjs/common';
+import { ApiBearerAuth, ApiBody, ApiConsumes, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ZodValidationPipe } from '../../common/pipes/zod-validation.pipe';
 import {
@@ -35,21 +36,26 @@ import {
   type UploadedFileLike,
 } from './albums.service';
 
+@ApiTags('管理')
+@ApiBearerAuth()
 @Controller('admin/albums')
 export class AlbumsController {
   constructor(private readonly albums: AlbumsService) {}
 
+  @ApiOperation({ summary: '相册列表（info.json 元信息 + 图片文件名列表）' })
   @Get()
   list() {
     return this.albums.list();
   }
 
+  @ApiOperation({ summary: '创建相册（目录 + info.json）' })
   @Post()
   @HttpCode(HttpStatus.CREATED)
   create(@Body(new ZodValidationPipe(CreateAlbumBodySchema)) body: unknown) {
     return this.albums.create(body as Parameters<AlbumsService['create']>[0]);
   }
 
+  @ApiOperation({ summary: '修改相册元信息（:id 为目录名）' })
   @Patch(':id')
   update(
     @Param('id', new ZodValidationPipe(AlbumNameSchema)) id: string,
@@ -58,12 +64,16 @@ export class AlbumsController {
     return this.albums.update(id, body as Parameters<AlbumsService['update']>[1]);
   }
 
+  @ApiOperation({ summary: '删除相册（引用检查 → 备份 → 删目录）' })
   @Delete(':id')
   @HttpCode(HttpStatus.OK)
   remove(@Param('id', new ZodValidationPipe(AlbumNameSchema)) id: string) {
     return this.albums.delete(id);
   }
 
+  @ApiOperation({ summary: '上传相册图片（multipart 字段 file，非 JPG 自动转 JPG）' })
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({ schema: { type: 'object', properties: { file: { type: 'string', format: 'binary' } } } })
   @Post(':id/images')
   @HttpCode(HttpStatus.CREATED)
   @UseInterceptors(FileInterceptor('file'))
@@ -77,6 +87,7 @@ export class AlbumsController {
     return this.albums.uploadImage(id, file);
   }
 
+  @ApiOperation({ summary: '删除单张相册图片（引用检查）' })
   @Delete(':id/images/:name')
   @HttpCode(HttpStatus.OK)
   deleteImage(

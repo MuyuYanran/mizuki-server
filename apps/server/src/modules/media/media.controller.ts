@@ -18,14 +18,20 @@ import {
   UploadedFile,
   UseInterceptors,
 } from '@nestjs/common';
+import { ApiBearerAuth, ApiBody, ApiConsumes, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ZodValidationPipe } from '../../common/pipes/zod-validation.pipe';
 import { MediaIdSchema, MediaService, type UploadedFileLike } from './media.service';
 
+@ApiTags('管理')
+@ApiBearerAuth()
 @Controller('admin/media')
 export class MediaController {
   constructor(private readonly media: MediaService) {}
 
+  @ApiOperation({ summary: '媒体上传（multipart 字段 file，五件套管线：白名单/魔数/10MB/随机名/sharp 重编码）' })
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({ schema: { type: 'object', properties: { file: { type: 'string', format: 'binary' } } } })
   @Post()
   @UseInterceptors(FileInterceptor('file'))
   upload(@UploadedFile() file: UploadedFileLike | undefined) {
@@ -35,11 +41,13 @@ export class MediaController {
     return this.media.upload(file);
   }
 
+  @ApiOperation({ summary: '媒体列表' })
   @Get()
   list() {
     return this.media.list();
   }
 
+  @ApiOperation({ summary: '删除媒体（删除前引用检查，被引用 → 409 + 明细）' })
   @Delete(':id')
   @HttpCode(HttpStatus.OK)
   remove(@Param('id', new ZodValidationPipe(MediaIdSchema)) id: string) {

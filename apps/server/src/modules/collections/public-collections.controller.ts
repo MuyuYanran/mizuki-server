@@ -8,15 +8,18 @@
  * [状态] ACTIVE
  */
 import { BadRequestException, Controller, Get, NotFoundException, Param } from '@nestjs/common';
+import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import { Public } from '../../common/decorators/public.decorator';
 import { DataFileService } from '../data-files/data-file.service';
 import { findCollectionDef } from './registry';
 
+@ApiTags('公开')
 @Public()
 @Controller('public/collections')
 export class PublicCollectionsController {
   constructor(private readonly dataFiles: DataFileService) {}
 
+  @ApiOperation({ summary: '公开集合读取（:type 白名单；仅 public: true 注册项，非公开 → 404）' })
   @Get(':type')
   read(@Param('type') type: string): unknown {
     const def = findCollectionDef(type);
