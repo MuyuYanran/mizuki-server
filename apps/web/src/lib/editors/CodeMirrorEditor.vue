@@ -3,6 +3,14 @@
  * [P10c] CodeMirror 6 Markdown 编辑器封装
  * [职责] 在 Vue 3 中封装 CodeMirror 6 的 EditorView，提供 v-model 双向绑定；
  *   支持 Markdown 语法高亮、行号、等宽字体。
+ * [Phase2-B1.5 / R2-11] 完整暗色适配：
+ *   - @codemirror/theme-one-dark 作为暗色主题扩展（含行号栏/选中态/光标/
+ *     current-line 全套 chrome），经 themeCompartment 动态重配；
+ *   - 信号源统一接入 lib/theme.ts 的 resolvedTheme 三态广播（全站一处），
+ *     切换即时生效无须刷新；组件卸载即随 view.destroy 释放（无独立 observer，
+ *     无需额外断开）；
+ *   - 本文件样式表不再出现任何硬编码颜色：亮色走 Element 变量（html:not(.dark)
+ *     前缀确定性生效），暗色完全由 oneDark 接管。
  * [状态] ACTIVE
  *
  * 设计：单向数据流——父组件持有 modelValue，子组件只在用户输入时 emit 更新；
@@ -10,13 +18,14 @@
  */
 import { onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue';
 // CodeMirror 6 子包直接依赖（pnpm 严格布局：`codemirror` 元包只导出
-// basicSetup/minimalSetup，EditorState/keymap 等基础构件须从子包导入，
-// 子包版本与 lockfile 既有解析一致）
-import { EditorState, type Extension } from '@codemirror/state';
+// basicSetup/minimalSetup，EditorState/keymap 等基础构件须从子包导入）
+import { Compartment, EditorState, type Extension } from '@codemirror/state';
 import { EditorView, keymap, placeholder as cmPlaceholder } from '@codemirror/view';
 import { defaultKeymap, history, historyKeymap } from '@codemirror/commands';
 import { defaultHighlightStyle, syntaxHighlighting } from '@codemirror/language';
 import { markdown } from '@codemirror/lang-markdown';
+import { oneDark } from '@codemirror/theme-one-dark';
+import { resolvedTheme } from '../../lib/theme';
 
 const props = withDefaults(
   defineProps<{
@@ -42,6 +51,14 @@ const viewRef = shallowRef<EditorView | null>(null);
 /** 标记：是否正在从外部更新（避免输入回环） */
 let applyingExternal = false;
 
+/** 主题仓：亮色为空扩展（默认样式 + 下方变量化样式表），暗色为 oneDark 全量接管 */
+const themeCompartment = new Compartment();
+
+/** 当前解析态对应的主题扩展集合 */
+function themeExtensionFor(dark: boolean): Extension[] {
+  return dark ? [oneDark] : [];
+}
+
 function buildExtensions(): Extension[] {
   const exts: Extension[] = [
     history(),
@@ -49,6 +66,7 @@ function buildExtensions(): Extension[] {
     markdown(),
     keymap.of([...defaultKeymap, ...historyKeymap]),
     EditorView.lineWrapping,
+    themeCompartment.of(themeExtensionFor(resolvedTheme.value === 'dark')),
     EditorView.theme({
       '&': {
         fontSize: '14px',
@@ -92,6 +110,17 @@ onBeforeUnmount(() => {
   viewRef.value = null;
 });
 
+// 主题三态广播 → Compartment 即时重配（无须刷新页面）
+watch(resolvedTheme, (next) => {
+  const view = viewRef.value;
+  if (view === null) {
+    return;
+  }
+  view.dispatch({
+    effects: themeCompartment.reconfigure(themeExtensionFor(next === 'dark')),
+  });
+});
+
 /** 外部 modelValue 变化时（如读单篇后），替换编辑器内容 */
 watch(
   () => props.modelValue,
@@ -118,24 +147,29 @@ watch(
 </template>
 
 <style scoped>
+/* [R2-11] 零硬编码颜色：亮色面走 Element 变量（:not(.dark) 前缀确保不被
+   oneDark 注入样式 unpredictable 覆盖），暗色由 oneDark 扩展全量接管。 */
 .cm-editor-wrap {
-  border: 1px solid var(--el-border-color, #dcdfe6);
+  border: 1px solid var(--el-border-color);
   border-radius: 4px;
   overflow: hidden;
 }
 
-/* 编辑器底色保持浅色：CodeMirror 默认语法高亮按浅底设计；暗色适配
-   （深色语法主题）属 Phase2-B3 编辑器主题化范围，此处不半改 */
-.cm-editor-wrap :deep(.cm-editor) {
-  background: #fff;
-}
-
 .cm-editor-wrap :deep(.cm-editor.cm-focused) {
-  outline: 2px solid var(--el-color-primary, #409eff);
+  outline: 2px solid var(--el-color-primary);
 }
 
-.cm-editor-wrap :deep(.cm-gutters) {
-  border-right: 1px solid var(--el-border-color, #dcdfe6);
-  background: #fafafa;
+/* 亮色行号栏 / current-line / placeholder（暗色交由 oneDark） */
+html:not(.dark) .cm-editor-wrap :deep(.cm-gutters) {
+  border-right: 1px solid var(--el-border-color);
+  background: var(--el-fill-color-light);
+}
+
+html:not(.dark) .cm-editor-wrap :deep(.cm-activeLine) {
+  background: var(--el-fill-color-lighter);
+}
+
+html:not(.dark) .cm-editor-wrap :deep(.cm-placeholder) {
+  color: var(--el-text-color-placeholder);
 }
 </style>

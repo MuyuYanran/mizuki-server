@@ -118,7 +118,7 @@ function onUploadReplace(event: Event): void {
 .upload-btn {
   display: inline-block;
   cursor: pointer;
-  color: var(--el-color-primary, #409eff);
+  color: var(--el-color-primary);
   font-size: 13px;
 }
 </style>

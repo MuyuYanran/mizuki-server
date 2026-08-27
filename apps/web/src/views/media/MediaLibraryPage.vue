@@ -6,13 +6,14 @@
  *   ReferenceDetailDialog）；链接复制（media.path 到剪贴板，供内容页图片字段粘贴）。
  * [状态] ACTIVE
  *
- * 缩略图：后端未暴露 Mizuki public/ 的静态文件服务，本阶段不显示缩略图，
- *   展示文件信息 + 路径（记报告；P11 或二期补静态服务后可加缩略图）。
+ * [Phase2-B1.5 / ADR-012] 缩略图：本地图片经 /site-assets 通道（JWT 保护，
+ *   后端托管 Mizuki public/）显示——P10d 疑问 1 的收口；点击可放大预览。
  */
 import { onMounted, ref } from 'vue';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import { mediaApi, extractMediaReferences, type MediaInfo, type MediaReference } from '../../api/media';
 import { ApiError } from '../../api/http';
+import { imageSrc } from '../../lib/image-src';
 import ImageUploader from '../../components/ImageUploader.vue';
 import ReferenceDetailDialog from '../../components/ReferenceDetailDialog.vue';
 
@@ -97,6 +98,18 @@ onMounted(() => {
       </div>
     </template>
     <el-table :data="list" border>
+      <el-table-column label="预览" width="88">
+        <template #default="{ row }">
+          <el-image
+            :src="imageSrc(row.path)"
+            :preview-src-list="[imageSrc(row.path)]"
+            :hide-on-click-modal="true"
+            preview-teleported
+            fit="cover"
+            class="thumb"
+          />
+        </template>
+      </el-table-column>
       <el-table-column label="原名" prop="originalName" />
       <el-table-column label="尺寸" width="120">
         <template #default="{ row }">
@@ -127,5 +140,12 @@ onMounted(() => {
   display: flex;
   align-items: center;
   justify-content: space-between;
+}
+
+.thumb {
+  width: 56px;
+  height: 56px;
+  border-radius: 8px;
+  background: var(--el-fill-color-light);
 }
 </style>

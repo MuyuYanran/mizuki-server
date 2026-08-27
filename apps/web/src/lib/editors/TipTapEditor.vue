@@ -199,8 +199,10 @@ function redo(): void {
 </template>
 
 <style scoped>
+/* [Phase2-B1.5 / R2-11] 全部颜色改挂主题变量：亮/暗随 Element 变量与
+   theme.css 的终端配色自动切换，本文件零硬编码颜色。 */
 .tiptap-editor {
-  border: 1px solid var(--el-border-color, #dcdfe6);
+  border: 1px solid var(--el-border-color);
   border-radius: 4px;
 }
 
@@ -209,10 +211,11 @@ function redo(): void {
   flex-wrap: wrap;
   gap: 8px;
   padding: 8px;
-  border-bottom: 1px solid var(--el-border-color, #dcdfe6);
-  background: #fafafa;
+  border-bottom: 1px solid var(--el-border-color);
+  background: var(--el-fill-color-light);
 }
 
+/* 工具栏激活态由 el-button type=primary 提供（Element 双主题自动适配） */
 .tiptap-content {
   min-height: 400px;
   padding: 12px;
@@ -221,6 +224,8 @@ function redo(): void {
 .tiptap-content :deep(.ProseMirror) {
   min-height: 376px;
   outline: none;
+  background: transparent;
+  color: var(--el-text-color-primary);
 }
 
 .tiptap-content :deep(.ProseMirror:focus) {
@@ -234,23 +239,36 @@ function redo(): void {
 
 .tiptap-content :deep(.ProseMirror th),
 .tiptap-content :deep(.ProseMirror td) {
-  border: 1px solid #ddd;
+  border: 1px solid var(--el-border-color);
   padding: 6px 10px;
 }
 
+/* 行内代码底色（暗色自动换 fill 阶） */
+.tiptap-content :deep(.ProseMirror code) {
+  background: var(--el-fill-color);
+  border-radius: 3px;
+  padding: 1px 4px;
+}
+
+/* 代码块走终端配色变量（与控制台同一语义源，明暗两态均成立） */
 .tiptap-content :deep(.ProseMirror pre) {
-  background: #1e1e1e;
-  color: #d4d4d4;
+  background: var(--mizuki-terminal-bg);
+  color: var(--mizuki-terminal-fg);
   border-radius: 4px;
   padding: 12px;
   font-family: Consolas, Monaco, monospace;
   overflow-x: auto;
 }
 
+.tiptap-content :deep(.ProseMirror pre code) {
+  background: transparent;
+  padding: 0;
+}
+
 .tiptap-content :deep(.ProseMirror blockquote) {
-  border-left: 3px solid #ddd;
+  border-left: 3px solid var(--el-border-color);
   padding-left: 12px;
-  color: #666;
+  color: var(--el-text-color-secondary);
   margin: 8px 0;
 }
 

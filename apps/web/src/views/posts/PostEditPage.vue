@@ -408,7 +408,7 @@ function formatValue(value: unknown): string {
 .fm-sidebar {
   width: 320px;
   flex-shrink: 0;
-  border: 1px solid var(--el-border-color, #dcdfe6);
+  border: 1px solid var(--el-border-color);
   border-radius: 4px;
   padding: 12px;
   max-height: 70vh;
@@ -425,7 +425,7 @@ function formatValue(value: unknown): string {
 .upload-btn {
   display: inline-block;
   cursor: pointer;
-  color: var(--el-color-primary, #409eff);
+  color: var(--el-color-primary);
   font-size: 13px;
 }
 
@@ -435,7 +435,7 @@ function formatValue(value: unknown): string {
 }
 
 .field-error {
-  color: var(--el-color-danger, #f56c6c);
+  color: var(--el-color-danger);
   font-size: 12px;
 }
 

@@ -257,13 +257,13 @@ function goBack(): void {
 .meta-sidebar {
   width: 300px;
   flex-shrink: 0;
-  border: 1px solid var(--el-border-color, #dcdfe6);
+  border: 1px solid var(--el-border-color);
   border-radius: 4px;
   padding: 12px;
 }
 
 .field-error {
-  color: var(--el-color-danger, #f56c6c);
+  color: var(--el-color-danger);
   font-size: 12px;
 }
 </style>

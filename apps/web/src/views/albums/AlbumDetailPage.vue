@@ -6,13 +6,11 @@
  * [状态] ACTIVE
  *
  * [Phase2-B1 / R2-8] 灯箱预览：v-viewer（viewerjs 封装）——网格点图打开
- *   灯箱，支持大图/缩放/旋转/左右切换/Esc 关闭；images 数组同源 URL 列表
- *   （本地项相对路径 /images/albums/<相册>/<图>，外部 URL 项直接透传——
- *   外部相册数据形态由 Phase2-B2 R2-14 落地，本页结构已就绪）。
+ *   灯箱，支持大图/缩放/旋转/左右切换/Esc 关闭；images 数组同源 URL 列表；
+ * [Phase2-B1.5 / ADR-012] 本地图片 src 统一走 imageSrc() → /site-assets/
+ *   通道（JWT 保护，后端托管 Mizuki public/），dev 由 vite 代理、生产同源。
+ *   外部 URL 项不经通道（imageSrc 原样返回）——B2 R2-14 落地时无需改动本页。
  * [Phase2-B1] 前端分页：每页 60 张（R2-14 前端实现）。
- * 本地图片字节来源说明：面板自身不托管 Mizuki public/（P11 遗留，二期
- *   未立项静态服务）；开发形态经 vite dev publicDir（见 vite.config.ts）
- *   同源可预览，生产单命令形态下本地项暂显示占位——URL 项不受影响。
  */
 import { computed, onMounted, ref } from 'vue';
 import { useRoute } from 'vue-router';
@@ -21,6 +19,7 @@ import { api as viewerApi } from 'v-viewer';
 import 'viewerjs/dist/viewer.css';
 import { albumsApi, type AlbumView, type AlbumInfo } from '../../api/albums';
 import { ApiError } from '../../api/http';
+import { imageSrc } from '../../lib/image-src';
 import ImageUploader from '../../components/ImageUploader.vue';
 
 const route = useRoute();
@@ -43,9 +42,9 @@ const pagedImages = computed<string[]>(() => {
   return images.slice(start, start + PAGE_SIZE);
 });
 
-/** 本地图片 URL（相册目录 public/images/albums/<名>/，相对面板源） */
+/** 本地图片 URL（相册目录 /images/albums/<名>/，经 ADR-012 站点资产通道） */
 function imageUrl(image: string): string {
-  return `/images/albums/${encodeURIComponent(albumName.value)}/${encodeURIComponent(image)}`;
+  return imageSrc(`/images/albums/${albumName.value}/${image}`);
 }
 
 interface EditForm {

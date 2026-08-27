@@ -1,4 +1,3 @@
-import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { defineConfig } from 'vite';
@@ -19,34 +18,11 @@ const __dirname = fileURLToPath(new URL('.', import.meta.url));
  * server 仍走 dist/index.js（CJS）不受影响。optimizeDeps 仅留 zod
  * （shared 已走 src，不再预打包它本身）。
  *
- * [Phase2-B1 / R2-8] dev 形态的 Mizuki public/ 预览源：优先 MIZUKI_ROOT
- * 环境变量，其次读取本机 apps/server/data/config.json 的 mizukiRoot，将其
- * public 目录作为 vite publicDir（仅 dev——面板自身不托管 Mizuki 静态产物，
- * P11 遗留；生产 build 不设置，避免把站点产物拷进面板 dist）。相册/媒体
- * 缩略图 URL（/images/albums/…、/images/uploads/…）由此同源可预览；
- * 均不可用（全新克隆）时静默跳过。
+ * [Phase2-B1.5 / ADR-012] /site-assets 代理：Mizuki public/ 站点资产由后端
+ * 托管（JWT 保护）。B1 的 publicDir 临时方案（dev 时把 Mizuki public/ 挂为
+ * vite 静态目录）已按裁决回收，杜绝双轨残留。
  */
-function resolveMizukiPublicDir(): string | undefined {
-  try {
-    let mizukiRoot = process.env['MIZUKI_ROOT'];
-    if (!mizukiRoot) {
-      const configPath = path.resolve(__dirname, '../server/data/config.json');
-      const config = JSON.parse(fs.readFileSync(configPath, 'utf8')) as { mizukiRoot?: string };
-      mizukiRoot = config.mizukiRoot;
-    }
-    if (typeof mizukiRoot === 'string' && mizukiRoot !== '') {
-      const publicDir = path.join(mizukiRoot, 'public');
-      if (fs.existsSync(publicDir)) {
-        return publicDir;
-      }
-    }
-  } catch {
-    // 配置不存在/不可解析 → 无预览源，保持默认行为
-  }
-  return undefined;
-}
-
-export default defineConfig(({ command }) => ({
+export default defineConfig({
   plugins: [vue()],
   resolve: {
     alias: {
@@ -61,6 +37,8 @@ export default defineConfig(({ command }) => ({
       '@codemirror/commands',
       '@codemirror/language',
       '@codemirror/lang-markdown',
+      // [Phase2-B1.5] one-dark 主题扩展
+      '@codemirror/theme-one-dark',
       '@tiptap/vue-3',
       '@tiptap/starter-kit',
       '@tiptap/extension-link',
@@ -81,8 +59,10 @@ export default defineConfig(({ command }) => ({
       '/api': {
         target: 'http://localhost:20154',
       },
+      // [ADR-012] Mizuki public/ 站点资产通道（需登录后的通道 cookie）
+      '/site-assets': {
+        target: 'http://localhost:20154',
+      },
     },
   },
-  // 仅 dev 形态挂 Mizuki public/（build 不拷贝站点产物）
-  publicDir: command === 'serve' ? resolveMizukiPublicDir() : undefined,
-}));
+});
