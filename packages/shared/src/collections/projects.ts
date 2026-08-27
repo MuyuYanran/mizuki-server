@@ -9,7 +9,11 @@ export const ProjectsItemSchema = z.object({
   id: z.string(),
   title: z.string(),
   description: z.string().optional(),
-  image: z.string().optional(),
+  /** [R2-12] 图片类字段引导（SchemaForm 渲染为帮助文案） */
+  image: z
+    .string()
+    .optional()
+    .describe('本地图片填媒体库回传的相对路径（public/images/uploads/…），外链直接粘贴 URL'),
   category: z.string().optional(),
   techStack: z.array(z.string()).optional(),
   status: z.string().optional(),

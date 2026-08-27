@@ -8,10 +8,18 @@
  *
  * 渲染策略：自写映射器（ADR-007），不引入 zod-to-json-schema 中间层。
  * 字段类型→控件映射见 mapper.ts；此处只负责渲染与校验编排。
+ *
+ * [Phase2-B1]
+ * - R2-9：date 控件挂 el-date-picker（YYYY-MM-DD；清空回调 null → undefined，
+ *   与 zod optional 语义对齐）；
+ * - R2-12：description 渲染为字段下方灰字帮助文案；
+ * - R2-13：必填字段标签挂 FieldHint 问号 tooltip（文案同源 description，
+ *   未配置回落通用必填提示；与帮助文案不重复措辞——同一文案二处呈现）。
  */
 import { computed, ref, watch } from 'vue';
 import type { z, ZodObject, ZodType } from 'zod';
 import { describeSchema, validateBySchema, type FieldDescriptor } from './mapper';
+import FieldHint from '../../components/FieldHint.vue';
 
 const props = defineProps<{
   /** zod schema（ZodObject），字段规格唯一来源 */
@@ -54,6 +62,11 @@ function updateNestedField(parentKey: string, childKey: string, value: unknown):
   const parent = (props.modelValue[parentKey] ?? {}) as Record<string, unknown>;
   const nextParent = { ...parent, [childKey]: value };
   updateField(parentKey, nextParent);
+}
+
+/** [R2-9] 日期更新：清空（null）归一为 undefined（zod optional 语义） */
+function updateDateField(field: FieldDescriptor, value: unknown): void {
+  updateField(field.key, value ?? undefined);
 }
 
 /** 标签输入（tags）：回车追加，Backspace 在空输入时删尾 */
@@ -118,9 +131,12 @@ function errorFor(key: string, childKey?: string): string {
         <el-form-item
           v-for="child in field.children"
           :key="child.key"
-          :label="child.label"
           :error="errorFor(field.key, child.key) || undefined"
         >
+          <template #label>
+            <span class="field-label-text">{{ child.label }}</span>
+            <FieldHint v-if="child.required" :description="child.description" :label="child.label" />
+          </template>
           <el-input-number
             v-if="child.widget === 'number'"
             :model-value="((modelValue[field.key] as Record<string, unknown> | undefined)?.[child.key] as number) ?? 0"
@@ -137,10 +153,13 @@ function errorFor(key: string, childKey?: string): string {
 <!-- 顶层字段 -->
       <el-form-item
         v-else
-        :label="field.label"
         :required="field.required"
         :error="errorFor(field.key) || undefined"
       >
+        <template #label>
+          <span class="field-label-text">{{ field.label }}</span>
+          <FieldHint v-if="field.required" :description="field.description" :label="field.label" />
+        </template>
         <!-- 字符串长文本 -->
         <el-input
           v-if="field.widget === 'textarea'"
@@ -148,6 +167,17 @@ function errorFor(key: string, childKey?: string): string {
           type="textarea"
           :rows="4"
           @update:model-value="(v: unknown) => updateField(field.key, v)"
+        />
+        <!-- [R2-9] 日期：el-date-picker（YYYY-MM-DD） -->
+        <el-date-picker
+          v-else-if="field.widget === 'date'"
+          :model-value="(modelValue[field.key] as string) ?? undefined"
+          type="date"
+          value-format="YYYY-MM-DD"
+          placeholder="选择日期"
+          format="YYYY-MM-DD"
+          class="date-input"
+          @update:model-value="(v: unknown) => updateDateField(field, v)"
         />
         <!-- 布尔 -->
         <el-switch
@@ -194,6 +224,8 @@ function errorFor(key: string, childKey?: string): string {
           :placeholder="field.placeholder"
           @update:model-value="(v: unknown) => updateField(field.key, v)"
         />
+        <!-- [R2-12] 字段下方灰字帮助文案（description） -->
+        <div v-if="field.description" class="field-help">{{ field.description }}</div>
       </el-form-item>
     </template>
 
@@ -207,6 +239,9 @@ function errorFor(key: string, childKey?: string): string {
 </template>
 
 <style scoped>
+.field-label-text {
+  vertical-align: middle;
+}
 .tags-input {
   display: flex;
   flex-wrap: wrap;
@@ -220,5 +255,16 @@ function errorFor(key: string, childKey?: string): string {
 .tag-input {
   flex: 1;
   min-width: 160px;
+}
+.date-input {
+  width: 100%;
+}
+/* [R2-12] 字段下方帮助文案（灰字说明） */
+.field-help {
+  width: 100%;
+  margin-top: 4px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--el-text-color-secondary);
 }
 </style>

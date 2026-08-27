@@ -1,5 +1,6 @@
 import { createRouter, createWebHistory, type RouteRecordRaw } from 'vue-router';
 import { isLoggedIn } from '../stores/auth';
+import { ensureSystemMode, isMinimalMode } from '../stores/system';
 
 /**
  * [P10a] 路由表与守卫
@@ -64,13 +65,27 @@ export const router = createRouter({
   routes,
 });
 
-router.beforeEach((to) => {
+/**
+ * minimal（仅管理）模式下重定向到仪表盘的路由前缀（R2-5：
+ * 富文本文章 /articles* 与六类集合 /collections/*；直接敲路由不放行）
+ */
+const MINIMAL_HIDDEN_PREFIXES = ['/collections', '/articles'];
+
+router.beforeEach(async (to) => {
   const isPublic = to.meta.public === true;
   if (!isPublic && !isLoggedIn()) {
     return { path: '/login', query: to.fullPath !== '/' ? { redirect: to.fullPath } : {} };
   }
   if (to.path === '/login' && isLoggedIn()) {
     return { path: '/' };
+  }
+  // [Phase2-B1 / R2-5] 已登录且模式未加载 → 先补拉一次（刷新深链直达场景）。
+  // 拉取失败 mode=null → fail-open 不拦（ensureSystemMode 内部静默）。
+  if (!isPublic && isLoggedIn()) {
+    await ensureSystemMode();
+    if (isMinimalMode() && MINIMAL_HIDDEN_PREFIXES.some((p) => to.path.startsWith(p))) {
+      return { path: '/' };
+    }
   }
   return true;
 });

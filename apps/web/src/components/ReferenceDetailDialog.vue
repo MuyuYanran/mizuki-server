@@ -53,6 +53,6 @@ function labelFor(refType: string): string {
 <style scoped>
 .hint {
   margin: 0 0 12px;
-  color: #606266;
+  color: var(--el-text-color-secondary);
 }
 </style>

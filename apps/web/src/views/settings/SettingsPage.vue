@@ -219,7 +219,7 @@ onMounted(() => {
   margin-bottom: 12px;
 }
 .parse-error {
-  color: #f56c6c;
+  color: var(--el-color-danger);
   font-size: 12px;
   width: 100%;
 }

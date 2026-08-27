@@ -449,12 +449,12 @@ function formatValue(value: unknown): string {
 }
 
 .unknown-key .key {
-  color: #909399;
+  color: var(--el-text-color-secondary);
   margin-right: 6px;
 }
 
 .unknown-key .value {
-  color: #606266;
+  color: var(--el-text-color-secondary);
   word-break: break-all;
 }
 </style>

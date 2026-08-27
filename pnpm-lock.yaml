@@ -183,9 +183,18 @@ importers:
       element-plus:
         specifier: ^2.8.0
         version: 2.14.5(vue@3.5.41(typescript@5.9.3))
+      v-viewer:
+        specifier: ^3.0.23
+        version: 3.0.23(viewerjs@1.12.0)(vue@3.5.41(typescript@5.9.3))
+      viewerjs:
+        specifier: ^1.12.0
+        version: 1.12.0
       vue:
         specifier: ^3.5.0
         version: 3.5.41(typescript@5.9.3)
+      vue-cropper:
+        specifier: ^1.1.4
+        version: 1.1.4
       vue-router:
         specifier: ^4.5.0
         version: 4.6.4(vue@3.5.41(typescript@5.9.3))
@@ -4183,9 +4192,18 @@ packages:
   util-deprecate@1.0.2:
     resolution: {integrity: sha512-EPD5q1uXyFxJpCrLnCc1nHnq3gOa6DZBocAIiI2TaSCA7VCJ1UJDMagCzIkXNsUYfD1daK//LTEQ8xiIbrHtcw==}
 
+  v-viewer@3.0.23:
+    resolution: {integrity: sha512-u/Zd/FXTdtdE2k2YeYMf6mU4oL0ILEZ9STHnZT7myyfRwQot68GO3O+6DwxNnHTaATiiAJTrz2MXjaqYKoB7iA==}
+    peerDependencies:
+      viewerjs: ^1.11.0
+      vue: ^3.0.0
+
   vary@1.1.2:
     resolution: {integrity: sha512-BNGbWLfd0eUPabhkXUVm0j8uuvREyTh5ovRa/dyow/BqAbZJyC+5fU+IzQOzmAKzYqYRAISoRhdQr3eIZ/PXqg==}
     engines: {node: '>= 0.8'}
+
+  viewerjs@1.12.0:
+    resolution: {integrity: sha512-eQrV7FvqXj2Ysavd9LINI6bFAvXtw5YbdlMtdIo6Bmrv25hEOBeXoOX9E7cJwYuFAOPFzmppFvDn02QNHB120w==}
 
   vite@7.3.6:
     resolution: {integrity: sha512-4XP60spRGjSZFf1qYH+dJIkK2znL3zQfl9KkOV9MkkRR/3Dls0dxaBsQPTloEc5BLXWPL9vsOxopxyKoMmDueg==}
@@ -4316,6 +4334,9 @@ packages:
 
   vue-component-type-helpers@3.3.11:
     resolution: {integrity: sha512-LwcxzeliO9fkQcpJG0PoX8X5kmAhKmH9wkpDLxNabwzkQ9Zeib2YVHwFV4pcWmMLfXVfjr/dSV+DaJ3cIPgSNA==}
+
+  vue-cropper@1.1.4:
+    resolution: {integrity: sha512-5m98vBsCEI9rbS4JxELxXidtAui3qNyTHLHg67Qbn7g8cg+E6LcnC+hh3SM/p94x6mFh6KRxT1ttnta+wCYqWA==}
 
   vue-router@4.6.4:
     resolution: {integrity: sha512-Hz9q5sa33Yhduglwz6g9skT8OBPii+4bFn88w6J+J4MfEo4KRRpmiNG/hHHkdbRFlLBOqxN8y8gf2Fb0MTUgVg==}
@@ -8138,7 +8159,15 @@ snapshots:
 
   util-deprecate@1.0.2: {}
 
+  v-viewer@3.0.23(viewerjs@1.12.0)(vue@3.5.41(typescript@5.9.3)):
+    dependencies:
+      lodash-es: 4.18.1
+      viewerjs: 1.12.0
+      vue: 3.5.41(typescript@5.9.3)
+
   vary@1.1.2: {}
+
+  viewerjs@1.12.0: {}
 
   vite@7.3.6(@types/node@26.3.0)(lightningcss@1.33.0)(terser@5.50.0)(tsx@4.23.12):
     dependencies:
@@ -8199,6 +8228,8 @@ snapshots:
   vscode-uri@3.2.0: {}
 
   vue-component-type-helpers@3.3.11: {}
+
+  vue-cropper@1.1.4: {}
 
   vue-router@4.6.4(vue@3.5.41(typescript@5.9.3)):
     dependencies:

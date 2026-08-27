@@ -10,7 +10,11 @@ export const DiaryItemSchema = z.object({
   content: z.string(),
   /** ISO 8601 */
   date: z.string(),
-  images: z.array(z.string()).optional(),
+  /** [R2-12] 图片类字段引导（SchemaForm 渲染为帮助文案） */
+  images: z
+    .array(z.string())
+    .optional()
+    .describe('本地图片填媒体库回传的相对路径（public/images/uploads/…），外链直接粘贴 URL'),
   location: z.string().optional(),
   mood: z.string().optional(),
   tags: z.array(z.string()).optional(),

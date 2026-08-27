@@ -179,12 +179,12 @@ onMounted(() => {
   font-size: 15px;
 }
 .album-desc {
-  color: #909399;
+  color: var(--el-text-color-secondary);
   font-size: 13px;
   margin: 4px 0;
 }
 .album-meta {
-  color: #606266;
+  color: var(--el-text-color-secondary);
   font-size: 12px;
 }
 </style>

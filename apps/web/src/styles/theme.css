@@ -1,0 +1,86 @@
+/**
+ * [Phase2-B1 / R2-1] 主题样式：Mizuki 风格调色板 + 明暗双主题
+ * [职责]
+ *  - 全部主题色集中于本文件（主色系走 --el-color-primary 系列，页面禁止
+ *    散落硬编码颜色——R2-1 验收条款）；
+ *  - 亮色为基础主题；暗色复用 Element Plus 官方 dark 模式（html.dark，
+ *    css-vars 全套生效），本文件在 element 两个 css 之后引入以覆盖
+ *    --el-color-primary 及其 light-3..9 / dark-2 混色阶（element 的
+ *    dark/css-vars.css 对混色阶是具体色值而非 var 引用，必须整套重设）；
+ *  - 终端（LogTerminal）背景/前景/日志分级着色/滚动条全部走
+ *    --mizuki-terminal-* 变量，暗色基调 #0d1117（R2-1 控制台条款）。
+ * [状态] ACTIVE
+ */
+
+/* ── 亮色（基础主题） ─────────────────────────────────────────── */
+
+:root {
+  /* Mizuki 调色板：樱花粉主色（二次元可爱风格，具体色值记于 B1 交付报告） */
+  --mizuki-primary: #e8739e;
+  --el-color-primary: var(--mizuki-primary);
+  --el-color-primary-light-3: #ee97b7;
+  --el-color-primary-light-5: #f3b9ce;
+  --el-color-primary-light-7: #f7dbe5;
+  --el-color-primary-light-8: #fae2eb;
+  --el-color-primary-light-9: #fceff4;
+  --el-color-primary-dark-2: #ba5c7e;
+
+  /* 柔和渐变页面背景（大圆角卡片 + 柔化投影配套） */
+  --mizuki-page-bg: linear-gradient(165deg, #fdeff5 0%, #f5f7fa 55%);
+  --mizuki-card-shadow: 0 4px 18px rgba(232, 115, 158, 0.1);
+
+  /* 大圆角（卡片 14px / 控件 8px，element 默认 4px） */
+  --el-card-border-radius: 14px;
+  --el-border-radius-base: 8px;
+  --el-border-radius-small: 6px;
+
+  /* 终端配色（亮色：浅灰底 + 深字；分级：stdout 灰白 / stderr 淡红 / exit 高亮） */
+  --mizuki-terminal-bg: #f6f8fa;
+  --mizuki-terminal-fg: #424a53;
+  --mizuki-terminal-stdout: #57606a;
+  --mizuki-terminal-stderr: #cf222e;
+  --mizuki-terminal-exit: #1a7f37;
+  --mizuki-terminal-hint: #8c959f;
+  --mizuki-terminal-scrollbar: #d0d7de;
+}
+
+/* ── 暗色（Element Plus 官方 dark 变量 + Mizuki 主色阶重设） ────── */
+
+html.dark {
+  --mizuki-primary: #f091b7;
+  --el-color-primary: var(--mizuki-primary);
+  /* 暗色下 light-3..9 向深色背景 #141414 混合（与 element dark 官方算法一致） */
+  --el-color-primary-light-3: #b46f8b;
+  --el-color-primary-light-5: #8d586d;
+  --el-color-primary-light-7: #603e4d;
+  --el-color-primary-light-8: #4c323e;
+  --el-color-primary-light-9: #35252e;
+  --el-color-primary-dark-2: #f6a5c4;
+
+  --mizuki-page-bg: linear-gradient(165deg, #181015 0%, #0a0a0a 55%);
+  --mizuki-card-shadow: 0 4px 18px rgba(240, 145, 183, 0.08);
+
+  /* 终端暗色基调 #0d1117（避免刺眼纯黑，R2-1） */
+  --mizuki-terminal-bg: #0d1117;
+  --mizuki-terminal-fg: #c9d1d9;
+  --mizuki-terminal-stdout: #9ea7b3;
+  --mizuki-terminal-stderr: #f85149;
+  --mizuki-terminal-exit: #7ee2a8;
+  --mizuki-terminal-hint: #6e7681;
+  --mizuki-terminal-scrollbar: #30363d;
+}
+
+/* ── 全局观感（卡片柔化投影 / 页面背景由布局层引用变量） ───────── */
+
+body {
+  margin: 0;
+  background: #f5f7fa;
+}
+
+html.dark body {
+  background: #0a0a0a;
+}
+
+.el-card {
+  box-shadow: var(--mizuki-card-shadow);
+}

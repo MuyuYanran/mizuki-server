@@ -134,7 +134,7 @@ onMounted(() => {
   text-align: center;
 }
 .stat-label {
-  color: #909399;
+  color: var(--el-text-color-secondary);
   font-size: 13px;
 }
 .stat-value {
@@ -143,7 +143,7 @@ onMounted(() => {
   margin: 4px 0;
 }
 .stat-sub {
-  color: #909399;
+  color: var(--el-text-color-secondary);
   font-size: 12px;
 }
 .logs-card {

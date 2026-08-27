@@ -175,7 +175,7 @@ function handleError(e: unknown, fallback: string): void {
   gap: 12px;
   margin-bottom: 12px;
   font-size: 13px;
-  color: #606266;
+  color: var(--el-text-color-secondary);
 }
 .port-bar {
   display: flex;
@@ -186,6 +186,6 @@ function handleError(e: unknown, fallback: string): void {
   width: 160px;
 }
 .port-result {
-  color: #606266;
+  color: var(--el-text-color-secondary);
 }
 </style>

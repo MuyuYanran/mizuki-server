@@ -8,7 +8,8 @@ import { z } from 'zod';
 export const FriendsItemSchema = z.object({
   id: z.string(),
   title: z.string(),
-  imgurl: z.string(),
+  /** [R2-12] 图片类字段引导（SchemaForm 渲染为帮助文案 + 必填 tooltip） */
+  imgurl: z.string().describe('本地图片填媒体库回传的相对路径（public/images/uploads/…），外链直接粘贴 URL'),
   desc: z.string().optional(),
   siteurl: z.string(),
   tags: z.array(z.string()).optional(),

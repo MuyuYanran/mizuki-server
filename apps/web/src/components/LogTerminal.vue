@@ -7,6 +7,11 @@
  * [状态] ACTIVE
  *
  * SSE 经 fetch + ReadableStream 消费（EventSource 无法带 token，见 process.ts）。
+ *
+ * [Phase2-B1 / R2-1] 终端观感全部走 CSS 变量（--mizuki-terminal-*，见
+ * styles/theme.css）：暗色底 #0d1117 基调、明暗两态前景、滚动条样式、
+ * 日志分级着色——stdout 默认灰白 / stderr 淡红 / exit 事件高亮
+ * （exitCode≠0 按错误色加重）。
  */
 import { onBeforeUnmount, ref, watch } from 'vue';
 import { streamTaskLogs, type LogEvent } from '../api/process';
@@ -21,7 +26,9 @@ const emit = defineEmits<{
 
 interface LogLine {
   text: string;
-  stderr: boolean;
+  level: 'stdout' | 'stderr' | 'exit';
+  /** exit 行的退出码（着色依据：0 成功 / 非 0 失败） */
+  exitCode?: number;
 }
 
 const lines = ref<LogLine[]>([]);
@@ -32,9 +39,13 @@ let detach: (() => void) | null = null;
 function onEvent(event: LogEvent): void {
   if (event.type === 'log') {
     const stderr = event.line.startsWith('[stderr]') || event.line.startsWith('[error]');
-    lines.value.push({ text: event.line, stderr });
+    lines.value.push({ text: event.line, level: stderr ? 'stderr' : 'stdout' });
   } else {
-    lines.value.push({ text: `— 任务退出（exitCode: ${event.exitCode}）—`, stderr: false });
+    lines.value.push({
+      text: `— 任务退出（exitCode: ${event.exitCode}）—`,
+      level: 'exit',
+      exitCode: event.exitCode,
+    });
     emit('finished', event.exitCode);
   }
   scrollToBottom();
@@ -60,7 +71,7 @@ function start(): void {
     },
     onError: (error) => {
       const msg = error instanceof Error ? error.message : 'SSE 连接失败';
-      lines.value.push({ text: `[error] ${msg}`, stderr: true });
+      lines.value.push({ text: `[error] ${msg}`, level: 'stderr' });
     },
   });
 }
@@ -83,7 +94,15 @@ onBeforeUnmount(() => {
 
 <template>
   <div ref="containerRef" class="log-terminal">
-    <div v-for="(line, i) in lines" :key="i" :class="['log-line', { stderr: line.stderr }]">
+    <div
+      v-for="(line, i) in lines"
+      :key="i"
+      :class="[
+        'log-line',
+        `log-${line.level}`,
+        { 'log-exit-failed': line.level === 'exit' && (line.exitCode ?? 0) !== 0 },
+      ]"
+    >
       {{ line.text }}
     </div>
     <div v-if="lines.length === 0" class="empty-hint">等待日志输出…</div>
@@ -94,23 +113,52 @@ onBeforeUnmount(() => {
 .log-terminal {
   height: 400px;
   overflow-y: auto;
-  background: #1e1e1e;
-  color: #d4d4d4;
+  background: var(--mizuki-terminal-bg);
+  color: var(--mizuki-terminal-fg);
   font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
   font-size: 12px;
   padding: 8px;
+  border-radius: 8px;
+  border: 1px solid var(--el-border-color-lighter);
+}
+/* 滚动条走主题变量（webkit + firefox 两套） */
+.log-terminal::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+.log-terminal::-webkit-scrollbar-thumb {
+  background: var(--mizuki-terminal-scrollbar);
   border-radius: 4px;
+}
+.log-terminal::-webkit-scrollbar-track {
+  background: transparent;
+}
+.log-terminal {
+  scrollbar-width: thin;
+  scrollbar-color: var(--mizuki-terminal-scrollbar) transparent;
 }
 .log-line {
   white-space: pre-wrap;
   word-break: break-all;
   line-height: 1.5;
 }
-.log-line.stderr {
-  color: #f48771;
+/* 分级着色（R2-1）：stdout 灰白 / stderr 淡红 / exit 高亮 */
+.log-stdout {
+  color: var(--mizuki-terminal-stdout);
+}
+.log-stderr {
+  color: var(--mizuki-terminal-stderr);
+}
+.log-exit {
+  color: var(--mizuki-terminal-exit);
+  font-weight: 600;
+  margin-top: 4px;
+}
+.log-exit-failed {
+  color: var(--mizuki-terminal-stderr);
 }
 .empty-hint {
-  color: #888;
+  color: var(--mizuki-terminal-hint);
   font-style: italic;
 }
 </style>

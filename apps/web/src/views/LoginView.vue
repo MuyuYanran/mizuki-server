@@ -105,7 +105,7 @@ async function onSubmit(): Promise<void> {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: #f0f2f5;
+  background: var(--mizuki-page-bg);
 }
 .login-card {
   width: 380px;
@@ -114,6 +114,7 @@ async function onSubmit(): Promise<void> {
   text-align: center;
   font-size: 20px;
   margin: 0 0 16px;
+  color: var(--el-text-color-primary);
 }
 .login-alert {
   margin-bottom: 16px;

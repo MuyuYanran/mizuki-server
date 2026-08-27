@@ -4,10 +4,21 @@
  * [职责] 图片网格 + 上传（非 JPG 自动转 JPG，由后端处理，前端提示）+
  *   删除单图（二次确认）+ 编辑 info（对话框，info.json 全字段）。
  * [状态] ACTIVE
+ *
+ * [Phase2-B1 / R2-8] 灯箱预览：v-viewer（viewerjs 封装）——网格点图打开
+ *   灯箱，支持大图/缩放/旋转/左右切换/Esc 关闭；images 数组同源 URL 列表
+ *   （本地项相对路径 /images/albums/<相册>/<图>，外部 URL 项直接透传——
+ *   外部相册数据形态由 Phase2-B2 R2-14 落地，本页结构已就绪）。
+ * [Phase2-B1] 前端分页：每页 60 张（R2-14 前端实现）。
+ * 本地图片字节来源说明：面板自身不托管 Mizuki public/（P11 遗留，二期
+ *   未立项静态服务）；开发形态经 vite dev publicDir（见 vite.config.ts）
+ *   同源可预览，生产单命令形态下本地项暂显示占位——URL 项不受影响。
  */
 import { computed, onMounted, ref } from 'vue';
 import { useRoute } from 'vue-router';
 import { ElMessage, ElMessageBox } from 'element-plus';
+import { api as viewerApi } from 'v-viewer';
+import 'viewerjs/dist/viewer.css';
 import { albumsApi, type AlbumView, type AlbumInfo } from '../../api/albums';
 import { ApiError } from '../../api/http';
 import ImageUploader from '../../components/ImageUploader.vue';
@@ -17,6 +28,25 @@ const albumName = computed(() => decodeURIComponent(String(route.params['id'] ??
 
 const album = ref<AlbumView | null>(null);
 const loading = ref(false);
+
+/** 每页张数（R2-14 前端分页：60/页） */
+const PAGE_SIZE = 60;
+const currentPage = ref(1);
+
+/** 缩略图加载失败标记（文件名 → true；显示占位而非破图） */
+const failedThumbs = ref<Record<string, boolean>>({});
+
+/** 当前页图片（分页窗口） */
+const pagedImages = computed<string[]>(() => {
+  const images = album.value?.images ?? [];
+  const start = (currentPage.value - 1) * PAGE_SIZE;
+  return images.slice(start, start + PAGE_SIZE);
+});
+
+/** 本地图片 URL（相册目录 public/images/albums/<名>/，相对面板源） */
+function imageUrl(image: string): string {
+  return `/images/albums/${encodeURIComponent(albumName.value)}/${encodeURIComponent(image)}`;
+}
 
 interface EditForm {
   title: string;
@@ -46,6 +76,8 @@ async function fetchDetail(): Promise<void> {
     if (album.value === null) {
       ElMessage.error('相册不存在');
     }
+    currentPage.value = 1;
+    failedThumbs.value = {};
   } catch (e) {
     handleError(e, '加载相册详情失败');
   } finally {
@@ -55,6 +87,33 @@ async function fetchDetail(): Promise<void> {
 
 function onUploaded(): void {
   void fetchDetail();
+}
+
+/** [R2-8] 打开灯箱：从点击图起播，可在全部图间左右切换 */
+function openLightbox(image: string): void {
+  const images = (album.value?.images ?? []).map(imageUrl);
+  const initial = images.indexOf(imageUrl(image));
+  viewerApi({
+    images,
+    options: {
+      inline: false,
+      toolbar: true,
+      navbar: true,
+      title: false,
+      keyboard: true,
+      movable: true,
+      zoomable: true,
+      rotatable: true,
+      scalable: false,
+      transition: true,
+      initialViewIndex: initial >= 0 ? initial : 0,
+    },
+  });
+}
+
+/** 缩略图加载失败 → 占位（不破图） */
+function onThumbError(image: string): void {
+  failedThumbs.value = { ...failedThumbs.value, [image]: true };
 }
 
 async function onDeleteImage(imageName: string): Promise<void> {
@@ -142,8 +201,29 @@ onMounted(() => {
       非 JPG 图片上传后由后端自动转换为 JPG。
     </el-alert>
     <el-row v-if="album !== null" :gutter="12">
-      <el-col v-for="img in album.images" :key="img" :span="4">
-        <el-card class="image-card">
+      <el-col v-for="img in pagedImages" :key="img" :span="4">
+        <el-card class="image-card" shadow="hover">
+          <!-- 点击图片开灯箱（R2-8）；删除按钮独立于点击区 -->
+          <div
+            class="image-preview"
+            role="button"
+            tabindex="0"
+            :title="`预览 ${img}`"
+            @click="openLightbox(img)"
+            @keydown.enter="openLightbox(img)"
+          >
+            <img
+              v-if="!failedThumbs[img]"
+              :src="imageUrl(img)"
+              :alt="img"
+              loading="lazy"
+              class="thumb"
+              @error="onThumbError(img)"
+            />
+            <div v-else class="thumb-placeholder">
+              <span>{{ img }}</span>
+            </div>
+          </div>
           <div class="image-name">{{ img }}</div>
           <el-button size="small" type="danger" @click="onDeleteImage(img)">删除</el-button>
         </el-card>
@@ -152,6 +232,17 @@ onMounted(() => {
         <el-empty description="暂无图片" />
       </el-col>
     </el-row>
+
+    <!-- [R2-14 前端分页] 每页 60 张；单页时隐藏 -->
+    <div v-if="album !== null && album.images.length > PAGE_SIZE" class="pager-row">
+      <el-pagination
+        v-model:current-page="currentPage"
+        :page-size="PAGE_SIZE"
+        :total="album.images.length"
+        layout="prev, pager, next, total"
+        background
+      />
+    </div>
 
     <el-dialog v-model="editVisible" title="编辑相册信息" width="500px">
       <el-form label-width="80px">
@@ -199,10 +290,42 @@ onMounted(() => {
   text-align: center;
   margin-bottom: 12px;
 }
+.image-preview {
+  cursor: zoom-in;
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  overflow: hidden;
+  border-radius: 8px;
+  background: var(--el-fill-color-light);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.thumb {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.thumb-placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  padding: 8px;
+  font-size: 12px;
+  color: var(--el-text-color-placeholder);
+  word-break: break-all;
+}
 .image-name {
   font-size: 12px;
-  color: #606266;
-  margin-bottom: 8px;
+  color: var(--el-text-color-secondary);
+  margin: 8px 0;
   word-break: break-all;
+}
+.pager-row {
+  display: flex;
+  justify-content: center;
+  margin-top: 16px;
 }
 </style>

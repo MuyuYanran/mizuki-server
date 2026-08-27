@@ -10,7 +10,11 @@ import { z } from 'zod';
 export const DeviceItemSchema = z.object({
   /** 分组内唯一（grouped 类型的 idField） */
   name: z.string(),
-  image: z.string().optional(),
+  /** [R2-12] 图片类字段引导（SchemaForm 渲染为帮助文案） */
+  image: z
+    .string()
+    .optional()
+    .describe('本地图片填媒体库回传的相对路径（public/images/uploads/…），外链直接粘贴 URL'),
   specs: z.string().optional(),
   description: z.string().optional(),
   link: z.string().optional(),

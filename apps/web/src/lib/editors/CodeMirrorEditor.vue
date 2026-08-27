@@ -124,6 +124,8 @@ watch(
   overflow: hidden;
 }
 
+/* 编辑器底色保持浅色：CodeMirror 默认语法高亮按浅底设计；暗色适配
+   （深色语法主题）属 Phase2-B3 编辑器主题化范围，此处不半改 */
 .cm-editor-wrap :deep(.cm-editor) {
   background: #fff;
 }

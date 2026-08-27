@@ -182,7 +182,7 @@ async function submit(): Promise<void> {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: #f0f2f5;
+  background: var(--mizuki-page-bg);
 }
 .wizard-card {
   width: 640px;
@@ -194,6 +194,15 @@ async function submit(): Promise<void> {
 }
 .wizard-steps {
   margin-bottom: 24px;
+}
+/* [Phase2-B1 / R2-3] 步骤标签不折行：nowrap + 防收缩；窄窗口字号略缩 */
+.wizard-steps :deep(.el-step__title) {
+  white-space: nowrap;
+  font-size: 13px;
+  line-height: 1.6;
+}
+.wizard-steps :deep(.el-step.is-simple) {
+  flex-shrink: 0;
 }
 .wizard-body {
   min-height: 220px;
@@ -216,22 +225,42 @@ async function submit(): Promise<void> {
   font-weight: 600;
 }
 .check-detail {
-  color: #606266;
+  color: var(--el-text-color-secondary);
 }
+/* [Phase2-B1 / R2-4] 运行模式三选项：垂直排列、同一左缩进基准、
+   等宽卡片行（radio 圆点对齐 + 标签/说明双行块），消除参差缩进 */
 .mode-group {
   display: flex;
   flex-direction: column;
+  align-items: stretch;
   gap: 12px;
 }
 .mode-item {
   height: auto;
+  margin: 0;
+  padding: 12px 14px;
+  width: 100%;
+  box-sizing: border-box;
+  align-items: flex-start;
+  border: 1px solid var(--el-border-color-light);
+  border-radius: 10px;
+  background: var(--el-fill-color-extra-light);
+}
+.mode-item.is-checked {
+  border-color: var(--el-color-primary);
+  background: var(--el-color-primary-light-9);
+}
+.mode-item :deep(.el-radio__label) {
   white-space: normal;
+  line-height: 1.5;
+  padding-left: 6px;
+  width: 100%;
 }
 .mode-label {
   font-weight: 600;
 }
 .mode-desc {
-  color: #606266;
+  color: var(--el-text-color-secondary);
   font-size: 13px;
 }
 .wizard-actions {

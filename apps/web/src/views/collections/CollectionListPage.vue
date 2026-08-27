@@ -32,6 +32,7 @@ import {
 import { ApiError } from '../../api/http';
 import { SchemaForm, describeSchema, emptyValueFromSchema, type FieldDescriptor } from '../../lib/schema-form';
 import ImageUploader from '../../components/ImageUploader.vue';
+import CropperUploader from '../../components/CropperUploader.vue';
 import type { MediaInfo } from '../../api/media';
 
 /** 单类集合的渲染配置（与后端 registry 对齐，schema 实例复用 shared 导出） */
@@ -196,6 +197,15 @@ function onImageUploaded(media: MediaInfo): void {
   }
 }
 
+/**
+ * [Phase2-B1 / R2-6] 友链头像裁切上传：CropperUploader（圆形 1:1）
+ * 上传后回填 imgurl 字段（手动粘贴外链 URL 的输入仍保留）。
+ */
+function onAvatarUploaded(media: MediaInfo): void {
+  formValue.value = { ...formValue.value, imgurl: media.path };
+  ElMessage.success(`已设置头像：${media.path}`);
+}
+
 /** 提交：SchemaForm 内部已跑过 schema.parse，此处只发请求 */
 async function onSubmit(value: Record<string, unknown>): Promise<void> {
   if (config.value === null) {
@@ -341,6 +351,14 @@ function goHome(): void {
       <div class="quick-upload">
         <span class="quick-label">快速上传图片：</span>
         <ImageUploader label="上传" @uploaded="onImageUploaded" />
+        <!-- [R2-6] 友链头像：裁切（圆形 1:1）→ 上传 → 回填 imgurl -->
+        <CropperUploader
+          v-if="config.type === 'friends'"
+          label="裁切上传头像"
+          :fixed-number="[1, 1]"
+          :round="true"
+          @uploaded="onAvatarUploaded"
+        />
       </div>
       <SchemaForm
         v-if="drawerVisible"
@@ -377,14 +395,15 @@ function goHome(): void {
 .quick-upload {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 8px;
   margin-bottom: 16px;
   padding: 8px 12px;
-  background: #f5f7fa;
-  border-radius: 4px;
+  background: var(--el-fill-color-light);
+  border-radius: 8px;
 }
 .quick-label {
-  color: #606266;
+  color: var(--el-text-color-secondary);
   font-size: 13px;
 }
 </style>

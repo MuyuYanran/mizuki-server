@@ -4,6 +4,21 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Mizuki 管理面板</title>
+    <script>
+      // [Phase2-B1 / R2-1] 首帧前设置 dark 类（避免暗色偏好刷新时闪白）。
+      // 与 src/lib/theme.ts 同键同语义：light(默认) / dark / auto(跟随系统)。
+      (function () {
+        try {
+          var pref = localStorage.getItem('mizuki.theme');
+          var dark =
+            pref === 'dark' ||
+            (pref === 'auto' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+          if (dark) document.documentElement.classList.add('dark');
+        } catch (e) {
+          /* localStorage 不可用时退回亮色基础主题 */
+        }
+      })();
+    </script>
   </head>
   <body>
     <div id="app"></div>

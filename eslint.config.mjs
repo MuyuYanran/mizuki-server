@@ -9,7 +9,16 @@ export default tseslint.config(
   {
     // [P10a] apps/web 为 Vue 工程：根 lint 显式排除（取「显式排除」选项，
     // 不引入 eslint-plugin-vue 新依赖；取舍见 P10a 交付报告）
-    ignores: ['**/dist/**', '**/node_modules/**', '**/data/**', '**/coverage/**', 'apps/web/**'],
+    // [Phase2-B1] .test-tmp 为 gitignored 临时验证区（P11 全新环境冒烟、
+    // B1 截图脚本），其中的 CommonJS 工具脚本不属于工程源码，一并排除。
+    ignores: [
+      '**/dist/**',
+      '**/node_modules/**',
+      '**/data/**',
+      '**/coverage/**',
+      'apps/web/**',
+      '.test-tmp/**',
+    ],
   },
   ...tseslint.configs.recommended,
   // ── [P0b] 依赖分层（MASTER-PLAN §4「依赖分层」段，eslint-plugin-boundaries 强制）──

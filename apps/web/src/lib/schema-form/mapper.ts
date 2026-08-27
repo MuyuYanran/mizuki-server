@@ -18,6 +18,15 @@
  * - ZodArray.element → 元素 ZodType
  * - 各类型构造器名：ZodString / ZodBoolean / ZodNumber / ZodEnum /
  *   ZodArray / ZodObject / ZodOptional / ZodDefault。
+ *
+ * [Phase2-B1]
+ * - R2-9 日期分支：ZodDate 或「日期语义命名的 ZodString」（date / *Date）
+ *   → date 控件（el-date-picker，YYYY-MM-DD）；
+ * - R2-12/13 description 钩子：读取 zod `.describe()` 元数据（optional
+ *   包装链的任意一层均可携带），供 SchemaForm 渲染字段下方帮助文案与
+ *   必填问号 tooltip；
+ * - 空表单初值修正：optional 字段初值由 null 改为 undefined（zod v4 的
+ *   .optional() 拒绝 null，null 会使浏览器端本地校验误报——B1 实测）。
  */
 import type { z, ZodType, ZodObject, ZodOptional, ZodArray, ZodDefault } from 'zod';
 
@@ -29,6 +38,7 @@ export type WidgetKind =
   | 'number'
   | 'select'
   | 'tags'
+  | 'date'
   | 'group';
 
 /** 单个字段的渲染描述符（由 schema 推导，组件按此渲染） */
@@ -46,6 +56,8 @@ export interface FieldDescriptor {
   placeholder?: string;
   /** group（嵌套对象）的子字段 */
   children?: FieldDescriptor[];
+  /** schema `.describe()` 元数据：字段下方帮助文案 + 必填 tooltip（R2-12/13） */
+  description?: string;
 }
 
 /** 字段名 → 中文标签覆盖（六类 schema 共用的语义化命名） */
@@ -90,6 +102,15 @@ const LABEL_OVERRIDES: Record<string, string> = {
 /** 长文本字段名白名单（命中 → textarea） */
 const LONG_TEXT_FIELDS = new Set(['content', 'description', 'desc', 'specs']);
 
+/**
+ * [R2-9] 日期语义字段名：date / *Date（diary.date、timeline.startDate、
+ * projects.startDate/endDate 等）。六类 schema 的日期字段均为字符串存储
+ * （数据文件格式不变），ZodDate 分支为未来 schema 演进预留。
+ */
+function isDateField(key: string): boolean {
+  return key === 'date' || key.endsWith('Date');
+}
+
 /** URL 字段名匹配（命中 → input + URL 提示） */
 function isUrlField(key: string): boolean {
   const lower = key.toLowerCase();
@@ -112,6 +133,17 @@ function labelFor(key: string): string {
 /** 取 ZodType 的构造器名（zod v4 无公开 typeName()，用 constructor.name 兜底） */
 function typeName(t: ZodType): string {
   return t.constructor.name;
+}
+
+/** [R2-12/13] 读取 `.describe()` 元数据（optional/default 包装前后任一层携带均可） */
+function descriptionOf(...types: ZodType[]): string | undefined {
+  for (const t of types) {
+    const desc = (t as unknown as { description?: unknown }).description;
+    if (typeof desc === 'string' && desc !== '') {
+      return desc;
+    }
+  }
+  return undefined;
 }
 
 /**
@@ -140,6 +172,7 @@ function describeField(key: string, raw: ZodType): FieldDescriptor {
   const { inner, required } = unwrapOptional(raw);
   const label = labelFor(key);
   const kind = typeName(inner);
+  const description = descriptionOf(raw, inner);
 
   // 嵌套对象 → group + 递归子字段
   if (kind === 'ZodObject') {
@@ -147,36 +180,42 @@ function describeField(key: string, raw: ZodType): FieldDescriptor {
     const children = Object.entries(childShape).map(([childKey, childType]) =>
       describeField(childKey, childType),
     );
-    return { key, label, widget: 'group', required, children };
+    return { key, label, widget: 'group', required, children, description };
   }
 
   // 枚举 → select
   if (kind === 'ZodEnum') {
     // zod v4 的 ZodEnum.options 类型为 Values[keyof Values][]（联合），
     // 这里统一转 string —— 六类 schema 的枚举值均为字符串字面量。
-    const raw = (inner as unknown as { options: readonly (string | number | symbol)[] }).options;
-    return { key, label, widget: 'select', required, options: raw.map(String) };
+    const rawOptions = (inner as unknown as { options: readonly (string | number | symbol)[] })
+      .options;
+    return { key, label, widget: 'select', required, options: rawOptions.map(String), description };
   }
 
   // 数组（ZodArray<ZodString>）→ tags
   if (kind === 'ZodArray') {
-    return { key, label, widget: 'tags', required };
+    return { key, label, widget: 'tags', required, description };
   }
 
   // 布尔 → switch
   if (kind === 'ZodBoolean') {
-    return { key, label, widget: 'switch', required };
+    return { key, label, widget: 'switch', required, description };
   }
 
   // 数字 → number
   if (kind === 'ZodNumber') {
-    return { key, label, widget: 'number', required };
+    return { key, label, widget: 'number', required, description };
+  }
+
+  // [R2-9] 日期 → date（ZodDate 直挂；日期语义命名的 ZodString 同挂）
+  if (kind === 'ZodDate' || (kind === 'ZodString' && isDateField(key))) {
+    return { key, label, widget: 'date', required, description };
   }
 
   // 字符串 → input / textarea / url 提示
   if (kind === 'ZodString') {
     if (LONG_TEXT_FIELDS.has(key)) {
-      return { key, label, widget: 'textarea', required };
+      return { key, label, widget: 'textarea', required, description };
     }
     if (isUrlField(key)) {
       return {
@@ -185,13 +224,14 @@ function describeField(key: string, raw: ZodType): FieldDescriptor {
         widget: 'input',
         required,
         placeholder: 'https://...',
+        description,
       };
     }
-    return { key, label, widget: 'input', required };
+    return { key, label, widget: 'input', required, description };
   }
 
   // 兜底：未知类型按文本输入处理（六类 schema 不应命中此处）
-  return { key, label, widget: 'input', required };
+  return { key, label, widget: 'input', required, description };
 }
 
 /**
@@ -223,7 +263,27 @@ export function validateBySchema(
   return errors;
 }
 
-/** 由 schema 推导空表单初值（按字段类型填充 null/空串/空数组/嵌套对象） */
+/** [R2-9] 当天日期（YYYY-MM-DD，本地时区——默认值取当前系统时间） */
+function todayString(): string {
+  const now = new Date();
+  const y = now.getFullYear();
+  const m = String(now.getMonth() + 1).padStart(2, '0');
+  const d = String(now.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
+/** [R2-9] 是否日期控件（与 describeField 的判定保持一致） */
+function isDateWidget(kind: string, key: string): boolean {
+  return kind === 'ZodDate' || (kind === 'ZodString' && isDateField(key));
+}
+
+/**
+ * 由 schema 推导空表单初值。
+ * - required 字段按类型填充空串/0/false/空数组/嵌套对象；日期字段（date 控件）
+ *   取当天（R2-9 默认值取当前系统时间）；
+ * - optional 字段一律 undefined（zod v4 `.optional()` 拒绝 null；null 会
+ *   使本地校验误报「expected string, received null」——B1 实测修正）。
+ */
 export function emptyValueFromSchema(schema: ZodObject<Record<string, ZodType>>): Record<string, unknown> {
   const shape = schema.shape;
   const out: Record<string, unknown> = {};
@@ -234,12 +294,22 @@ export function emptyValueFromSchema(schema: ZodObject<Record<string, ZodType>>)
       const childShape = (inner as ZodObject<Record<string, ZodType>>).shape;
       const child: Record<string, unknown> = {};
       for (const [childKey, childRaw] of Object.entries(childShape)) {
-        const { inner: childInner } = unwrapOptional(childRaw);
-        child[childKey] = defaultValueFor(childInner);
+        const { inner: childInner, required: childRequired } = unwrapOptional(childRaw);
+        if (!childRequired) {
+          child[childKey] = undefined;
+        } else if (isDateWidget(typeName(childInner), childKey)) {
+          child[childKey] = todayString();
+        } else {
+          child[childKey] = defaultValueFor(childInner);
+        }
       }
       out[key] = child;
+    } else if (!required) {
+      out[key] = undefined;
+    } else if (isDateWidget(kind, key)) {
+      out[key] = todayString();
     } else {
-      out[key] = required ? defaultValueFor(inner) : null;
+      out[key] = defaultValueFor(inner);
     }
   }
   return out;
