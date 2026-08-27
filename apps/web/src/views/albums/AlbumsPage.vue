@@ -9,6 +9,7 @@ import { onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { ElMessage } from 'element-plus';
 import { albumsApi, type AlbumView, type AlbumInfo } from '../../api/albums';
+import { todayString } from '../../lib/schema-form/mapper';
 import { ApiError } from '../../api/http';
 
 const router = useRouter();
@@ -32,7 +33,7 @@ const createForm = ref<CreateForm>({
   name: '',
   title: '',
   description: '',
-  date: '',
+  date: todayString(),
   location: '',
   layout: '',
   columns: '',
@@ -54,7 +55,7 @@ function openCreate(): void {
     name: '',
     title: '',
     description: '',
-    date: '',
+    date: todayString(),
     location: '',
     layout: '',
     columns: '',
@@ -70,6 +71,11 @@ function buildInfo(form: CreateForm): AlbumInfo {
   if (form.layout !== '') info.layout = form.layout;
   if (form.columns !== '') info.columns = Number(form.columns);
   return info;
+}
+
+/** [B3.6] 日期选择回调：el-date-picker 清空回调 null → 空串（保持 string 语义） */
+function onDatePick(value: unknown): void {
+  createForm.value.date = typeof value === 'string' ? value : '';
 }
 
 async function onCreate(): Promise<void> {
@@ -144,7 +150,16 @@ onMounted(() => {
           <el-input v-model="createForm.description" type="textarea" :rows="2" />
         </el-form-item>
         <el-form-item label="日期">
-          <el-input v-model="createForm.date" placeholder="如 2026-01-01" />
+          <!-- [B3.6] el-date-picker（YYYY-MM-DD）替代裸 el-input -->
+          <el-date-picker
+            :model-value="createForm.date || undefined"
+            type="date"
+            value-format="YYYY-MM-DD"
+            format="YYYY-MM-DD"
+            placeholder="选择日期"
+            class="date-input"
+            @update:model-value="onDatePick"
+          />
         </el-form-item>
         <el-form-item label="位置">
           <el-input v-model="createForm.location" />
@@ -169,6 +184,9 @@ onMounted(() => {
   display: flex;
   align-items: center;
   justify-content: space-between;
+}
+.date-input {
+  width: 100%;
 }
 .album-card {
   cursor: pointer;

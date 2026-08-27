@@ -20,13 +20,16 @@ import 'viewerjs/dist/viewer.css';
 import { albumsApi, type AlbumView, type AlbumInfo } from '../../api/albums';
 import { ApiError } from '../../api/http';
 import { imageSrc } from '../../lib/image-src';
-import ImageUploader from '../../components/ImageUploader.vue';
 
 const route = useRoute();
 const albumName = computed(() => decodeURIComponent(String(route.params['id'] ?? '')));
 
 const album = ref<AlbumView | null>(null);
 const loading = ref(false);
+
+/** [B3.6] 相册图片上传（走相册专属端点，不经媒体库） */
+const uploading = ref(false);
+const fileInputRef = ref<HTMLInputElement | null>(null);
 
 /** 每页张数（R2-14 前端分页：60/页） */
 const PAGE_SIZE = 60;
@@ -84,8 +87,39 @@ async function fetchDetail(): Promise<void> {
   }
 }
 
-function onUploaded(): void {
-  void fetchDetail();
+function triggerUpload(): void {
+  fileInputRef.value?.click();
+}
+
+/**
+ * [B3.6] 相册图片上传：走相册专属端点（服务端契约：
+ *   POST /admin/albums/:id/images，multipart 字段名 file —— 以
+ *   albums.controller.ts 为准），原文件名保存、非 JPG 后端自动转 JPG。
+ * 图片只进 public/images/albums/<名>/ 与相册 info，不写入媒体库索引
+ *   （P7 偏差 2 边界）；删除同样走相册端点（见 onDeleteImage）。
+ */
+async function onUploadChange(event: Event): Promise<void> {
+  const input = event.target as HTMLInputElement;
+  const file = input.files?.[0];
+  if (file === undefined) {
+    return;
+  }
+  uploading.value = true;
+  try {
+    await albumsApi.uploadImage(albumName.value, file);
+    ElMessage.success('上传完成');
+    await fetchDetail();
+  } catch (e) {
+    handleError(e, '上传图片失败');
+  } finally {
+    uploading.value = false;
+    input.value = '';
+  }
+}
+
+/** [B3.6] 编辑对话框日期选择回调：清空回调 null → 空串 */
+function onDatePick(value: unknown): void {
+  editForm.value.date = typeof value === 'string' ? value : '';
 }
 
 /** [R2-8] 打开灯箱：从点击图起播，可在全部图间左右切换 */
@@ -191,7 +225,15 @@ onMounted(() => {
       <div class="card-header">
         <span>{{ album?.info.title ?? albumName }}</span>
         <div class="actions">
-          <ImageUploader label="上传图片" @uploaded="onUploaded" />
+          <!-- [B3.6] 上传走相册专属端点（不再复用媒体库 ImageUploader） -->
+          <input
+            ref="fileInputRef"
+            type="file"
+            accept="image/jpeg,image/png,image/webp,image/gif"
+            hidden
+            @change="onUploadChange"
+          />
+          <el-button :loading="uploading" @click="triggerUpload">上传图片</el-button>
           <el-button @click="openEdit">编辑信息</el-button>
         </div>
       </div>
@@ -252,7 +294,16 @@ onMounted(() => {
           <el-input v-model="editForm.description" type="textarea" :rows="2" />
         </el-form-item>
         <el-form-item label="日期">
-          <el-input v-model="editForm.date" />
+          <!-- [B3.6] el-date-picker（YYYY-MM-DD）替代裸 el-input -->
+          <el-date-picker
+            :model-value="editForm.date || undefined"
+            type="date"
+            value-format="YYYY-MM-DD"
+            format="YYYY-MM-DD"
+            placeholder="选择日期"
+            class="date-input"
+            @update:model-value="onDatePick"
+          />
         </el-form-item>
         <el-form-item label="位置">
           <el-input v-model="editForm.location" />
@@ -281,6 +332,9 @@ onMounted(() => {
 .actions {
   display: flex;
   gap: 8px;
+}
+.date-input {
+  width: 100%;
 }
 .hint {
   margin-bottom: 12px;

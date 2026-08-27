@@ -42,6 +42,21 @@
   --mizuki-terminal-exit: #1a7f37;
   --mizuki-terminal-hint: #8c959f;
   --mizuki-terminal-scrollbar: #d0d7de;
+
+  /* [B3.6] Vditor 内容区主题映射：内容文字/背景/引用/表格/代码块的色值统一
+     收敛于此（亮色值与 Vditor 官方默认逐一对齐，无观感漂移）；暗色在
+     html.dark 块重设。消费方：VditorEditor.vue 的 :deep 规则。 */
+  --mizuki-vditor-content-color: #24292e;
+  --mizuki-vditor-content-bg: #ffffff;
+  --mizuki-vditor-muted: #6a737d;
+  --mizuki-vditor-border: #eaecef;
+  --mizuki-vditor-cell-border: #dfe2e5;
+  --mizuki-vditor-tr-bg: #fafbfc;
+  --mizuki-vditor-zebra-bg: #ffffff;
+  --mizuki-vditor-block-bg: #f6f8fa;
+  --mizuki-vditor-block-border: transparent;
+  --mizuki-vditor-inline-code-bg: rgba(27, 31, 35, 0.05);
+  --mizuki-vditor-kbd-border: #d1d5da;
 }
 
 /* ── 暗色（Element Plus 官方 dark 变量 + Mizuki 主色阶重设） ────── */
@@ -68,6 +83,20 @@ html.dark {
   --mizuki-terminal-exit: #7ee2a8;
   --mizuki-terminal-hint: #6e7681;
   --mizuki-terminal-scrollbar: #30363d;
+
+  /* [B3.6] Vditor 内容区暗色：暗色值对齐官方 content-theme/dark.css，
+     修复「chrome 暗、内容层仍亮色硬编码 → 深底深字不可见」缺陷 */
+  --mizuki-vditor-content-color: #d1d5da;
+  --mizuki-vditor-content-bg: #24292e;
+  --mizuki-vditor-muted: #b9b9b9;
+  --mizuki-vditor-border: #d1d5da;
+  --mizuki-vditor-cell-border: #dfe2e5;
+  --mizuki-vditor-tr-bg: #2f363d;
+  --mizuki-vditor-zebra-bg: #24292e;
+  --mizuki-vditor-block-bg: #1d2125;
+  --mizuki-vditor-block-border: #444c56;
+  --mizuki-vditor-inline-code-bg: rgba(66, 133, 244, 0.36);
+  --mizuki-vditor-kbd-border: #141414;
 }
 
 /* ── 全局观感（卡片柔化投影 / 页面背景由布局层引用变量） ───────── */

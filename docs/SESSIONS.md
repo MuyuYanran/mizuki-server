@@ -1472,3 +1472,63 @@ manage 模式（6）：01 登录页浅色、02 仪表盘浅色（菜单 8 项）
 ### 5. commit 记录
 
 - `fix(Phase2-B3.5): Vditor 静态资源自托管+漂移防护`
+
+---
+
+## Phase2-B3.6 交付报告 — Vditor 暗色内容区修复 + 日期控件补齐 + 相册上传接线（人工裁决补丁）
+
+- 日期：2026-08-28
+- 阶段：二期 B3.6（B3 补丁批次：暗色文字真缺陷、日期控件真缺口、编辑区宽度调查、相册上传接线真缺陷）
+- 结论：**B3.6 完成。** 三连全绿（test 250/250、build 含 web、lint 0/0）。
+
+### 1. 验收结果
+
+| 项 | 结果 | 说明 |
+|---|---|---|
+| 三连 | ✅ | test 250/250（26 文件）、`pnpm build` 含 web、lint 0/0 |
+| Vditor 暗色内容区 | ✅ | 三模式（wysiwyg/ir/sv）暗色下内容文字/背景/引用/表格/代码块可读；明暗截图一对 `.test-tmp/b36-shot/shots/01-vditor-wysiwyg-light.png` / `02-vditor-wysiwyg-dark.png`（ir/sv 暗色：`03`/`04`） |
+| 日期控件 | ✅ | PostEditPage date/pubDate + AlbumsPage 创建 + AlbumDetailPage 编辑对话框均 `el-date-picker`（`value-format="YYYY-MM-DD"`、默认当天）；grep 断言三页无裸 el-input 日期残留；取证 `ALBUM_DATE_PICKER_DEFAULT 2026-08-28` |
+| 相册上传接线 | ✅ | Network 鉴识：POST 命中 `/admin/albums/:id/images`（截图 `.test-tmp/b36-shot/shots/07-album-upload.png`，日志 `UPLOAD_POSTS`）；文件落 `public/images/albums/<名>/<原名>.jpg`；网格刷新；媒体库索引无新行（`MEDIA_INDEX_UNCHANGED true`） |
+| 编辑区宽度 | ✅（无需改码） | 不存在人为 max-width（grep 证实）；1280/1920 双宽度截图 `.test-tmp/b36-shot/shots/05-width-1280.png` / `06-width-1920.png`；实测 1280→626px、1920→1266px 线性随窗宽（flex 填充，无上限） |
+| 预览路径泄漏（取证中发现的真缺陷，已修） | ✅ | Vditor 预览层 `img.src` 被重写为 `/site-assets/...` 后会经 DOM→markdown 反序列化泄漏回源码文本（保存后出现三重前缀）。修复：`data-mz-rewritten` 标记 + `srcReverse` 逆映射 + 出口统一 `restoreValue` 还原。取证：`ROUND_TRIP_EDITED noSiteAssetsLeak:true`、`IMAGE_PREVIEW` 单前缀 200 |
+| 编辑器加载竞态（取证中发现的真缺陷，已修） | ✅ | `setValue` 在 `after` 回调前调用会被吞掉（内部 lute/wysiwyg 未就绪）→ 编辑器空白而侧栏已填充。修复：`after` 内再同步一次 `setValue`。取证：加载后 `PRE_SAVE_CONTENT` 有内容、`08` 系列截图非空 |
+| B3 回归 | ✅ | 走查项 3（未编辑保存字节一致：`ROUND_TRIP_NO_EDIT strictEqual:true` 52B；编辑后保存：`ROUND_TRIP_EDITED strictEqual:true`）、项 5（站内图通道 200）复跑通过 |
+| 纪律 | ✅ | 后端零改动；TipTap 未触碰（RichArticleEditPage pubDate 残留为唯一例外，见踩坑 4） |
+
+### 2. 文件清单
+
+修改（6）：
+1. `apps/web/src/lib/editors/VditorEditor.vue`——内容层主题映射：构造选项 `preview: { theme: { current } }` + `setTheme` 第二参（主链路，官方 content-theme）；`:deep(.vditor-reset)` 兜底规则（兜底层，消费 `--mizuki-vditor-*`）。另含取证中发现的两处真缺陷修复：预览改写泄漏防护（`data-mz-rewritten` 标记 + `srcReverse` 逆映射，`update:modelValue`/watch/`getValue` 三出口统一 `restoreValue` 还原，保证重写幂等且保存文本保持原路径）；加载竞态（`after` 回调内再同步一次 `setValue`，避免初始化完成前的 `setValue` 被吞）
+2. `apps/web/src/styles/theme.css`——新增 `--mizuki-vditor-*` 11 变量，亮色值与 Vditor 官方默认逐一对齐（无观感漂移），暗色值对齐官方 `content-theme/dark.css`
+3. `apps/web/src/lib/schema-form/mapper.ts`——`todayString()` 改导出（自定义表单页复用 B1 同一实现，日期默认当天）
+4. `apps/web/src/views/posts/PostEditPage.vue`——date/pubDate 两处 `el-date-picker` + `onDatePick`（清空 null → ''）+ 初始值默认当天
+5. `apps/web/src/views/albums/AlbumsPage.vue`——创建对话框日期 `el-date-picker` + 默认当天（`openCreate` 重置同样默认当天）
+6. `apps/web/src/views/albums/AlbumDetailPage.vue`——上传由 ImageUploader（媒体库端点）改直调 `albumsApi.uploadImage`（相册端点，隐藏 file input + loading 按钮）；编辑对话框日期 `el-date-picker`；移除该页 ImageUploader 依赖
+
+未触碰：后端（零后端改动）、TipTap/RichArticleEditPage、CodeMirror、ImageUploader 组件本体（CollectionListPage/MediaLibraryPage 仍正常使用）、`api/albums.ts`（`uploadImage` 本就正确，缺陷在页面接线）
+
+### 3. 踩的坑
+
+1. **Vditor 双主题系统**：`options.theme` 与 `preview.theme.current` 是两套独立机制——前者只换 chrome（工具栏/面板）CSS 变量（`.vditor--dark` class），后者承载 `.vditor-reset` 内容层排版（经 `setContentTheme` 动态加载 `content-theme/{light,dark}.css`，路径从 `options.cdn` 派生）。B3 只设了前者 → 暗色下内容层仍亮色硬编码。`setTheme(theme, contentTheme?, codeTheme?, contentThemePath?)` 单参调用同样只换 chrome，第二参才触发内容主题切换。
+2. **（已知限制，未改）代码高亮配色不随主题切换**：`HLJS_OPTIONS` 默认 `style: 'github'`，暗色下代码块仍亮色配色。规格只要求「文字不可见」修复，代码高亮属独立样式表切换（`setTheme` 第三参 + 自托管暗色 highlight 样式），未列入本批次，留待后续。
+3. **el-date-picker 清空语义**：清空回调值为 `null`，直接 `v-model` 会污染 string 字段。统一模式：`:model-value="x || undefined"` + `@update:model-value` 中 `typeof value === 'string' ? value : ''`。
+4. **日期缺口的真实范围与规格边界**：规格列 PostEditPage/AboutEditPage/AlbumsPage；实测 AboutEditPage（about.md 编辑器）**无日期字段**（核查后记报告），AlbumDetailPage 编辑对话框存在同类缺口（文件在授权范围内，一并修复）；RichArticleEditPage 的 pubDate 为裸 `el-input`，但属 TipTap 页，恪守「不动 TipTap」规格**未改**——此为全仓唯一残留。
+5. **相册上传契约以服务端为准**：`albums.controller.ts` `@Post(':id/images')` + `FileInterceptor('file')` → multipart 字段名 `file`、201 `{name, path}`；`albumsApi.uploadImage` 在 api 层本就正确实现，缺陷仅在页面层误用 ImageUploader（走 `POST /admin/media`，会写入 media_file 索引，违反 P7 偏差 2 边界）。
+6. **预览重写会经 DOM→markdown 反序列化泄漏回源码**：Vditor wysiwyg/ir 的可见 DOM 在 `getValue`/input 回调时被反向序列化为 markdown——若只重写 `img.src` 为 `/site-assets/...` 而不做还原，保存文本会携带重写后路径，且 `imageSrc()` 对 `/site-assets` 输入**不幂等**（会二次编码加前缀），反复保存后出现三重前缀。修复要点：重写打 `data-mz-rewritten` 标记（幂等）+ `srcReverse` 逆映射 + 所有出口（`update:modelValue`、watch 比较、`getValue`）统一 `restoreValue`。教训：**对 contenteditable 编辑器做任何展示层属性改写，必须在序列化出口还原**。
+7. **`setValue` 必须在 `after` 回调之后才有效**：Vditor 构造期 `setValue` 依赖 `currentMode`/`wysiwyg`/`lute` 等内部件就绪，初始化完成前调用会被静默吞掉——表现为编辑器空白（占位符 + 计数 0）而页面其余部分正常。修复：`after` 回调内再同步一次 `setValue`。教训：第三方编辑器「挂载即赋值」要按就绪回调收口，不能信任构造期调用。
+
+### 4. B3.6 手动走查清单
+
+| # | 项目 | 操作 | 预期 |
+|---|---|---|---|
+| 1 | 暗色三模式 | 暗色主题 → /posts/new 依次切 wysiwyg/ir/sv | 内容文字/背景/引用/表格/代码块可读，无深底深字 |
+| 2 | 明暗即时切换 | 编辑中切换主题按钮 | 内容层同步过渡，无需刷新页面 |
+| 3 | 日期控件 | /posts/new 侧栏日期/发布日期、相册创建、相册编辑对话框 | el-date-picker、默认当天、YYYY-MM-DD、可清空（清空后字段为空串） |
+| 4 | 编辑区宽度 | 1280 / 1920 两窗宽打开编辑页 | 编辑器铺满可用宽度（无人工上限） |
+| 5 | 相册上传 | 相册详情页上传 png | Network POST `/admin/albums/<名>/images`；`public/images/albums/<名>/<原名>.jpg` 落盘；网格即时可见；媒体库列表无新行 |
+| 6 | B3 回归-保存往返 | 含图片路径文档保存→重读 | content 字节级一致 |
+| 7 | B3 回归-站内图预览 | 插入 `![](/images/uploads/x.jpg)` | 预览显示图片，文本保持原路径 |
+
+### 5. commit 记录
+
+- `fix(Phase2-B3.6): Vditor 暗色内容区+日期控件补齐+相册上传接线+预览泄漏/加载竞态修复`

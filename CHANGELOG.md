@@ -1,5 +1,16 @@
 # 变更日志
 
+## Phase2-B3.6 — Vditor 暗色内容区修复 + 日期控件补齐 + 相册上传接线（人工裁决补丁）
+
+- **Vditor 暗色内容区修复（真缺陷）**：根因——`options.theme` 只换 chrome 变量，`.vditor-reset` 内容层排版由 content-theme（`preview.theme.current`，默认 `light`）独立承载，暗色下内容层仍亮色硬编码 → 深底深字。修复双链：主链路为构造选项 `preview: { theme: { current } }` + `setTheme` 第二参同步内容主题（官方 content-theme 样式，自托管 `/vditor/3.11.3/dist/css/content-theme/` 已含）；兜底层为 `theme.css` 新增 `--mizuki-vditor-*` 11 变量（亮色值与官方默认逐一对齐、暗色值对齐官方 dark.css）+ VditorEditor `:deep(.vditor-reset)` 规则（文字/背景/标题分隔线/引用/表格/行内码/代码块/kbd）；sv 模式由 chrome 变量接管不受影响；三模式明暗截图取证
+- **日期控件补齐（真缺口）**：PostEditPage 的 date/pubDate（×2）、AlbumsPage 创建对话框、AlbumDetailPage 编辑对话框的日期字段由裸 `el-input` → `el-date-picker`（`value-format="YYYY-MM-DD"`、默认当天）；`mapper.ts` 的 `todayString()` 改导出，自定义表单页复用 B1 同一实现；清空回调 `null → ''` 保持 string 语义；grep 断言三页无裸 el-input 日期残留。AboutEditPage 经核查无日期字段；RichArticleEditPage 属 TipTap 页，恪守规格未触碰（唯一残留，报告注明）
+- **相册上传接线修复（真缺陷）**：AlbumDetailPage 上传原走 ImageUploader → `POST /admin/media`（媒体库端点，且会写入 media_file 索引），改为直调 `albumsApi.uploadImage` → `POST /admin/albums/:id/images`（multipart 字段 `file`，以 `albums.controller.ts` 服务端契约为准）；原名保存、非 JPG 后端转 JPG、上传后网格刷新、不写媒体库索引（P7 偏差 2 边界）；删除本就走相册端点（既有正确，未动）；移除该页 ImageUploader 依赖
+- **编辑区宽度（调查结论：无需改码）**：grep 证实 `apps/web/src` 不存在编辑容器人为 max-width——PostEditPage 为 flex 布局（内容区 `flex:1` + 320px 侧栏）、AboutEditPage 全宽，编辑器已铺满可用宽度；选「无需改动」少改选项，1280/1920 双宽度截图取证
+- **预览改写泄漏防护（取证中发现的真缺陷）**：Vditor wysiwyg/ir 的可见 DOM 在 `getValue`/input 回调时被反向序列化为 markdown——B3 的预览层 `img.src` 重写（`/images/...` → `/site-assets/...`）会随之泄漏回保存文本，且 `imageSrc()` 对 `/site-assets` 输入不幂等，反复保存累积多重前缀。修复（均在 `VditorEditor.vue`）：重写打 `data-mz-rewritten` 标记保证幂等 + `srcReverse` 逆映射 + `update:modelValue`/watch 比较/`getValue` 三出口统一 `restoreValue` 还原；取证断言保存文本无 `/site-assets`、原图路径保真、预览层仍单前缀 200
+- **编辑器加载竞态（取证中发现的真缺陷）**：构造期 `setValue` 依赖 Vditor 内部件（`currentMode`/`wysiwyg`/`lute`）就绪，`after` 回调前调用被静默吞掉 → 编辑器空白。修复：`after` 回调内再同步一次 `setValue`
+- **纪律**：后端零改动；TipTap 未触碰；B3 走查项 3（保存往返字节一致）/ 5（站内图通道）复跑通过
+- **验收**：三连全绿（test 250/250、build 含 web、lint 0/0）；截图取证：编辑器明暗一对、三模式暗色可读、1280/1920 宽度一对、相册上传 Network 鉴识（POST URL 为 albums 路径）；保存往返字节断言——未编辑 `strictEqual`（52B）与编辑后（API 编辑→UI 重载→UI 保存，含泄漏/竞态两缺陷回归）双双通过
+
 ## Phase2-B3.5 — Vditor 静态资源自托管（人工裁决补丁）
 
 - **自托管 CDN**：`node_modules/vditor/dist` 全量拷贝至 `apps/web/public/vditor/3.11.3/dist/`（**必须保留 `dist/` 层级**——Vditor 源码对运行时资源统一拼 `cdn + "/dist/..."`）；`VditorEditor.vue` 构造选项增加 `cdn: '/vditor/3.11.3'` + `lang: 'zh_CN'`，移除对外网 CDN 的任何隐式依赖

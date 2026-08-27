@@ -16,6 +16,7 @@ import { computed, onMounted, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { ElMessage } from 'element-plus';
 import { CodeMirrorEditor, VditorEditor } from '../../lib/editors';
+import { todayString } from '../../lib/schema-form/mapper';
 import { postsApi, type PostView } from '../../api/posts';
 import { ApiError } from '../../api/http';
 
@@ -61,8 +62,9 @@ const fm = ref({
   pinned: false,
   draft: false,
   image: '',
-  date: '',
-  pubDate: '',
+  /** [B3.6] 默认当天（与 B1 SchemaForm 一致）；编辑时 populateForm 覆盖 */
+  date: todayString(),
+  pubDate: todayString(),
 });
 
 /** 标签输入 */
@@ -147,6 +149,11 @@ function addTag(): void {
     fm.value.tags.push(value);
   }
   tagInput.value = '';
+}
+
+/** [B3.6] 日期选择回调：el-date-picker 清空回调 null → 空串（保持 string 语义） */
+function onDatePick(field: 'date' | 'pubDate', value: unknown): void {
+  fm.value[field] = typeof value === 'string' ? value : '';
 }
 
 function removeTag(index: number): void {
@@ -381,10 +388,27 @@ function formatValue(value: unknown): string {
             </label>
           </el-form-item>
           <el-form-item label="日期">
-            <el-input v-model="fm.date" placeholder="2026-01-01" />
+            <!-- [B3.6] el-date-picker（YYYY-MM-DD）替代裸 el-input -->
+            <el-date-picker
+              :model-value="fm.date || undefined"
+              type="date"
+              value-format="YYYY-MM-DD"
+              format="YYYY-MM-DD"
+              placeholder="选择日期"
+              class="date-input"
+              @update:model-value="(v: unknown) => onDatePick('date', v)"
+            />
           </el-form-item>
           <el-form-item label="发布日期">
-            <el-input v-model="fm.pubDate" placeholder="2026-01-01" />
+            <el-date-picker
+              :model-value="fm.pubDate || undefined"
+              type="date"
+              value-format="YYYY-MM-DD"
+              format="YYYY-MM-DD"
+              placeholder="选择日期"
+              class="date-input"
+              @update:model-value="(v: unknown) => onDatePick('pubDate', v)"
+            />
           </el-form-item>
         </el-form>
 
@@ -453,6 +477,10 @@ function formatValue(value: unknown): string {
   flex-wrap: wrap;
   align-items: center;
   gap: 4px;
+}
+
+.date-input {
+  width: 100%;
 }
 
 .upload-btn {

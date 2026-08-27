@@ -264,7 +264,8 @@ export function validateBySchema(
 }
 
 /** [R2-9] 当天日期（YYYY-MM-DD，本地时区——默认值取当前系统时间） */
-function todayString(): string {
+// [B3.6] 导出供自定义表单页复用（日期控件补齐：默认当天同一实现）
+export function todayString(): string {
   const now = new Date();
   const y = now.getFullYear();
   const m = String(now.getMonth() + 1).padStart(2, '0');
