@@ -24,6 +24,16 @@ import 'vditor/dist/index.css';
 import { resolvedTheme } from '../../lib/theme';
 import { imageSrc } from '../../lib/image-src';
 
+/**
+ * [B3.5 自托管] Vditor 运行时资源（i18n/highlight/mermaid/katex 等）本地化。
+ * 升级 vditor 版本时须同步：
+ *   1. apps/web/public/vditor/<新版本>/ （从 node_modules/vditor/dist 全量拷贝）
+ *   2. 下方 VDITOR_VERSION 常量
+ *   3. docs/decisions/ADR-001-dependency-versions.md vditor 条目维护义务
+ */
+const VDITOR_VERSION = '3.11.3';
+const VDITOR_CDN = `/vditor/${VDITOR_VERSION}`;
+
 const props = withDefaults(
   defineProps<{
     modelValue: string;
@@ -140,6 +150,8 @@ function initVditor(): void {
     cache: { enable: false },
     counter: { enable: true, type: 'text' as const },
     theme,
+    cdn: VDITOR_CDN,
+    lang: 'zh_CN',
     toolbar: TOOLBAR,
     input: (value: string) => {
       if (inputTimer !== null) {

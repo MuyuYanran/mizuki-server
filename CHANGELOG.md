@@ -1,5 +1,12 @@
 # 变更日志
 
+## Phase2-B3.5 — Vditor 静态资源自托管（人工裁决补丁）
+
+- **自托管 CDN**：`node_modules/vditor/dist` 全量拷贝至 `apps/web/public/vditor/3.11.3/`；`VditorEditor.vue` 构造选项增加 `cdn: '/vditor/3.11.3'` + `lang: 'zh_CN'`，移除对外网 CDN 的任何隐式依赖
+- **升级漂移防护**：`VditorEditor.vue` 顶部 `VDITOR_VERSION` 常量 + 注释链（升级时同步 public 目录、常量、ADR-001 条目三处）；ADR-001 vditor 条目补记自托管维护义务
+- **dev/prod 双形态**：dev 由 vite 直接服务 `public/`；生产由 `setupStaticPanel` 托管 dist（vite build 自动拷贝 public/），零后端改动
+- **验收**：三连全绿（test 250/250、build 含 web、lint 0/0）；断网状态下三模式可用、中文 i18n 加载、代码高亮正常、零外网请求
+
 ## Phase2-B3 — Vditor Markdown 编辑器与引擎切换（R2-11）
 
 - **Vditor 编辑器封装**：新建 `src/lib/editors/VditorEditor.vue`（`modelValue` + 300ms 防抖 `update:modelValue`；`wysiwyg`/`ir`/`sv` 三模式由父级 `mode` 传入；Vditor 初始化后无法切换模式，mode 变化时销毁重建且内容经 `modelValue` 保持；`cache.enable=false`；默认 20 项 toolbar，不含脑图/甘特/图表等）。CSS 显式 `import 'vditor/dist/index.css'`，`vite.config.ts` 已加 `optimizeDeps.include: ['vditor']`

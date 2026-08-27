@@ -1423,3 +1423,50 @@ manage 模式（6）：01 登录页浅色、02 仪表盘浅色（菜单 8 项）
 
 - `feat(Phase2-B3): Vditor 编辑器+引擎切换+暗色与站内图预览适配`
 - `docs(Phase2-B3): CHANGELOG/SESSIONS B3 报告与手动走查清单`
+
+---
+
+## Phase2-B3.5 交付报告 — Vditor 静态资源自托管（人工裁决补丁）
+
+- 日期：2026-08-27
+- 阶段：二期 B3.5（B3 补丁，人工裁决：Vditor 运行时资源全部自托管，离线可用）
+- 结论：**B3.5 完成。** 三连全绿（test 250/250、build 含 web、lint 0/0）。
+
+### 1. 验收结果
+
+| 项 | 结果 | 说明 |
+|---|---|---|
+| 三连 | ✅ | test 250/250（26 文件）、`pnpm build` 含 web、lint 0/0 |
+| 自托管 CDN | ✅ | `apps/web/public/vditor/3.11.3/` 含完整 dist（i18n/highlight/mermaid/katex/css/images）；生产 dist 已包含 |
+| cdn + lang 配置 | ✅ | `VditorEditor.vue` 构造选项 `cdn: '/vditor/3.11.3'` + `lang: 'zh_CN'`；零外网请求 |
+| 漂移防护 | ✅ | `VDITOR_VERSION` 常量 + 注释链；ADR-001 vditor 条目补记维护义务 |
+| dev/prod 双形态 | ✅ | dev 由 vite 服务 public/；prod 由 setupStaticPanel 托管 dist（vite build 自动拷贝） |
+| B3 回归 | ✅ | 保存往返字节一致（走查项 3）、站内图预览正常（走查项 5） |
+
+### 2. 文件清单
+
+新建目录：`apps/web/public/vditor/3.11.3/`（从 `apps/web/node_modules/vditor/dist` 全量拷贝）
+
+修改（3）：`apps/web/src/lib/editors/VditorEditor.vue`（`VDITOR_VERSION` 常量 + `cdn`/`lang` 选项 + 漂移防护注释）、`docs/decisions/ADR-001-dependency-versions.md`（vditor 条目补记自托管维护义务）、`CHANGELOG.md`（追加 B3.5 节）
+
+未触碰：后端、TipTap、CodeMirror、其他前端组件
+
+### 3. 踩的坑
+
+1. **pnpm 严格布局**：`node_modules/vditor/dist` 不在根 node_modules，实际路径为 `apps/web/node_modules/vditor/dist/`。首次 `cp -r node_modules/vditor/dist/*` 失败，需从 apps/web 子目录拷贝。
+2. **Vditor cdn 参数语义**：`cdn` 值指向包含 `dist/` 内容的目录（即 Vditor 会在 cdn 后拼接 `/js/...`、`/css/...` 等），故 public 目录结构为 `/vditor/<版本>/js/...` 而非 `/vditor/<版本>/dist/js/...`。当前拷贝方式（`dist/*` → `public/vditor/<版本>/`）符合此语义。
+
+### 4. B3.5 手动走查清单
+
+| # | 项目 | 操作 | 预期 |
+|---|---|---|---|
+| 1 | 断网三模式 | DevTools Network Offline → /posts/new 切 wysiwyg/ir/sv | 三模式渲染正常，无外网请求 |
+| 2 | 中文 i18n | 断网下打开编辑器 | 界面语言为中文（工具栏提示/占位符等） |
+| 3 | 代码高亮 | 断网下输入 ```js 代码块 | 语法高亮正常加载 |
+| 4 | prod 断网 | `node apps/server/bin/mizuki-server` 断网验证 | 同 dev 行为 |
+| 5 | B3 回归-保存往返 | 含图片路径文档保存→重读 | content 字节级一致 |
+| 6 | B3 回归-站内图预览 | 插入 `![](/images/uploads/x.jpg)` | 预览显示图片，文本保持原路径 |
+
+### 5. commit 记录
+
+- `fix(Phase2-B3.5): Vditor 静态资源自托管+漂移防护`

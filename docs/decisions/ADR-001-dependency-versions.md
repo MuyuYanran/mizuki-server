@@ -132,6 +132,7 @@ P0a 阶段需锁定 Mizuki-Server 技术栈依赖。规格要求：Node ≥ 22 L
 > - 用途：R2-11 Markdown/about 页默认编辑器（wysiwyg/ir/sv 三模式），替代 CodeMirror 作为默认引擎。封装为 `src/lib/editors/VditorEditor.vue`。
 > - 版本与集成注意：vditor 默认产物为 UMD/CJS 混合，vite dev 须 `optimizeDeps.include` 预打包；Vue3 中以 `new Vditor(element, options)` 初始化，CSS 需显式 `import 'vditor/dist/index.css'`。
 > - 暗色与站内图预览：暗色切换复用项目级 `lib/theme.ts` 的 `resolvedTheme` 信号（禁止独立 observer）；站内图片在编辑预览层经 `imageSrc()` 重写为 `/site-assets/...`（DOM 层，不修改 modelValue），存储文本保持原站内路径不变（ADR-012）。
+> - **自托管维护义务（Phase2-B3.5）**：Vditor 运行时资源（i18n/highlight/mermaid/katex 等）不再依赖外部 CDN，全部自托管于 `apps/web/public/vditor/<版本号>/`。升级 vditor 版本时须同步三步：① 从 `node_modules/vditor/dist` 全量拷贝至 `apps/web/public/vditor/<新版本>/`；② 更新 `VditorEditor.vue` 中 `VDITOR_VERSION` 常量；③ 更新本 ADR 此条目的版本号与维护义务说明。`cdn` 选项指向 `/vditor/<版本号>`，`lang` 固定 `zh_CN`。
 
 ## 备选方案
 
