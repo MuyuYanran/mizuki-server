@@ -58,7 +58,11 @@
 ## R2-8 相册图片预览灯箱（必须）
 - 新增依赖 v-viewer（viewerjs 封装）；AlbumDetailPage 图片网格点击打开
   灯箱：大图、缩放、旋转、左右切换；
-- 外部相册的 URL 项同样可预览（直接开图片 URL）。
+- 外部相册的 URL 项同样可预览（直接开图片 URL）；
+- 本地图片 src 统一经 `/site-assets` 站点资产通道（媒体库缩略图/灯箱/
+  相册网格同源同规）——**Phase2-B1.5 人工裁决补白**，安全边界与 token
+  送达见 **docs/decisions/ADR-012-site-assets.md**（B1 的 vite publicDir
+  dev-only 临时方案同步回收）。
 
 ## R2-9 日期字段日期选择器（必须）
 - SchemaForm mapper 对日期类字段挂 el-date-picker（YYYY-MM-DD），

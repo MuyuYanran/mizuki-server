@@ -11,7 +11,7 @@
 ├── apps/
 │   ├── server/          # NestJS 后端（API + 静态面板托管，默认端口 20154）
 │   │   ├── bin/mizuki-server   # 生产启动脚本（加载 dist/main.js）
-│   │   └── test/               # 单元 + e2e 测试（229 用例）
+│   │   └── test/               # 单元 + e2e 测试（250 用例）
 │   └── web/             # 管理面板（Vue 3 + Element Plus）
 ├── packages/
 │   └── shared/          # 前后端共享 zod schema / 事件契约
@@ -20,7 +20,7 @@
 │   ├── REQUIREMENTS.md  # 需求规格（字段级数据规格 / 硬性约束）
 │   ├── STRUCTURE.md     # 目录结构说明
 │   ├── SECURITY-REVIEW.md  # 安全复查报告（P11）
-│   ├── decisions/       # ADR 决策记录（ADR-001 ~ 009）
+│   ├── decisions/       # ADR 决策记录（ADR-001 ~ 012）
 │   └── prompts/         # 分阶段提示词存档（开发方式入口）
 ├── pnpm-workspace.yaml
 ├── tsconfig.base.json
@@ -34,7 +34,7 @@
 pnpm install      # 安装全部依赖（Node ≥ 22 LTS / pnpm ≥ 9）
 pnpm dev          # 启动后端开发服务（端口 20154，watch 模式）
 pnpm build        # 构建全部工作区（server dist + web dist + shared）
-pnpm test         # 后端全量测试（单元 + e2e，229 用例）
+pnpm test         # 后端全量测试（单元 + e2e，250 用例）
 pnpm lint         # 代码风格 + 分层边界检查
 ```
 
@@ -62,6 +62,8 @@ pnpm --filter @mizuki/web dev                   # 终端 2：面板 20155（/api
 
 全局前缀 `/api/v1`；管理接口（`/admin/**`、`/system/status`）需 JWT 双 Token（access 15m + refresh 7d 轮换），公开接口（`/public/**`）免认证、全局限流 60 次/分（登录独立 5 次/分）。完整清单见 MASTER-PLAN §5 与 Swagger UI（`/api/v1/docs`）。
 
+此外 `/site-assets/**` 为**站点资产通道**（ADR-012）：认证托管 Mizuki `public/` 下的图片（仅图片扩展名，需 JWT——面板 `<img>` 经 `mizuki_asset_token` cookie 自动通过，程序化调用可带 Bearer 头），供媒体库缩略图/相册灯箱等场景使用；未配置 Mizuki 目录时该前缀整体 404。
+
 ## 开发方式
 
 本项目采用**分阶段提示词驱动**开发：每次会话只完成一个阶段（P0a → P11），规格存档于 [`docs/prompts/`](./docs/prompts/)（入口 [`INDEX.md`](./docs/prompts/INDEX.md)），全部阶段实施记录见 [`docs/SESSIONS.md`](./docs/SESSIONS.md) 与 [`CHANGELOG.md`](./CHANGELOG.md)。
@@ -72,5 +74,5 @@ pnpm --filter @mizuki/web dev                   # 终端 2：面板 20155（/api
 - [REQUIREMENTS.md](./docs/REQUIREMENTS.md) — 需求规格：字段级数据规格、安全需求、硬性约束
 - [STRUCTURE.md](./docs/STRUCTURE.md) — 目录结构说明
 - [SECURITY-REVIEW.md](./docs/SECURITY-REVIEW.md) — 安全复查报告（9 条安全条款 + 16 条硬性约束逐项核对）
-- [docs/decisions/](./docs/decisions/) — ADR 决策记录（依赖基线、SQLite 记账、备份范围、JWT 管理、静态面板托管等）
+- [docs/decisions/](./docs/decisions/) — ADR 决策记录（依赖基线、SQLite 记账、备份范围、JWT 管理、静态面板托管、站点资产通道等）
 - [CHANGELOG.md](./CHANGELOG.md) — 各阶段交付记录

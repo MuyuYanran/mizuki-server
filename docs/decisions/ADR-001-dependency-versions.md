@@ -120,6 +120,12 @@ P0a 阶段需锁定 Mizuki-Server 技术栈依赖。规格要求：Node ≥ 22 L
 > - `v-viewer` `^3.0.23`（解析 3.0.23）+ `viewerjs` `^1.12.0`（解析 1.12.0）：相册灯箱（R2-8）。用其命令式 API（`api as viewerApi`）而非组件包裹——网格由既有分页渲染，命令式调用与点击热区解耦更干净。`viewerjs` 为 v-viewer 的 peer 样式/逻辑依赖，显式声明。
 > - 配套无依赖项：暗色主题走 Element Plus 官方 `element-plus/theme-chalk/dark/css-vars.css` + `html.dark` class；Mizuki 品牌色集中在 `src/styles/theme.css` 变量，不引第三方主题包。
 > - dev-only 环境约定：vite `publicDir` 指向 Mizuki `public/`（读 `apps/server/data/config.json` 的 `mizukiRoot`），使 dev 形态可同源预览 `/images/...` 本地图片；生产 build 不设置（面板不托管站点静态产物，与 ADR-009 边界一致）。
+>   - **废止（Phase2-B1.5）**：该 dev-only 约定由 ADR-012 `/site-assets` 通道取代（`vite.config.ts` 删除 publicDir 逻辑，改 dev 代理 `/site-assets` → 20154，dev/prod 语义统一）。
+
+> Phase2-B1.5 追加（2026-08-27）：两处依赖变更（ADR-012 站点资产通道 + 编辑器暗色 §3.1a）。
+>
+> - `express` `^5.2.1`（apps/server **dependencies**，由传递依赖显式化）：main.ts 直接使用 `express.static` 托管 Mizuki `public/`。NestJS Express adapter 底层既有同一 express，非新引入第三方能力；pnpm 严格布局下源码直接 import 传递依赖不可解析（幽灵依赖），故升为直接声明（解析 5.2.1，与 adapter 所用 major 一致，零版本新增）。
+> - `@codemirror/theme-one-dark` `^6.1.3`（apps/web dependencies，解析 6.1.3）：CodeMirror 6 暗色主题。oneDark 全量接管暗态编辑器 chrome（背景/gutter/选中态/光标/current-line），亮态由 `html:not(.dark)` 作用域样式确定性让位；经 Compartment 随 `resolvedTheme` 即时重配，明暗切换不刷新页面。
 
 ## 备选方案
 

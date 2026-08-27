@@ -1289,3 +1289,79 @@ manage 模式（6）：01 登录页浅色、02 仪表盘浅色（菜单 8 项）
 
 - `feat(Phase2-B1): 主题系统/向导修复/菜单过滤/头像裁切/相册灯箱/日期选择器/字段提示`
 - `docs(Phase2-B1): ADR-001 追加/CHANGELOG/SESSIONS+B1 手动走查清单`
+
+---
+
+## Phase2-B1.5 交付报告 — 暗色适配修补 + /site-assets 站点资产通道
+
+- 日期：2026-08-27
+- 阶段：二期 B1.5（连续执行模式，规格 `Phase2-B1.5 批次提示词 + 修订追加 §3.1`；**第三次规格补白**——ADR-012 由人工裁决原文逐条落地，裁决原文存档于批次提示词与本报告 §3）
+- 结论：**B1.5 功能完成。** 根三连全绿（test 250/250 = B1 尾数 240 + 新增 10、build 含 web、lint 0/0）；puppeteer 截图 11 张全部目检通过；`/site-assets` 通道四条安全边界逐条有 e2e 证据；公开 API 冻结零变化（before/after 对比落盘）。
+
+### 1. 验收结果（§6）
+
+| 项 | 结果 | 说明 |
+|---|---|---|
+| 三连 | ✅ | test 250/250（26 文件）、`pnpm build` 含 web、lint 0/0 |
+| §6.2 e2e 裁决验收 | ✅ | p12 10 用例：header/cookie 双通道 200 字节相等、无凭据 401、伪造 401、穿越三变体 404、非图 404、尾部斜杠 404、未配置整体 404 不影响 health、媒体上传→通道往返 |
+| §3.1a/b CodeMirror 暗色 | ✅ | oneDark Compartment 随 resolvedTheme 即时重配；截图 01/02 明暗对比、07 中间帧无闪烁 |
+| §3.1b TipTap 暗色 | ✅ | 全样式变量化（代码块复用终端配色语义源）；截图 03/04 |
+| §3.1c hex/rgb 清扫 | ✅ | grep `views/posts/**`、`views/articles/**`、`lib/editors/**` 零残留（theme.css 为唯一色值集中处） |
+| §3.3 前端换源 | ✅ | imageSrc 一处封装；媒体库/相册/灯箱全走 `/site-assets`；grep 断言无裸 `/images/uploads`、`/images/albums` 拼接（剩余命中均为注释与 imageSrc 入参形态） |
+| §6.3 截图取证 | ✅ | 11 张（.test-tmp/b15-shot/shots/），清单见 §4 |
+| B1 vite publicDir 回收 | ✅ | vite.config.ts 删除 dev-only publicDir，改 dev 代理 `/site-assets`→20154 |
+| 公开 API 冻结 | ✅ | 见 §2 冻结对比 |
+
+### 2. 【ADR-012 复核】安全三项 + API 冻结对比（裁决 §9 义务）
+
+1. **无 token 401 证据**：p12 `无凭据 401`、`伪造 token 401` 两用例；浏览器端 CHANNEL_PROBE（无头 Chrome 登录态内 fetch `/site-assets/...`）凭 cookie 200（image/jpeg, 6730 bytes）——双通道行为互证。query token 形态未实现（裁决禁止项，天然合规）。
+2. **穿越拒绝证据**：`..%2fimages%2ftest.png`、`%2e%2e/test.png`、`%2e%2e/%2e%2e/package.json` 三变体均 404 且响应体不含 `"name"`（无目录内容泄漏）；防线 = 逐段 decode + 段级 denylist + safeRealJoin（realpath 符号链接逃逸防护）+ `index:false/fallthrough:false/dotfiles:'ignore'`。
+3. **扩展名白名单证据**：fixture note.txt（白名单外）404；白名单集 = jpg/jpeg/png/webp/gif/svg/avif（main.ts `SITE_ASSET_EXTS`），大小写归一后末段匹配。
+4. **冻结对比（裁决收尾指令）**：`git grep` 控制器路由装饰器 before（70e44f1 = B1 末端）vs after（本阶段工作区）**diff 为空**；服务端改动仅 main.ts（+209/-5，全部为 SiteAssets/日志）。after 清单取自运行实例 `/api/v1/docs-json`：52 端点（公开 4 / 管理 43 / 系统 5，admin/system/logs 双标）与 P11 三分组一致。证据落盘 `.test-tmp/b15-shot/api-freeze/`（docs-after.json、endpoints-after.txt、routes-before/after.txt；gitignored 临时区）。
+
+### 3. 第三次规格补白（ADR-012）与落地偏差
+
+- 补白内容：`/site-assets` 通道（挂载位置、安全边界四条、token 送达二选一、前端联动四消费点、vite 方案回收、e2e/文档义务）——裁决原文逐条落地，见 `docs/decisions/ADR-012-site-assets.md`。前两次：P10d ADR-008（SSE 转发不实现）、P11 ADR-009（面板静态托管）。
+- **落地偏差 1（挂载语义）**：裁决写「public 不存在则跳过挂载」，实现为「恒挂载 + 请求期活取配置 404」——init 运行期才写入 mizukiRoot，启动快照式跳过会重蹈 P11 坑 5（初始化后须重启）；对外行为等价（不可用即 404 + 一次性 warn）。
+- **落地偏差 2（依赖表述）**：裁决称「零新增依赖」；`express` 由传递依赖显式化为直接声明（main.ts 直接 import，pnpm 严格布局要求；adapter 底层既有同一 express@5，零版本新增）——记 ADR-001 台账并在此显式化。
+- **token 送达选型**：cookie 注入（裁决二选一授权项）。fetch+blob 无法覆盖 `<img>`/viewerjs 灯箱/文档内嵌图等浏览器自主请求；非 HttpOnly 无新增暴露面（token 本在 localStorage）、Path 收紧 `/site-assets`、SameSite=Lax + GET 只读 CSRF 不适用。Bearer 头通道保留供 e2e/程序化调用。
+
+### 4. 截图取证清单（puppeteer，`.test-tmp/b15-shot/shots/`，gitignored）
+
+01 md-light / 02 md-dark（CodeMirror：oneDark 语法高亮+深底，亮态默认样式）/ 03 rich-light / 04 rich-dark（TipTap 工具栏与内容区全变量化）/ 05 about-light / 06 about-dark / 07 transition-mid（点击三态按钮后零延迟截帧：按钮已切「跟随系统」、整页保持完整暗态，无白闪断裂）/ 08 album-light / 09 album-dark（三图网格渲染，currentSrc 均 `/site-assets/...`，naturalWidth>0 断言）/ 10 media-light / 11 media-dark（预览列缩略图经通道渲染，`.el-image.thumb` inner img 断言）。
+
+### 5. 疑问清单（取舍决策）
+
+| # | 事项 | 决定 |
+|---|---|---|
+| 1 | TipTap「插入图片」对话框输入 | 维持用户输入原文插入（外链语义，裁决「外链 URL 不经通道」）；未对站点相对路径自动 imageSrc 归一——如需可下批裁决（当前占位提示 `https://... 或 /uploads/xxx.jpg` 为历史形态，站点路径正确形态为 `public/images/uploads/...` 或 `/images/uploads/...`） |
+| 2 | 灯箱大图与缩略图同 URL | viewerjs 预览直接用原通道 URL（后端无缩略图变体生成）；与 R2-8 验收口径一致 |
+| 3 | `/site-assets` 不进 Swagger | 非 API 面、不占公开/管理/系统三标签；在 README「API 概览」段落单独说明（冻结对比不含此前缀，属静态通道） |
+| 4 | 通道 cookie 在 401 refresh 后的时效 | `http.ts` 刷新成功 → `setTokens` → `syncAssetCookie()` 重同步；access token 15m 过期且 refresh 失败 → `clearAuth` 同步清除 cookie，`<img>` 后续请求 401（浏览器不自动刷新，符合「认证面」定位） |
+
+### 6. 踩的坑
+
+1. **Express 5 挂载剥前缀**：`app.use('/site-assets', h)` 内 `req.path` 已剥前缀，再 slice 一次导致路径错位（p12 四用例 500，statSync ENOENT 路径形如 `public\png`）；以 `(req.baseUrl ?? '') + req.path` 还原完整路径后按常量前缀显式切片。
+2. **编码走私**：仅 safeJoin 不足以拒绝 `%2e%2e/` 类变体在「逐段 decode 后段内出现分隔符」的形态——补段级 denylist（decoded 含 `/`、`\`、`\0` 即拒）。
+3. **express 探测误导**：Express 5 实例上 `app.static === undefined`（仅工厂函数有 static），`import express from 'express'` 取工厂才是正解；并因幽灵依赖须显式声明（偏差 2）。
+4. **截图前置数据**：媒体库 fixture 空表无 `.el-table__row`，等待 20s 超时 FATAL；截图脚本先经 API 上传占位图再拍摄。
+5. **auth.ts TDZ**：`syncAssetCookie()` 模块加载即执行，`SITE_ASSET_COOKIE` const 须先于首个调用声明（函数提升不救 const）——探针 pageerror 暴露后已把常量与函数移至声明区顶部。
+
+### 7. B1.5 手动走查清单（人工核验项汇总）
+
+| # | 项目 | 操作 | 预期 |
+|---|---|---|---|
+| 1 | Markdown 编辑页明暗 | /posts/new 切明/暗 | 暗态 oneDark 全量接管（背景/行号栏/选中/光标/current-line），亮态无暗残留 |
+| 2 | 富文本编辑页明暗 | /articles/new 切明/暗 | 工具栏/正文/代码块/引用块/表格边框随主题，无白块黑字不可读 |
+| 3 | 关于页明暗 | /about 切明/暗 | 编辑器与页面底色一致 |
+| 4 | 明↔暗即时切换 | 编辑页内点顶栏主题按钮 | 不刷新页面编辑器即时换装，无闪烁 |
+| 5 | 媒体库缩略图 | 登录后 /media | 预览列缩略图显示（经 /site-assets）；点图开灯箱 |
+| 6 | 相册网格+灯箱 | /albums/:name | 网格图显示；灯箱缩放/旋转/切换；Esc 关闭 |
+| 7 | 未配置降级 | mizukiRoot 置空重启 | /site-assets/** 404 JSON + 一条 warn 日志；其余面板功能正常 |
+| 8 | 未认证直开 | 无痕窗口直接开 /site-assets/... URL | 401（URL 不可外发分享） |
+
+### 8. commit 记录
+
+- `feat(Phase2-B1.5): /site-assets 站点资产通道+前端统一换源+编辑器暗色完整适配`
+- `test(Phase2-B1.5): p12 站点资产通道 e2e 10 用例`
+- `docs(Phase2-B1.5): ADR-012+ADR-001 追加+REQUIREMENTS R2-8 互链+README+CHANGELOG/SESSIONS`

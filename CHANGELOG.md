@@ -1,5 +1,15 @@
 # 变更日志
 
+## Phase2-B1.5 — 暗色适配修补 + /site-assets 站点资产通道（第三次规格补白，ADR-012）
+
+- **`/site-assets` 通道（ADR-012，人工裁决）**：`src/main.ts` 新增 `setupSiteAssets`——认证托管 Mizuki `public/`（`express.static`，`index:false`/`fallthrough:false`/`dotfiles:'ignore'`）；守卫链「配置活取值（init 后免重启，一次性 warn latch）→ JWT 认证（Bearer 头优先 + `mizuki_asset_token` cookie 兜底，无 query token）→ 逐段 decode + 走私拒绝 → 图片扩展名白名单（jpg/jpeg/png/webp/gif/svg/avif）→ `safeRealJoin` 路径监狱 → statSync 常规文件复查」；mizukiRoot 未配置或 public 缺失时该前缀整体 404，不影响其他路由；bootstrap 挂载顺序 Swagger → SiteAssets → StaticPanel，SPA 回退谓词排除 `/site-assets`
+- **前端统一换源**：新建 `src/lib/image-src.ts`（`imageSrc()` 一处封装：外链原样 / `public/` 前缀剥离 / 段级编码拼 `/site-assets/`）；媒体库缩略图+灯箱（新增预览列，P10d 疑问 1 收口）、相册网格+灯箱换源；`stores/auth.ts` `syncAssetCookie()` 四时机同步通道 cookie（`Path=/site-assets; SameSite=Lax`，非 HttpOnly 无新增暴露面）；TipTap 插图对话框维持用户输入原文（外链语义不经通道）
+- **B1 临时方案回收**：`vite.config.ts` 删除 dev-only `publicDir` 指向 Mizuki `public/` 逻辑，改 dev 代理 `/site-assets` → 20154（dev/prod 同一套通道语义）
+- **编辑器暗色完整适配（§3.1 追加规格）**：CodeMirror 6 引 `@codemirror/theme-one-dark`（oneDark 全量接管暗态 chrome），Compartment 双仓随 `resolvedTheme` 三态广播即时重配（明暗切换不刷新、卸载断开 observer）；全部手写 hex/rgb 清扫改 CSS 变量——CodeMirrorEditor（边框/焦点/亮色规则 `html:not(.dark)` 作用域）、TipTapEditor（工具栏/表格边框/代码块复用 `--mizuki-terminal-*`/引用块/正文底色文字色/行内 code）、PostEditPage/AboutEditPage/RichArticleEditPage（三页 hex 回退清除）
+- **依赖（ADR-001 追加）**：`express ^5.2.1`（server，传递依赖显式化，非新能力）/ `@codemirror/theme-one-dark ^6.1.3`（web）
+- **e2e 新增**：`test/p12-site-assets.e2e-spec.ts` 10 用例——header/cookie 双通道 200 字节相等、无凭据 401、伪造 401、穿越三变体 404、白名单外 404、尾部斜杠 404、未配置时整体 404 不影响 health、上传→通道渲染往返
+- **验收（§6）**：根三连全绿（test 250/250 = B1 尾数 240 + 新增 10、build 含 web、lint 0/0）；puppeteer 截图 11 张目检通过（md/富文本/about 明暗 6 + 明↔暗切换中间帧无闪烁 1 + 相册明暗 2 + 媒体库明暗 2，缩略图/网格均经通道渲染）；grep 断言 `apps/web/src` 无裸 `/images/uploads`、`/images/albums` 拼接残留（仅注释与 imageSrc 入参形态）；API 冻结证据——控制器路由装饰器 before(70e44f1)/after diff 为空 + docs-json 52 端点清单落盘 `.test-tmp/b15-shot/api-freeze/`
+
 ## Phase2-B1 — 视觉主题与交互打磨（纯前端：主题系统/向导修复/菜单过滤/裁切/灯箱/日期选择器/字段提示）
 
 - **R2-1 主题系统**：新建 `src/styles/theme.css`——Mizuki 品牌调色板（primary 粉系）+ 明/暗两套 `--el-color-primary` 全梯度覆盖 + 终端/页面/卡片 CSS 变量集中处；Element Plus 暗色经官方 `theme-chalk/dark/css-vars.css` + `html.dark` class；新建 `src/lib/theme.ts` 三态循环（浅色→深色→跟随 system，`localStorage` 键 `mizuki.theme`，auto 态挂 matchMedia 监听）；`index.html` 内联首帧脚本（暗色偏好刷新不闪白）；`main.ts` 统一 import 顺序（dark vars → theme.css）
