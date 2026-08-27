@@ -1,5 +1,18 @@
 # 变更日志
 
+## Phase2-B1 — 视觉主题与交互打磨（纯前端：主题系统/向导修复/菜单过滤/裁切/灯箱/日期选择器/字段提示）
+
+- **R2-1 主题系统**：新建 `src/styles/theme.css`——Mizuki 品牌调色板（primary 粉系）+ 明/暗两套 `--el-color-primary` 全梯度覆盖 + 终端/页面/卡片 CSS 变量集中处；Element Plus 暗色经官方 `theme-chalk/dark/css-vars.css` + `html.dark` class；新建 `src/lib/theme.ts` 三态循环（浅色→深色→跟随 system，`localStorage` 键 `mizuki.theme`，auto 态挂 matchMedia 监听）；`index.html` 内联首帧脚本（暗色偏好刷新不闪白）；`main.ts` 统一 import 顺序（dark vars → theme.css）
+- **R2-1 控制台皮肤**：`LogTerminal.vue` 重构为 CSS 变量分级（stdout 灰白 / stderr 淡红 / exit 失败高亮；暗色终端底 `#0d1117` 基调非纯黑）；DashboardPage/AlbumsPage/PostEditPage/SettingsPage/ReferenceDetailDialog/ConsolePage/CodeMirrorEditor 硬编码颜色清扫改走变量
+- **R2-3/R2-4 向导修复**：`InitWizardView.vue` 步骤条 `el-steps` 窄窗（1280px）不换行（simple 模式 + nowrap CSS）；运行模式三选项卡对齐（label/desc 两行结构 + 选中态粉色高亮）
+- **R2-5 菜单过滤**：新建 `src/stores/system.ts`——`ensureSystemMode()` 拉取 `/admin/system/status` 的 mode（失败/缺失 fail-open 显示全部，不阻塞登录）；`isMinimalMode()`（manage 视为最小，含 minimal 字面值）；`MainLayout.vue` 按 `minimalHidden` 过滤菜单；`router/index.ts` 守卫 minimal 下 `/collections/*`、`/articles*` 重定向 `/`（含模式变化后的已登录页重定向 watch）
+- **R2-6/R2-9/R2-13 表单增强**：`mapper.ts` 新增 date widget 分支（`ZodDate` 或键名 date/*Date 的 `ZodString` → el-date-picker，`value-format="YYYY-MM-DD"`，必填默认今天）+ `descriptionOf()` 描述提取；optional 字段空值改 `undefined`（zod v4 `.optional()` 拒 null）；`SchemaForm.vue` 渲染日期选择器 + 字段下方灰字说明；新建 `FieldHint.vue`（必填问号 tooltip，内容优先 schema description 否则通用必填提示）；`packages/shared` 四个 schema（friends/diary/projects/devices 图片字段）补 `.describe()` 元数据
+- **R2-12 头像裁切**：新建 `CropperUploader.vue`（选择图片 → vue-cropper 对话框实时裁切 → getCropBlob → POST /admin/media 上传 → emit 回填相对路径）；接入 `CollectionListPage.vue` 友链新增/编辑抽屉（「裁切上传头像」按钮，与直传/手动填 URL 并存）
+- **R2-8 相册灯箱**：`AlbumDetailPage.vue` 图片网格缩略图（object-fit 容器 + 文件名）+ 点击 v-viewer 命令式灯箱（`api as viewerApi`，缩放/旋转/多图切换/Esc 关闭）+ 60/页分页保留；vite dev-only `publicDir` 指向 Mizuki `public/`（读 `apps/server/data/config.json`，本地图片 `/images/...` 同源可预览；生产 build 不设置，与 ADR-009 面板不托管站点产物边界一致）
+- **依赖（ADR-001 Phase2-B1 追加）**：`vue-cropper ^1.1.4`（npm latest 指 Vue2 版，须显式版本）/ `v-viewer ^3.0.23` / `viewerjs ^1.12.0`
+- **工程**：根 `eslint.config.mjs` ignores 补 `.test-tmp/**`（P11 起临时验证区，gitignored，内含 CommonJS 工具脚本不入 lint 面）
+- **验收（§6）**：根三连全绿（test 240/240、`pnpm -r build` 含 web、lint 0/0）；puppeteer 截图取证 15 张（manage 模式 6：登录/仪表盘明暗/重定向/控制台明暗；additive 模式 9：向导 1280 步骤条/全量菜单/友链表单/tooltip/日记日期默认+弹开/相册网格/灯箱/缩放）——步骤条 scrollHeight 断言不换行、minimal 菜单 8 项 vs additive 15 项、日期默认当天 2026-08-27、灯箱开/Esc 关断言全过；后端零改动（§5 不得触碰 apps/server/** 遵守）
+
 ## P11 — 收尾：Swagger 三分组/README/bin 启动脚本/安全复查/面板静态服务（含第二次规格补白）
 
 - **Swagger 三分组（§3.1）**：新增依赖 `@nestjs/swagger` 11.4.7（ADR-001 追加，传递依赖 `@scarf/scarf` 遥测在 pnpm-workspace.yaml `allowBuilds` 显式置 false）；`src/main.ts` 挂载 SwaggerModule 于 `/api/v1/docs`（JSON 规格于 `/api/v1/docs-json`）；CSP 定点放宽——仅 `/api/v1/docs*` 路径允许 `script-src/style-src 'unsafe-inline'`（swagger-ui 官方 HTML 含内联初始化脚本，人工裁决「按需放宽、不整体关闭 helmet」），面板与 API 路径维持 helmet 默认；全部 12 个控制器补 `@ApiTags`（公开/管理/系统三分组：公开 4 / 管理 44 / 系统 5，admin/system/logs 双标 系统+管理）+ 每端点中文 `@ApiOperation` 摘要 + 认证端点 `@ApiBearerAuth` + 上传端点 `@ApiConsumes('multipart/form-data')` binary schema

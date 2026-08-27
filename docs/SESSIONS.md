@@ -1219,3 +1219,73 @@ P11 原规格未定义后端如何托管面板（bin 单命令形态隐含"同�
 **⚠️ 遗留事项（不阻塞 MVP，供二期参考）：** 媒体库缩略图（需 Mizuki public/ 静态服务或代理）；前端 chunk 2.1MB 超 500KB 警告（可做路由级代码分割）；GET /admin/events SSE 事件转发（ADR-008 不实现）；富文本软删恢复入口（面板暂无，数据在库可查）；Swagger DTO 字段级 schema 未展开。
 
 **全部阶段完成，按 C-Plus §5.6 停止——不开启新阶段，等待用户指示。**
+
+---
+
+## Phase2-B1 交付报告 — 视觉主题与交互打磨（纯前端）
+
+- 日期：2026-08-27
+- 阶段：二期 B1（连续执行模式，规格 `docs/prompts-phase2/B1-frontend-polish.md`；REQUIREMENTS-PHASE2 R2-1/3/4/5/9/12/13 + R2-6/8 前端部分）
+- 结论：**B1 功能完成。** 根三连全绿（test 240/240、build 含 web、lint 0/0）；puppeteer 截图取证 15 张全部目检通过；后端零改动（§5「不得触碰 apps/server/**」遵守，唯一根级改动为 eslint.config.mjs 补 `.test-tmp/**` ignore）。
+
+### 1. 验收结果（§6）
+
+| 项 | 结果 | 说明 |
+|---|---|---|
+| 三连（前置） | ✅ | test 240/240、`pnpm build` 含 web、lint 0/0 |
+| §6.1 明暗往返截图 | ✅ | 15 张取证（manage 6 + additive 9），见 §2 截图清单 |
+| §6.2 步骤条不换行 | ✅ | 1280px 窄窗 scrollHeight 断言四步均单行（STEPS_NOWRAP wrapped 全 false）+ 截图目检 |
+| §6.3 模式选项对齐 | ✅ | 截图目检：三选项卡 label/desc 两行结构对齐，选中态粉色高亮 |
+| §6.4 tooltip 渲染 | ✅ | 截图取证：必填问号悬停出现（ID 字段「为必填字段」提示）；description 字段（头像地址）渲染灰字说明 |
+| §6.5 裁切全流程 | ⚠️ 自动化部分 | 组件接入就位（截图 09 见按钮与帮助文案）；裁切框拖拽交互属人工核验清单 |
+| §6.6 灯箱 | ✅ | 截图取证：点图开灯箱（viewer-canvas 1 张）、Esc 关闭断言 true；左右切换/缩放按钮属人工核验 |
+| §6.7 日期选择器 | ✅ | 默认当天断言（2026-08-27）+ 日历面板截图；保存往返由既有 e2e 回归（240 全绿） |
+| §6.8 minimal 过滤 | ✅ | manage 模式菜单 8 项（富文本+六集合隐藏）vs additive 15 项；直敲 /collections/diary 重定向 / 断言 |
+| §6.9 回归 | ✅ | 240 后端用例全绿 |
+| §6.10 控制台明暗截图 | ✅ | 05/06 两张（终端底色 #0d1117、stderr 淡红、exit 失败高亮） |
+
+### 2. 截图取证清单（puppeteer，`.test-tmp/b1-shot/shots/`，gitignored）
+
+manage 模式（6）：01 登录页浅色、02 仪表盘浅色（菜单 8 项）、03 直敲 /collections/diary 重定向、04 仪表盘暗色（主题切换+刷新持久）、05 控制台暗色（构建任务日志）、06 控制台浅色；additive 模式（9）：07 向导 1280px（四步不换行+模式选项）、08 仪表盘全量菜单（15 项）、09 友链新增表单（裁切按钮+帮助文案）、10 问号 tooltip、11 日记日期默认当天、12 日历面板弹开、13 相册网格、14 灯箱打开、15 灯箱缩放。
+
+### 3. 文件清单
+
+新建（6）：`src/styles/theme.css`（调色板/暗色变量/终端变量）、`src/lib/theme.ts`（三态循环+matchMedia）、`src/stores/system.ts`（mode 拉取+fail-open）、`src/components/CropperUploader.vue`、`src/components/FieldHint.vue`、（vite publicDir 逻辑并入既有 vite.config.ts）
+
+修改（20+）：`main.ts`/`index.html`（暗色初始化+FOUC 脚本）、`MainLayout.vue`（主题按钮+菜单过滤+模式变化重定向）、`InitWizardView.vue`（步骤条/选项卡）、`router/index.ts`（minimal 守卫）、`mapper.ts`（date 分支+descriptionOf+optional undefined）、`SchemaForm.vue`（日期选择器+灰字+FieldHint）、`LogTerminal.vue`（CSS 变量分级）、`AlbumDetailPage.vue`（缩略图网格+灯箱）、`CollectionListPage.vue`（接 CropperUploader）、颜色清扫 5 文件（Dashboard/Albums/PostEdit/Settings/ReferenceDetailDialog + CodeMirrorEditor）、`vite.config.ts`（dev-only publicDir）、shared 四 schema 补 `.describe()`、`package.json`/lockfile、`eslint.config.mjs`。
+
+### 4. 疑问清单（取舍决策）
+
+| # | 事项 | 决定 |
+|---|---|---|
+| 1 | R2-5「minimal」与向导三选项（manage/additive/override）的对应 | 后端 mode 枚举无 minimal 字面值；向导第一项「仅管理模式」即最小形态。判定：mode==='manage'（或字面 'minimal'）→ 过滤；其余显示全部。与一期 REQUIREMENTS §3「manage 也隐藏集合菜单」语义一致 |
+| 2 | 灯箱本地图片预览（dev vs prod） | dev：vite publicDir 指向 Mizuki public/（读 config.json 的 mizukiRoot）同源预览；prod：面板不托管站点产物（ADR-009 边界），外链 URL 不受影响，本地图 prod 预览属二期「预览」范畴（P9 preview 任务可拉起站点） |
+| 3 | description 双消费的信息重复 | 规格要求「tooltip+灰字二者都渲染（信息不重复措辞）」：有 description 的字段 → 灰字用 description、tooltip 用通用必填提示（措辞不同）；无 description → 仅 tooltip |
+| 4 | optional 空值 null vs undefined | zod v4 `.optional()` 校验拒绝 null（P10b 曾以 null 走空值提交可过，v4 行为变化）。emptyValueFromSchema optional 字段改 undefined，提交时 JSON 序列化自动省略键，后端 `.optional()` 接受缺失 |
+
+### 5. 踩的坑
+
+1. **vue-cropper 版本**：npm `latest` 标签是 Vue2 版；Vue3 须显式 `^1.1.4`。
+2. **vite dev IPv6**：dev server 监听 `::1`，curl 127.0.0.1 连不上（P11 坑 6 反向情形）；浏览器走 localhost 正常，puppeteer 截图不受影响。
+3. **eslint 扫到 .test-tmp**：B1 截图脚本（CommonJS require）在 gitignored 临时区被根 eslint 命中（P11 时该目录无 .js 故未暴露）。根 ignores 补 `.test-tmp/**`。
+4. **向导步骤定位**：截图脚本最初假设首屏即目录输入，实际 step0 为欢迎页——脚本补一次「下一步」。
+
+### 6. B1 手动走查清单（人工核验项汇总）
+
+| # | 项目 | 操作 | 预期 |
+|---|---|---|---|
+| 1 | 主题三态 | 顶栏按钮连点三次 | 浅色→深色→跟随系统循环，图标/文案随态变化，刷新保持 |
+| 2 | 暗色观感全局 | 暗色下走查全部菜单页 | 无白底残留（登录/向导/表格/抽屉/对话框/终端） |
+| 3 | 向导窄窗 | 1280px 打开 /init 走完四步 | 步骤条四步单行；三模式选项卡对齐、选中高亮 |
+| 4 | minimal 过滤 | manage 模式登录 | 富文本+六集合菜单消失；直敲 /collections/friends、/articles 均重定向仪表盘 |
+| 5 | fail-open | 停掉后端刷新面板 | 菜单显示全部（不阻塞），无报错弹窗风暴 |
+| 6 | 头像裁切 | 友链新增→裁切上传头像→选图→拖拽裁切框→确认 | 上传成功、字段回填 /images/uploads/… 相对路径，列表头像可显示 |
+| 7 | 灯箱 | 相册详情点缩略图 | 打开灯箱；Esc 关闭；左右箭头/滚轮切换；工具栏缩放旋转 |
+| 8 | 日期选择器 | 日记新增 | 默认今天；弹日历可选；改日期保存后重开编辑往返一致 |
+| 9 | 字段提示 | 悬停必填问号 | tooltip 出现移开消失；头像地址字段下方灰字说明 |
+| 10 | 控制台皮肤 | 构建任务（暗/亮各一次） | 终端底色 #0d1117 基调、stdout 灰白/stderr 淡红/exit 失败高亮、滚动条可见 |
+
+### 7. commit 记录
+
+- `feat(Phase2-B1): 主题系统/向导修复/菜单过滤/头像裁切/相册灯箱/日期选择器/字段提示`
+- `docs(Phase2-B1): ADR-001 追加/CHANGELOG/SESSIONS+B1 手动走查清单`

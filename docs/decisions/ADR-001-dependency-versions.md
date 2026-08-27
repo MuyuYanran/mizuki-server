@@ -114,6 +114,13 @@ P0a 阶段需锁定 Mizuki-Server 技术栈依赖。规格要求：Node ≥ 22 L
 > - 安全纪律：**前端不执行后端返回的 HTML**（§5 专属禁止 `v-html`）——TipTap 自身渲染编辑内容，导出 HTML 用服务端 `html_cache`。
 > - `src/api/http.ts` 追加 FormData 支持（multipart 上传封面），最小改动。
 
+> Phase2-B1 追加（2026-08-27）：apps/web dependencies 新增视觉/交互三依赖（B1 规格 §2 allowed 清单）。
+>
+> - `vue-cropper` `^1.1.4`（解析 1.1.4）：友链头像裁切（R2-12）。**版本坑**：npm `latest` 标签指向 Vue2 版（1.x 旧线），Vue3 支持须显式 `^1.1.4`，不能用裸 `vue-cropper@latest` 安装。封装为 `src/components/CropperUploader.vue`（选择 → vue-cropper 对话框 → getCropBlob → 媒体库上传 → 回填相对路径）。
+> - `v-viewer` `^3.0.23`（解析 3.0.23）+ `viewerjs` `^1.12.0`（解析 1.12.0）：相册灯箱（R2-8）。用其命令式 API（`api as viewerApi`）而非组件包裹——网格由既有分页渲染，命令式调用与点击热区解耦更干净。`viewerjs` 为 v-viewer 的 peer 样式/逻辑依赖，显式声明。
+> - 配套无依赖项：暗色主题走 Element Plus 官方 `element-plus/theme-chalk/dark/css-vars.css` + `html.dark` class；Mizuki 品牌色集中在 `src/styles/theme.css` 变量，不引第三方主题包。
+> - dev-only 环境约定：vite `publicDir` 指向 Mizuki `public/`（读 `apps/server/data/config.json` 的 `mizukiRoot`），使 dev 形态可同源预览 `/images/...` 本地图片；生产 build 不设置（面板不托管站点静态产物，与 ADR-009 边界一致）。
+
 ## 备选方案
 
 - 全部写死精确版本号：可复现性最佳，但需在安装前人工确定每个包的最新稳定版，成本高且易过时。
