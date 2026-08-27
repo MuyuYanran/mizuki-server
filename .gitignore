@@ -16,6 +16,12 @@ build/
 .vite/
 .turbo/
 *.tsbuildinfo
+# Vditor self-hosted runtime assets must be committed (Phase2-B3.5).
+# The `dist/` rule above would otherwise swallow them; re-include explicitly.
+# Wildcard version segment keeps future upgrades covered.
+!apps/web/public/vditor/
+!apps/web/public/vditor/*/
+!apps/web/public/vditor/*/dist/
 
 # ── Test & coverage ──
 coverage/

@@ -1445,16 +1445,18 @@ manage 模式（6）：01 登录页浅色、02 仪表盘浅色（菜单 8 项）
 
 ### 2. 文件清单
 
-新建目录：`apps/web/public/vditor/3.11.3/`（从 `apps/web/node_modules/vditor/dist` 全量拷贝）
+新建目录：`apps/web/public/vditor/3.11.3/dist/`（从 `apps/web/node_modules/vditor/dist` 全量拷贝；**必须保留 `dist/` 层级**，见踩坑 2）
 
-修改（3）：`apps/web/src/lib/editors/VditorEditor.vue`（`VDITOR_VERSION` 常量 + `cdn`/`lang` 选项 + 漂移防护注释）、`docs/decisions/ADR-001-dependency-versions.md`（vditor 条目补记自托管维护义务）、`CHANGELOG.md`（追加 B3.5 节）
+修改（4）：`apps/web/src/lib/editors/VditorEditor.vue`（`VDITOR_VERSION` 常量 + `cdn`/`lang` 选项 + 漂移防护注释）、`docs/decisions/ADR-001-dependency-versions.md`（vditor 条目补记自托管维护义务）、`CHANGELOG.md`（追加 B3.5 节）、`.gitignore`（追加 `!apps/web/public/vditor/*/dist/` 负向例外）
 
-未触碰：后端、TipTap、CodeMirror、其他前端组件
+未触碰：后端（恪守规格「零后端改动」）、TipTap、CodeMirror、其他前端组件
 
 ### 3. 踩的坑
 
 1. **pnpm 严格布局**：`node_modules/vditor/dist` 不在根 node_modules，实际路径为 `apps/web/node_modules/vditor/dist/`。首次 `cp -r node_modules/vditor/dist/*` 失败，需从 apps/web 子目录拷贝。
-2. **Vditor cdn 参数语义**：`cdn` 值指向包含 `dist/` 内容的目录（即 Vditor 会在 cdn 后拼接 `/js/...`、`/css/...` 等），故 public 目录结构为 `/vditor/<版本>/js/...` 而非 `/vditor/<版本>/dist/js/...`。当前拷贝方式（`dist/*` → `public/vditor/<版本>/`）符合此语义。
+2. **Vditor cdn 参数语义（首版判断错误，已修正）**：Vditor 源码（`dist/index.js:2433/2493/3176`）对所有运行时资源统一拼接 `cdn + "/dist/..."`（如 `cdn + "/dist/js/i18n/zh_CN.js"`）。因此 `cdn: '/vditor/3.11.3'` 实际请求 `/vditor/3.11.3/dist/js/...`，public 目录**必须保留 `dist/` 层级**为 `/vditor/<版本>/dist/js/...`。首版误用 `dist/*` 摊平成 `/vditor/<版本>/js/...`，导致 i18n 等 404（`ERR_ABORTED`）；已改为整体拷入 `dist/` 子目录。
+3. **`.gitignore` 的 `dist/` 规则吞掉自托管资源**：根 `.gitignore:13` 的 `dist/` 会忽略任意层级的 `dist/` 目录，导致 `public/vditor/<版本>/dist/` 无法入库（`git add` 只见删除不见新增）。已追加负向例外 `!apps/web/public/vditor/*/dist/`（版本段用通配符，升级免改）。
+4. **（已知限制，未改）SPA 回退会把缺失的 /vditor 资源兜底成 index.html**：`setupStaticPanel` 的 SPA 回退谓词只排除 `/api`、`/site-assets`，缺失的 `/vditor/*.js` 会 200 返回 HTML。此为**既有**行为（对所有非 API 路径一致），非 B3.5 引入；且本批次规格明确「零后端改动」，故**不动后端**。实际不受影响：自托管资源齐全，`useStaticAssets` 在回退前先命中真实文件返回 200，用户报的 404 仅由 `dist/` 层级缺失导致，已修复。
 
 ### 4. B3.5 手动走查清单
 

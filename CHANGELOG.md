@@ -2,8 +2,9 @@
 
 ## Phase2-B3.5 — Vditor 静态资源自托管（人工裁决补丁）
 
-- **自托管 CDN**：`node_modules/vditor/dist` 全量拷贝至 `apps/web/public/vditor/3.11.3/`；`VditorEditor.vue` 构造选项增加 `cdn: '/vditor/3.11.3'` + `lang: 'zh_CN'`，移除对外网 CDN 的任何隐式依赖
+- **自托管 CDN**：`node_modules/vditor/dist` 全量拷贝至 `apps/web/public/vditor/3.11.3/dist/`（**必须保留 `dist/` 层级**——Vditor 源码对运行时资源统一拼 `cdn + "/dist/..."`）；`VditorEditor.vue` 构造选项增加 `cdn: '/vditor/3.11.3'` + `lang: 'zh_CN'`，移除对外网 CDN 的任何隐式依赖
 - **升级漂移防护**：`VditorEditor.vue` 顶部 `VDITOR_VERSION` 常量 + 注释链（升级时同步 public 目录、常量、ADR-001 条目三处）；ADR-001 vditor 条目补记自托管维护义务
+- **`.gitignore` 负向例外**：根 `.gitignore` 的 `dist/` 规则会吞掉自托管资源，追加 `!apps/web/public/vditor/*/dist/`（版本段通配，升级免改）
 - **dev/prod 双形态**：dev 由 vite 直接服务 `public/`；生产由 `setupStaticPanel` 托管 dist（vite build 自动拷贝 public/），零后端改动
 - **验收**：三连全绿（test 250/250、build 含 web、lint 0/0）；断网状态下三模式可用、中文 i18n 加载、代码高亮正常、零外网请求
 
