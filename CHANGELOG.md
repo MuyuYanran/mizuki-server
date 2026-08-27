@@ -1,5 +1,19 @@
 # 变更日志
 
+## P11 — 收尾：Swagger 三分组/README/bin 启动脚本/安全复查/面板静态服务（含第二次规格补白）
+
+- **Swagger 三分组（§3.1）**：新增依赖 `@nestjs/swagger` 11.4.7（ADR-001 追加，传递依赖 `@scarf/scarf` 遥测在 pnpm-workspace.yaml `allowBuilds` 显式置 false）；`src/main.ts` 挂载 SwaggerModule 于 `/api/v1/docs`（JSON 规格于 `/api/v1/docs-json`）；CSP 定点放宽——仅 `/api/v1/docs*` 路径允许 `script-src/style-src 'unsafe-inline'`（swagger-ui 官方 HTML 含内联初始化脚本，人工裁决「按需放宽、不整体关闭 helmet」），面板与 API 路径维持 helmet 默认；全部 12 个控制器补 `@ApiTags`（公开/管理/系统三分组：公开 4 / 管理 44 / 系统 5，admin/system/logs 双标 系统+管理）+ 每端点中文 `@ApiOperation` 摘要 + 认证端点 `@ApiBearerAuth` + 上传端点 `@ApiConsumes('multipart/form-data')` binary schema
+- **面板静态服务（ADR-009，人工裁决方案 1）**：`src/main.ts` `setupStaticPanel`——默认 dist `apps/web/dist`（`MIZUKI_WEB_DIST` 可覆盖）；无 `index.html` 时跳过全部静态逻辑（开发模式零行为变化，pino 记录原因）；有则 `useStaticAssets` 托管 + SPA 回退（仅「非 /api 前缀 GET」返回 index.html，深链刷新不 404；API 404 JSON 语义不变）；导出 `setupSwagger`/`setupStaticPanel`/`bootstrap` 供 e2e 与 bin 复用
+- **bin 启动脚本（§3.3）**：新建 `apps/server/bin/mizuki-server`——解析 `dist/main.js`、端口遵循 `MIZUKI_SERVER_PORT`（默认 20154）、启动横幅（面板/API + Swagger 地址）、产物缺失报错退出码 1；显式调用 `main.js` 导出的 `bootstrap()`；`apps/server/package.json` 补 `bin` 字段
+- **README 重写（§3.2）**：双形态快速开始（生产：`pnpm install && pnpm build && node apps/server/bin/mizuki-server` → localhost:20154 面板/API/Swagger；开发：`pnpm dev` + `pnpm --filter @mizuki/web dev` 20155 代理）+ 目录速览 + API 概览（三分组 + 认证/限流说明）+ 文档索引
+- **安全复查（§3.4）**：新建 `docs/SECURITY-REVIEW.md`——MASTER-PLAN §7 九条 + REQUIREMENTS §15 十六条逐项「落实（文件:行号）+ 证据（测试名）」全 ✅；补充核查（SSRF 零出站 HTTP / fs.writeFile 域限制含两处已裁决例外 / as any 与 @ts-ignore 零命中）；备注级观察 4 条（argon2 默认成本参数、相册上传平行实现、Swagger DTO 深度、MVP 范围确认），无 ❌/⚠️
+- **§6.1 全新链路冒烟实测发现并修复 3 处缺陷**（均补 e2e 回归）：
+  1. bin 脚本 `require(dist/main.js)` 下 `require.main === module` 守卫不成立 → 服务不启动；修复：`main.ts` 导出 `bootstrap()`，bin 显式调用（`test/p11-fresh-chain.e2e-spec.ts` 依赖同一导出）
+  2. SPA 回退 `res.sendFile(绝对路径)` 在 dist 位于点目录（如 `.test-tmp`）内时被 send 点目录检查拦截 404→500；修复：改 `res.sendFile('index.html', { root: webDist })` 相对形式（`test/p11-static-panel.e2e-spec.ts` 新增点目录 2 用例）
+  3. `BACKUP_OPTIONS` 为启动时快照，init 后不重启进程则 collections/posts/albums 全 400「项目根目录未配置」，违反「登录→面板可用」验收；修复：`infra/backup/backup.module.ts` mizukiRoot 改 getter 活取值（backupDir/dbPath 不随 init 变化仍静态）；新建 `test/p11-fresh-chain.e2e-spec.ts` 5 用例（不覆写 BACKUP_OPTIONS，走真实工厂，固化 init→登录→collections 无重启可用）
+- **e2e 新增**：`test/p11-static-panel.e2e-spec.ts`（12 用例：有 dist 5 + 点目录 2 + 无 dist 2 + Swagger 3）+ `test/p11-fresh-chain.e2e-spec.ts`（5 用例）
+- **验收（§6）**：根三连全绿（test 240/240、build 含 web、lint 0/0）；§6.1 全新环境链路实测（D 盘同盘 store）：`pnpm install` 30s（673 包）→ `pnpm build` 0 → `node apps/server/bin/mizuki-server` → health 200 → init 201（二次 409）→ login 200 双 Token → collections/diary 200（fixture 数据，无重启）→ GET / 200 含 div#app → /login 200 → /api/v1/public/nonexist 404 JSON；§6.2 Swagger 三分组抽查 6 端点全过（docs 200 + CSP 放宽仅限 docs 路径）；§6.4 `@types/tree-kill` 全仓零残留；ADR-009 记录第二次规格补白（人工裁决）
+
 ## P10d — 管理面板剩余模块：媒体库/相册/备份/控制台/仪表盘/设置
 
 - `src/api/{media,albums,backups,process,dashboard,settings}.ts`（新建 6 个）：端点客户端，封装对应后端 REST，复用 http.ts 的 401 自动 refresh；`process.ts` 含 SSE 日志 fetch+ReadableStream 消费（EventSource 无法带 token，P9 踩坑）；`dashboard.ts` 聚合多端点（status/posts/collections/albums/backups/logs），单端点失败降级不阻塞整体展示

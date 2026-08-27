@@ -45,6 +45,8 @@ P0a 阶段需锁定 Mizuki-Server 技术栈依赖。规格要求：Node ≥ 22 L
 
 > P0b 追加（2026-08-26）：`@nestjs/event-emitter` 3.1.0（latest）、`pino` 10.3.1（latest）。
 
+> P11 追加（2026-08-26）：`@nestjs/swagger` 11.4.7（^11.4.7）。P0a 预留的「后续阶段依赖」至此落地——NestJS 11 配套 major（Swagger UI 文档三分组，P11 §3.1）。传递依赖 `@scarf/scarf`（遥测）在 pnpm-workspace.yaml `allowBuilds` 中显式置 false，不执行其安装脚本。
+
 ### apps/server — devDependencies
 
 | 包 | 解析版本 | 约束写法 |

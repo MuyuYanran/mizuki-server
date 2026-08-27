@@ -1115,3 +1115,107 @@ vue 3.5.41、vue-router 4.6.4、element-plus 2.14.5、vite 7.3.6、@vitejs/plugi
 
 - `feat(P10d): 管理面板剩余模块——媒体库/相册/备份/控制台/仪表盘/设置`（本提交）
 - `docs(P10d): CHANGELOG、SESSIONS、ADR-008`（随本提交或紧随的下一次）
+
+---
+
+## P11 交付报告 — 收尾：Swagger 三分组/README/bin/安全复查/面板静态服务
+
+- 日期：2026-08-27
+- 阶段：P11（C-Plus 连续执行模式，含第二次规格补白：后端静态服务，人工裁决）
+- 结论：**P11 功能完成，MVP（P0a–P11）全部阶段完成。** 根三连全绿：`pnpm test` 240/240（25 文件）、`pnpm build`（shared/web/server，含前端 vue-tsc strict）、`pnpm lint` 0/0；§6.1 全新环境链路冒烟实测通过（发现并修复 3 处缺陷，均有 e2e 回归固化）。
+
+### 1. 验收结果（§6）
+
+| 项 | 结果 | 说明 |
+|---|---|---|
+| §6 前置 三连 | ✅ PASS | test 240/240、build 0、lint 0（`unset BASH_ENV && export NODE_OPTIONS=""`） |
+| §6.1 全新链路冒烟 | ✅ PASS | 全程无人工改码；逐步记录见 §3（含 3 处缺陷发现与修复） |
+| §6.2 Swagger 三分组 | ✅ PASS | 全新环境实测：公开 4 / 管理 44 / 系统 5；抽查 6 端点（每组 2 个）摘要齐全；docs 200 + CSP 定点放宽 |
+| §6.3 安全复查报告 | ✅ PASS | `docs/SECURITY-REVIEW.md`：九条 + 十六条逐项落实+证据全 ✅，补充核查通过，无 ❌/⚠️（备注级观察 4 条） |
+| §6.4 勘误核对 | ✅ PASS | 全仓检索 `@types/tree-kill` 零残留（package.json / pnpm-lock.yaml / 源码） |
+| §6.5 CHANGELOG 完整 | ✅ PASS | P0a–P11 条目齐全，P11 条目含安全复查结论摘要 |
+
+### 2. 文件清单
+
+新建（4）：
+- `apps/server/bin/mizuki-server`（生产启动脚本：横幅 + bootstrap 显式调用 + 产物缺失报错）
+- `apps/server/test/p11-static-panel.e2e-spec.ts`（12 用例：有 dist 5 + 点目录 2 + 无 dist 2 + Swagger 3）
+- `apps/server/test/p11-fresh-chain.e2e-spec.ts`（5 用例：init→登录→collections 无重启可用，不覆写 BACKUP_OPTIONS）
+- `docs/SECURITY-REVIEW.md`、`docs/decisions/ADR-009-static-panel-serving.md`
+
+修改（17）：
+- `apps/server/src/main.ts`（重写：Swagger 挂载 + CSP 定点放宽 + setupStaticPanel 静态面板 + 导出 bootstrap；SPA 回退用 root 相对形式防点目录 404）
+- `apps/server/src/infra/backup/backup.module.ts`（mizukiRoot 改 getter 活取值——§6.1 冒烟发现的启动快照缺陷）
+- 12 个控制器（@ApiTags 三分组 + @ApiOperation 中文摘要 + @ApiBearerAuth/@ApiConsumes）
+- `apps/server/package.json`（+@nestjs/swagger ^11.4.7、+bin 字段）
+- `pnpm-workspace.yaml`（@scarf/scarf 遥测 allowBuilds 置 false）、`pnpm-lock.yaml`
+- `README.md`（重写：双形态快速开始 + API 概览 + 文档索引）
+- `docs/decisions/ADR-001-dependency-versions.md`（P11 追加条目）、`CHANGELOG.md`、`docs/SESSIONS.md`（本报告）
+
+### 3. §6.1 全新链路冒烟逐步记录
+
+环境：Windows（D 盘仓库 `.test-tmp/mizuki-fresh` 干净副本，git 追踪 224 文件零缺失；与 pnpm store 同盘——跨盘复制实测会卡死，见 §6 坑 1）。
+
+| 步骤 | 命令 | 结果 |
+|---|---|---|
+| 1 复制 | robocopy 仓库 → .test-tmp/mizuki-fresh（排除 node_modules/data/dist/.git/隐藏工具目录）+ 补回 git 追踪的 data 目录（robocopy //XD data 会误伤 fixture 的 src/data，见坑 2） | 244 文件 1.66MB |
+| 2 安装 | `pnpm dlx pnpm@11.24.0 --config.store-dir="D:/.pnpm-store" install` | ✅ 30s，673 包全复用（同盘硬链接），better-sqlite3/argon2 win32-x64 预编译齐 |
+| 3 构建 | `pnpm build` | ✅ exit 0（shared/server/web，web dist 产出） |
+| 4 启动 | `MIZUKI_SERVER_PORT=20198 node apps/server/bin/mizuki-server` | ✅ 迁移执行、config 默认创建、静态面板启用、监听 20198 |
+| 5 健康 | `GET /api/v1/system/health` | ✅ 200 `{status:"ok",initialized:false}` |
+| 6 初始化 | `POST /api/v1/system/init`（fixture 项目副本） | ✅ 201 `{initialized:true}`；二次 init → 409 |
+| 7 登录 | `POST /api/v1/admin/auth/login` | ✅ 200 accessToken+refreshToken |
+| 8 面板 | `GET /`、`GET /login`（深链） | ✅ 200 均含 `<div id="app">`（生产 dist） |
+| 9 核心 API | `GET /api/v1/admin/collections/diary`（Bearer） | ✅ 200 返回 fixture 数据（**无重启**，getter 修复后） |
+| 10 API 语义 | `GET /api/v1/public/nonexist` | ✅ 404 JSON（非 index.html） |
+| 11 Swagger | `GET /api/v1/docs`、`/api/v1/docs-json` | ✅ 200；三分组 {系统:5, 管理:44, 公开:4}，抽查 6 端点全过；CSP 放宽仅限 docs 路径 |
+
+**冒烟发现并修复的 3 处缺陷**（正是本验收的意义所在）：
+
+1. **bin bootstrap 守卫**：bin 脚本 `require(dist/main.js)` 时 `require.main === module` 为 false（指向 bin 自身）→ 服务打完横幅不启动。修复：main.ts 导出 `bootstrap()`，bin 显式调用；守卫保留（测试 import main.ts 不触发 listen）。
+2. **SPA 回退点目录 404**：`res.sendFile(绝对路径)` 形式下 send 按目录分段做点目录检查，dist 位于 `.test-tmp` 类点目录内 → 404 → 未处理异常 500（e2e 临时目录无点目录故未暴露）。修复：`res.sendFile('index.html', { root: webDist })` 相对形式（点目录检查只作用于相对段）。
+3. **BACKUP_OPTIONS 启动快照**：useFactory 启动时读一次 getAppConfig，init 运行期写 config.json 后 provider 值不变 → collections/posts/albums 400「项目根目录未配置」直到进程重启，违反「登录→面板可用，全程无人工改码」。修复：mizukiRoot 改 getter 活取值（backupDir/dbPath 不随 init 变化仍静态）；四个消费方（backup/data-files/posts/albums/articles）零改动。P6 e2e 曾以「覆写 BACKUP_OPTIONS」绕过此问题（彼时注释已注明快照行为），本阶段以不覆写的真实工厂用例固化生产行为。
+
+### 4. 第二次规格补白（ADR-009）
+
+P11 原规格未定义后端如何托管面板（bin 单命令形态隐含"同源面板"但无实现规格）。人工裁决（候选方案 1）：main.ts 最小改动（~20 行）——dist 检测跳过 + useStaticAssets + 非 /api GET SPA 回退 + CSP 定点放宽（不整体关 helmet）+ 新 e2e + README 双形态 + ADR 记录。裁决原文与论证见 `docs/decisions/ADR-009-static-panel-serving.md`。第一次规格补白为 P10d 阶段 ADR-008（事件 SSE 转发不实现）。
+
+### 5. 疑问清单（取舍决策）
+
+| # | 事项 | 决定 |
+|---|---|---|
+| 1 | Swagger CSP 放宽 | 仅 `/api/v1/docs*` 放宽 `script-src/style-src 'unsafe-inline'`（swagger-ui 官方 HTML 内联初始化脚本所需）；中间件定点设置，其余路径维持 helmet 默认。e2e 断言两路径 CSP 差异 |
+| 2 | bootstrap 守卫与 bin 的关系 | 三入口各得其所：`node dist/main.js` 走守卫；`bin/mizuki-server` 走显式 `bootstrap()` 导出调用；测试 import 不启动。e2e 覆盖第三种，冒烟覆盖前两种 |
+| 3 | BACKUP_OPTIONS 修复方式 | getter 活取值而非「init 后重启提示」：面板向导 UX 是"初始化完成→跳登录"，无重启提示位；且 §6.1 验收明文"登录→面板可用" |
+| 4 | Swagger DTO 深度 | 端点级中文摘要 + Bearer 声明 + 上传 binary 标注（P11 §3.1 允许水平）；DTO 字段级 schema 不展开（SECURITY-REVIEW A-3） |
+| 5 | 媒体缩略图 | P10d 疑问 1 遗留：后端仍无 Mizuki public/ 静态文件服务；面板托管的是自身 dist 非 Mizuki 站点产物，属二期「预览」范畴（P9 preview 任务已可拉起 Astro dev） |
+
+### 6. 踩的坑（对后续阶段的提醒）
+
+1. **pnpm 跨盘安装卡死**：C 盘目录 + D 盘 store（或反之）在 pnpm@11 Windows 下内容寻址复制会挂起（CPU 空转 4 分钟无文件增长）；同盘（仓库在 D、store 在 D）30 秒完成。全新环境冒烟务必与 store 同盘。另：better-sqlite3 rename 在 C 盘易撞 EPERM（AV/句柄锁），重试或换盘。
+2. **robocopy //XD data 误伤**：`//XD data` 按目录名全局排除，把 fixture 的 `src/data/`（六类集合数据文件）也排除了，测试 fixture 不完整。正确做法：以 `git ls-files`（注意 `-c core.quotepath=false`，否则中文文件名八进制转义误报缺失）逐一比对副本完整性。
+3. **Git Bash heredoc 反斜杠折叠**：`<<'EOF'` 内 `\` 仍被折叠为 `\`，JSON body 报 "Bad escaped character"。用 `printf` 写文件或正斜杠路径（Node path.resolve 接受）。
+4. **express 5 sendFile 绝对路径 + 点目录**：send 对绝对路径做目录分段点目录检查（默认 ignore→404）。SPA 回退一律用 `{ root: dist }` 相对形式。
+5. **provider 启动快照 vs 运行期配置**：useFactory 捕获的值不随 config.json 运行期写入更新；「初始化向导」类流程注入的配置必须活取值（getter 或每次读 config 缓存）。
+6. **本地 localhost 解析**：curl `localhost` 在本机先走 IPv6（::1）可能连不上 IPv4 监听，冒烟统一用 `127.0.0.1`。
+
+### 7. commit 记录
+
+- `feat(P11): Swagger 三分组+bin 启动脚本+面板静态服务（ADR-009）+冒烟缺陷修复`
+- `docs(P11): README 重写+安全复查报告+ADR+CHANGELOG/SESSIONS`
+
+---
+
+## 最终交付（C-Plus §8）：MVP 全阶段完成
+
+**阶段清单（P0a → P11，每阶段 test+build+lint 全绿后提交）：** P0a 脚手架 → P0b 配置/DB/异常/解耦基建 → P1 安全基建（safe-join+zod+helmet/限流/操作日志）→ P2 备份模块 → P3 数据文件引擎（ts-morph AST）→ P4 集合 CRUD → P5 Posts → P6 Auth+初始化 → P7 媒体+相册 → P8 富文本+公开 API → P9 进程管理 → P10a-d 管理面板 → P11 收尾（本报告）。
+
+**关卡（人工验收点）均已通过：** P0b 数据库定型（11 表）、P3 数据文件引擎（golden 测试）、P6 安全边界（无 Token 401 矩阵）、P8 公开 API 定型（路径冻结）。
+
+**安全复查结论（SECURITY-REVIEW.md）：** MASTER-PLAN §7 九条 + REQUIREMENTS §15 十六条全 ✅；无 ❌/⚠️；备注级观察 4 条（argon2 默认成本参数、相册上传平行实现、Swagger DTO 深度、MVP 范围确认），均不阻塞交付。
+
+**测试基线：** 240 用例（单元 113 + e2e 127）/ 25 文件；全量构建（含前端 vue-tsc strict）与 lint 0/0。
+
+**⚠️ 遗留事项（不阻塞 MVP，供二期参考）：** 媒体库缩略图（需 Mizuki public/ 静态服务或代理）；前端 chunk 2.1MB 超 500KB 警告（可做路由级代码分割）；GET /admin/events SSE 事件转发（ADR-008 不实现）；富文本软删恢复入口（面板暂无，数据在库可查）；Swagger DTO 字段级 schema 未展开。
+
+**全部阶段完成，按 C-Plus §5.6 停止——不开启新阶段，等待用户指示。**
