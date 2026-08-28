@@ -320,6 +320,7 @@ function formatValue(value: unknown): string {
           v-if="engine === 'vditor'"
           ref="editorRef"
           :model-value="content"
+          :content-slug="isEdit ? editingSlug : newSlug"
           @update:model-value="content = $event"
           placeholder="输入 Markdown 正文…"
           height="600px"

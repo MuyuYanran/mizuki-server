@@ -4,6 +4,8 @@
  * 菜单项按 §3.6 清单全量列出；未实现页面指向占位路由。
  * [Phase2-B1] 顶栏主题切换（R2-1 三态循环）+ 运行模式驱动菜单过滤
  *   （R2-5：minimal=manage 时隐藏富文本文章与六类集合）。
+ * [Phase2-B2/裁决 7] manage 模式收窄放宽：仅隐藏富文本文章，
+ *   六类集合菜单保留（原 R2-5 的六类隐藏不再生效）。
  */
 import { computed, onMounted, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
@@ -19,22 +21,23 @@ const router = useRouter();
 interface MenuItem {
   path: string;
   title: string;
-  /** minimal（仅管理）模式下隐藏（R2-5：富文本文章 + 六类集合） */
+  /** minimal（仅管理）模式下隐藏（[B2/裁决 7] 收窄后仅富文本文章） */
   minimalHidden?: boolean;
 }
 
-/** 侧边栏菜单（§3.6 清单逐字；P10c 拆分文章为 Markdown / 富文本两项） */
+/** 侧边栏菜单（§3.6 清单逐字；P10c 拆分文章为 Markdown / 富文本两项；
+ * [B2/裁决 7] 六类集合在 manage 模式下保留，仅富文本文章隐藏） */
 const MENU: MenuItem[] = [
   { path: '/', title: '仪表盘' },
   { path: '/posts', title: 'Markdown 文章' },
   { path: '/articles', title: '富文本文章', minimalHidden: true },
   { path: '/about', title: '关于页' },
-  { path: '/collections/diary', title: '日记', minimalHidden: true },
-  { path: '/collections/friends', title: '友链', minimalHidden: true },
-  { path: '/collections/projects', title: '项目', minimalHidden: true },
-  { path: '/collections/timeline', title: '时间线', minimalHidden: true },
-  { path: '/collections/skills', title: '技能', minimalHidden: true },
-  { path: '/collections/devices', title: '设备', minimalHidden: true },
+  { path: '/collections/diary', title: '日记' },
+  { path: '/collections/friends', title: '友链' },
+  { path: '/collections/projects', title: '项目' },
+  { path: '/collections/timeline', title: '时间线' },
+  { path: '/collections/skills', title: '技能' },
+  { path: '/collections/devices', title: '设备' },
   { path: '/albums', title: '相册' },
   { path: '/media', title: '媒体库' },
   { path: '/backups', title: '备份' },
@@ -47,8 +50,8 @@ const visibleMenu = computed<MenuItem[]>(() =>
   isMinimalMode() ? MENU.filter((item) => !item.minimalHidden) : MENU,
 );
 
-/** minimal 模式下需要重定向到仪表盘的路由前缀（R2-5） */
-const MINIMAL_HIDDEN_PREFIXES = ['/collections', '/articles'];
+/** minimal 模式下需要重定向到仪表盘的路由前缀（[B2/裁决 7] 仅富文本文章） */
+const MINIMAL_HIDDEN_PREFIXES = ['/articles'];
 
 const activeMenu = computed(() => route.path);
 const username = computed(() => authState.user?.username ?? '管理员');

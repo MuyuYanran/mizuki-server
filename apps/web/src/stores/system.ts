@@ -25,7 +25,7 @@ export const systemModeLoaded = ref(false);
 
 let inflight: Promise<void> | null = null;
 
-/** minimal（仅管理）态判定：隐藏富文本文章与六类集合菜单（R2-5） */
+/** minimal（仅管理）态判定：隐藏富文本文章菜单（[B2/裁决 7] 收窄后六类集合保留） */
 export function isMinimalMode(): boolean {
   return systemMode.value !== null && MINIMAL_MODE_VALUES.has(systemMode.value);
 }

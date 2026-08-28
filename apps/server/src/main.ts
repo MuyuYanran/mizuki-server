@@ -232,9 +232,35 @@ export function setupSiteAssets(app: NestExpressApplication): void {
         }
 
         // ── 边界 2：路径监狱（safeRealJoin：字符串越界 + 符号链接逃逸） ──
+        // [B2/裁决 1] content-posts 预览出口：/site-assets/content-posts/<slug>/<rel>
+        //   → <mizukiRoot>/src/content/posts/<slug>/<rel>（GET only，只读）。
+        //   四条安全边界复用 ADR-012 既有机制零新语义：JWT（上方共用）、
+        //   逐段解码与走私拒绝（上方共用）、扩展名白名单（上方共用）、
+        //   safeRealJoin 路径监狱与 isFile 复查（下方仅换基目录）。
+        //   首段 'content-posts' 为新命名空间（public/ 下同名目录将被本出口
+        //   遮蔽——fixture 与官方项目均无该目录，记 SESSIONS B2 报告）。
+        const isContentPosts = segments[0] === 'content-posts';
+        if (isContentPosts) {
+          if (req.method !== 'GET') {
+            respond404(res, '站点资产不存在或类型不受支持');
+            return;
+          }
+          // 至少 slug + 文件名两段（仅 slug 的目录请求 404）
+          if (segments.length < 3) {
+            respond404(res, '站点资产不存在或类型不受支持');
+            return;
+          }
+          // express.static 以 content-posts 根目录为基准解析 req.url，
+          // 进入本出口前剥离首段 /content-posts（静态实例按 baseDir 缓存）
+          if (typeof req.url === 'string' && req.url.startsWith('/content-posts')) {
+            req.url = req.url.slice('/content-posts'.length) || '/';
+          }
+        }
+        const baseDir = isContentPosts ? join(mizukiRoot, 'src', 'content', 'posts') : publicDir;
+        const relSegments = isContentPosts ? segments.slice(1) : segments;
         let targetAbs: string;
         try {
-          targetAbs = safeRealJoin(publicDir, segments.join('/'));
+          targetAbs = safeRealJoin(baseDir, relSegments.join('/'));
         } catch (error) {
           if (error instanceof ForbiddenPathError) {
             respond404(res, '站点资产不存在或类型不受支持');
@@ -259,7 +285,7 @@ export function setupSiteAssets(app: NestExpressApplication): void {
         // mizukiRoot 活取值（init 后变更无需重启），static 实例按根目录缓存；
         // Content-Type 由扩展名映射自动为图片 MIME（白名单已先行收口）。
         // fallthrough:false → 文件缺失等错误收敛进回调统一 404，不落入 SPA 回退
-        siteAssetServer(publicDir)(req, res, () => {
+        siteAssetServer(baseDir)(req, res, () => {
           respond404(res, '站点资产不存在或类型不受支持');
         });
       } catch (error) {
@@ -293,7 +319,11 @@ export async function bootstrap(): Promise<void> {
   configureApp(app);
   // [P11 §4.1] Swagger 与静态服务均在 configureApp 之后、listen 之前挂载；
   // [ADR-012] site-assets 前置于面板 SPA 回退（回退谓词亦已排除该前缀，双保险）
-  setupSwagger(app);
+  // [B2/裁决 6] Swagger 按配置挂载（config.json swagger 字段，默认 true；
+  // 公网部署建议置 false——见 README 生产部署清单）
+  if (getAppConfig().swagger) {
+    setupSwagger(app);
+  }
   setupSiteAssets(app);
   setupStaticPanel(app, process.env['MIZUKI_WEB_DIST'] ?? join(__dirname, '..', '..', 'web', 'dist'));
   // [P9] 优雅停机信号入口（SIGTERM/SIGINT → OnApplicationShutdown，
@@ -302,7 +332,9 @@ export async function bootstrap(): Promise<void> {
   const port = Number(process.env.MIZUKI_SERVER_PORT ?? 20154);
   await app.listen(port);
   new Logger('Bootstrap').log(`Mizuki-Server: http://localhost:${port}`);
-  new Logger('Bootstrap').log(`Swagger 文档: http://localhost:${port}/api/v1/docs`);
+  if (getAppConfig().swagger) {
+    new Logger('Bootstrap').log(`Swagger 文档: http://localhost:${port}/api/v1/docs`);
+  }
 }
 
 // 直接以 node 运行产物（node dist/main.js）才经守卫引导；

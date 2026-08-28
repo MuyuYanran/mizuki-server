@@ -22,7 +22,7 @@ import {
 import Vditor from 'vditor';
 import 'vditor/dist/index.css';
 import { resolvedTheme } from '../../lib/theme';
-import { imageSrc } from '../../lib/image-src';
+import { contentPostSrc, imageSrc } from '../../lib/image-src';
 
 /**
  * [B3.5 自托管] Vditor 运行时资源（i18n/highlight/mermaid/katex 等）本地化。
@@ -40,11 +40,14 @@ const props = withDefaults(
     placeholder?: string;
     height?: string;
     mode?: 'wysiwyg' | 'ir' | 'sv';
+    /** [B2/裁决 1] 文章 slug：非空时相对路径图片经 content-posts 出口改写预览 */
+    contentSlug?: string;
   }>(),
   {
     placeholder: '',
     height: '400px',
     mode: 'wysiwyg',
+    contentSlug: '',
   },
 );
 
@@ -118,7 +121,9 @@ function rewriteImagePreview(container: HTMLElement): void {
     if (img instanceof HTMLElement && img.dataset.mzRewritten === '1') return;
     const raw = img.getAttribute('src') || img.getAttribute('data-src');
     if (!raw || raw.startsWith('/site-assets')) return;
-    const next = imageSrc(raw);
+    // [B2/裁决 1] 有 slug 时的相对路径引用优先走 content-posts 出口
+    // （解析后落在 slug 目录内才改写；逃逸/外链/站内绝对路径 → null 走原管线）
+    const next = contentPostSrc(props.contentSlug, raw) ?? imageSrc(raw);
     if (next === raw) return;
     srcReverse.set(next, raw);
     if (img instanceof HTMLElement) img.dataset.mzRewritten = '1';

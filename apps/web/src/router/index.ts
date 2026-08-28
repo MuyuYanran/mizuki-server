@@ -66,10 +66,11 @@ export const router = createRouter({
 });
 
 /**
- * minimal（仅管理）模式下重定向到仪表盘的路由前缀（R2-5：
- * 富文本文章 /articles* 与六类集合 /collections/*；直接敲路由不放行）
+ * minimal（仅管理）模式下重定向到仪表盘的路由前缀
+ * （[B2/裁决 7] 收窄后仅富文本文章 /articles*；六类集合 /collections/* 保留。
+ * 直接敲路由不放行）
  */
-const MINIMAL_HIDDEN_PREFIXES = ['/collections', '/articles'];
+const MINIMAL_HIDDEN_PREFIXES = ['/articles'];
 
 router.beforeEach(async (to) => {
   const isPublic = to.meta.public === true;
