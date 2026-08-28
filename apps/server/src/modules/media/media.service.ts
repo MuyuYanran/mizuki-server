@@ -52,7 +52,7 @@ const UPLOADS_REL_DIR = 'public/images/uploads';
 /** :id 路径参数校验（nanoid 字符集，拒绝路径分隔符） */
 export const MediaIdSchema = z.string().min(1).max(64).regex(/^[A-Za-z0-9_-]+$/);
 
-/** 格式 → 输出 mime（索引 mime 列） */
+/** 格式 → 输出 mime（索引 mime 列；bmp 为 [Phase3-C2a/ADR-017] 放行层扩展） */
 const FORMAT_MIME: Record<MagicFormat, string> = {
   jpeg: 'image/jpeg',
   png: 'image/png',
@@ -60,6 +60,7 @@ const FORMAT_MIME: Record<MagicFormat, string> = {
   gif: 'image/gif',
   tiff: 'image/tiff',
   avif: 'image/avif',
+  bmp: 'image/bmp',
 };
 
 /** 格式 → 输出扩展名（随机文件名用；jpeg 统一 .jpg） */
@@ -70,6 +71,7 @@ const FORMAT_EXT: Record<MagicFormat, string> = {
   gif: 'gif',
   tiff: 'tiff',
   avif: 'avif',
+  bmp: 'bmp',
 };
 
 /** 对外媒体记录 */
@@ -103,7 +105,7 @@ export class MediaService {
     const ext = path.extname(file.originalname).toLowerCase();
     const expectedFormat = EXTENSION_FORMAT[ext];
     if (!expectedFormat) {
-      throw new BadRequestException(`扩展名不在白名单：${ext || '(空)'}（允许 jpg/jpeg/png/gif/webp/avif）`);
+      throw new BadRequestException(`扩展名不在白名单：${ext || '(空)'}（允许 jpg/jpeg/png/gif/webp/avif/bmp/tiff）`);
     }
     // 2. 魔数嗅探：真实类型必须与扩展名一致（文本改名 .png 等伪造件在此拒绝）
     const sniffed = sniffImageFormat(file.buffer);
@@ -238,6 +240,11 @@ export class MediaService {
         return image.tiff().toBuffer();
       case 'avif':
         return image.avif().toBuffer();
+      // [Phase3-C2a/ADR-017] bmp：sharp 0.35 预编译版无法解码 bmp，此分支实际不可达
+      // （sharp(file.buffer) 在重编码前已抛错 → 400「图片解码失败」）；留防御拒绝，
+      // 避免随白名单扩展后的 `FORMAT_EXT['bmp']` 落盘 `.undefined` 文件名。
+      case 'bmp':
+        throw new BadRequestException('媒体库暂不支持 bmp 重编码（sharp 无法解码，请经相册管线原格式落盘）');
     }
   }
 
