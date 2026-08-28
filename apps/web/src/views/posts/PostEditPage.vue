@@ -73,6 +73,9 @@ const tagInput = ref('');
 /** 后端字段错误 */
 const serverErrors = ref<Record<string, string>>({});
 
+/** [B2.1/裁决 8] 描述必填的前端字段级校验标志（提交前空值/纯空白阻止提交） */
+const descriptionError = ref(false);
+
 /** 封面上传 */
 const coverUploading = ref(false);
 
@@ -166,6 +169,13 @@ async function onSave(): Promise<void> {
     ElMessage.warning('标题为必填');
     return;
   }
+  // [B2.1/裁决 8] 描述必填：空值/纯空白阻止提交并给字段级提示（与服务端校验对齐）
+  if (fm.value.description.trim() === '') {
+    descriptionError.value = true;
+    ElMessage.warning('描述为必填');
+    return;
+  }
+  descriptionError.value = false;
   saving.value = true;
   serverErrors.value = {};
   try {
@@ -350,8 +360,9 @@ function formatValue(value: unknown): string {
           <el-form-item label="置顶">
             <el-switch v-model="fm.pinned" />
           </el-form-item>
-          <el-form-item label="描述">
+          <el-form-item label="描述" required>
             <el-input v-model="fm.description" type="textarea" :rows="3" />
+            <div v-if="descriptionError" class="field-error">描述为必填</div>
           </el-form-item>
           <el-form-item label="标签">
             <div class="tag-input-group">

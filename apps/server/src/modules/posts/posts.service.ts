@@ -71,10 +71,23 @@ export const PostFrontmatterSchema = z
   })
   .passthrough();
 
+/**
+ * [B2.1/裁决 8] description 服务端必填（官方 frontmatter title/description 必填，
+ * SPEC-ALIGNMENT-B4 T4-8）：trim 后非空（拒绝缺失/空串/纯空白）。
+ * 仅用于 API 写入口（创建 + PATCH 出现时校验）；读取/列表/sync/盘上存量不校验——
+ * PostFrontmatterSchema（optional）继续服务于合并整体校验与 uploadCover（存量防误伤）。
+ */
+export const PostDescriptionRequiredSchema = z.string().trim().min(1);
+
+/** 写入口专用 frontmatter（仅 description 收紧，其余字段与读取面逐字一致） */
+export const PostFrontmatterWriteSchema = PostFrontmatterSchema.extend({
+  description: PostDescriptionRequiredSchema,
+});
+
 /** POST /admin/posts body */
 export const CreatePostBodySchema = z.object({
   slug: PostSlugSchema,
-  frontmatter: PostFrontmatterSchema,
+  frontmatter: PostFrontmatterWriteSchema,
   content: z.string(),
 });
 
@@ -155,7 +168,8 @@ export class PostsService {
   /** 创建文章：目录已存在 → 409；写入后经统一管线（备份 + 原子写） */
   async createPost(body: z.infer<typeof CreatePostBodySchema>): Promise<PostView> {
     const slug = validateSlug(body.slug);
-    const frontmatter = PostFrontmatterSchema.parse(body.frontmatter);
+    // [B2.1/裁决 8] 创建入口 description 必填（控制器 pipe 已校验，此为纵深防御，保持同 schema）
+    const frontmatter = PostFrontmatterWriteSchema.parse(body.frontmatter);
     const dirAbs = this.postDirAbs(slug);
     if (fs.existsSync(dirAbs)) {
       throw new ConflictException(`文章已存在：${slug}`);
@@ -192,6 +206,23 @@ export class PostsService {
           })),
         },
       });
+    }
+    // [B2.1/裁决 8] PATCH 增量语义：body 中出现 description 才过必填校验（拒绝空串/纯空白），
+    // 不出现则放行保留既有值——存量盘上文件缺 description 不因此被误伤（读取/列表零复用必填面）。
+    // 创建必填 + PATCH 拒空 ⇒ 终态恒有 description，无需额外终态校验。
+    if (body.frontmatter !== undefined && 'description' in body.frontmatter) {
+      const descriptionCheck = PostDescriptionRequiredSchema.safeParse(body.frontmatter['description']);
+      if (!descriptionCheck.success) {
+        throw new BadRequestException({
+          message: `frontmatter 校验失败（${slug}）`,
+          detail: {
+            issues: descriptionCheck.error.issues.map((issue) => ({
+              path: 'frontmatter.description',
+              message: issue.message,
+            })),
+          },
+        });
+      }
     }
     const frontmatter = parsed.data as Record<string, unknown>;
     const content = body.content ?? existing.content;
