@@ -1,5 +1,14 @@
 # 变更日志
 
+## Phase2-B2.1 — 裁决 8 补齐 + 判卷残留消除（二期收官补丁批）
+
+- **背景**：B2（HEAD=b7cc691）判卷发现九项裁决中裁决 8「posts description：server 端创建/修改强制必填」被静默漏项（`posts.service.ts` 仍为 `description: z.string().optional()`，且 B2 任务表/偏差清单/三期输入均未记录）。本批补齐，B2 报告完整性缺陷记入台账。
+- **T1 裁决 8 落地**：新增 `PostFrontmatterWriteSchema`（description `z.string().trim().min(1)`，拒绝缺失/空串/纯空白），仅用于创建入口（`CreatePostBodySchema` + 服务内纵深防御）；PATCH 为增量合并语义——body 中出现 description 才过必填校验、不出现则放行保留既有值，存量盘上文件缺 description 不误伤；读取/列表/sync/公开 API 零复用必填面（`scanPosts` 直接 `parseMarkdown`），`uploadCover` 维持 optional schema；错误形态走既有 ZodValidationPipe → 400 {code, message, detail.issues}（P1 语义）；面板 PostEditPage description 字段必填校验（空值/纯空白阻止提交 + 字段级提示）；e2e `p5b-description-required` 2 用例（创建缺 description → 400 且目录零落盘；PATCH description="" → 400 且 md 文件 sha256 字节不变）
+- **T0 avif 单测核查**：`magic-sniff.spec.ts` 已存在 avif 用例（L33-40 正例 + isom 反例），零新增
+- **T2 判卷残留**：新建 ADR-015 改密窗口语义（改密 → token_version +1 → refresh 401；已签发 access 15min 内自然过期前仍可用、无黑名单，风险接受理由关联 ADR-005 logout 无状态先例）
+- **受影响基线修复**（9 处，均经 POST /admin/posts 写入口，body 补 description）：p5 ×4（e2e-first / restore-me / draft-flip / fm-round 重复 slug 409 用例）、p7 ×1（ref-cover）、p8 ×4（MD 日期循环 / xss-md / draft-md / inc-post）；`../evil` 用例断言 `[400,403]` 天然兼容未动
+- **验收**：test 293 → 295（+2 e2e，T0 未触发）、build 0、lint 0/0；纪律：零新增依赖、零表结构变更、fixture 零变更、禁触文件零触碰
+
 ## Phase2-B2 — 后端增强（二期收官批：外链相册 / id 迁移 / 四件套 / 预览通道）
 
 - **T1 相册外链模式（R2-14 重定义落地）**：shared 新增 `AlbumInfoExternal`（`mode:"external"` + cover + `photos[]`，除 src 外全可选：thumbnail/alt/width/height/camera/lens/settings），与本地模式（缺省/local）组成 union；albums 服务读写外链 info.json（以 B4 fixture `external-demo` 官方样例为准）；外链照片 CRUD + 外链相册管理路由；mode 切换精确规则——切 external 要求本地照片目录与记录为空否则 409（错误信息含现存本地照片数），切 local 要求 photos 为空否则 409；e2e `p7b-external-albums` 12 用例（创建→加照片→改字段→删照片→删相册全生命周期 + 双向拒绝/放行）

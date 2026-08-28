@@ -150,6 +150,10 @@ SchemaForm 对必填字段渲染问号图标 el-tooltip，悬停显示解释、�
 - 以官方文档快照（`docs/refs/mizuki-docs/`）为唯一依据，对 Server 数据规格与测试资产做系统性对齐审计（`docs/SPEC-ALIGNMENT-B4.md`，摘录证据 `docs/audits/b4-doc-excerpts.md`，基线原则记 ADR-013）；
 - 本批完成项（无风险对齐落地）：friends 必填面对齐官方（desc 必填、tags≥1）、上传白名单补 tiff 双端序魔数嗅探与重编码（bmp/svg/avif 处置转裁决 T4-3）、fixture 官方化（friends 数据、官方外链模式相册样例、文件夹方案相对路径图片文章样例）、ADR-004 timeline education 映射按官方示例修订并勾销遗留义务；
 - 八项裁决（相对路径图片预览通道、非 JPG 强转 JPG 去留、上传白名单终集与 svg 处置、运行期 mode 端点、改密端点、生产 Swagger 开关、manage 模式隐藏范围、posts description 必填策略）+ 审计追加裁决项（六类 id 类型）已呈报待人工裁决，未实施。
+- 【状态（B2.1 补齐批注）】裁决 8（posts description：server 端创建/修改强制必填，审计条目 e2/T4-8）
+  于 B2 判卷确认为静默漏项，已在 B2.1 补齐批次落地：创建入口 `PostFrontmatterWriteSchema`
+  必填（trim 后非空）+ PATCH 出现即校验（增量语义，存量防误伤）+ 面板字段级校验 +
+  e2e `p5b-description-required`；读取/列表/sync/盘上存量不校验。其余八项裁决 B2 已落地。
 
 
 ## 二期依赖总账（入 ADR-001）

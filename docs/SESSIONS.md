@@ -1687,3 +1687,67 @@ manage 模式（6）：01 登录页浅色、02 仪表盘浅色（菜单 8 项）
 - `feat(Phase2-B2): manage 菜单收窄与 content-posts 预览通道（裁决 7/1）`（T5+T6）
 - `test(Phase2-B2): 受影响基线断言修复与超时放宽`（偏差 3）
 - `docs(Phase2-B2): ADR-014、ADR-013 追加、REQUIREMENTS/README/CHANGELOG/SESSIONS 台账`（T7）
+
+## Phase2-B2.1 交付报告 — 裁决 8 补齐 + 判卷残留消除（二期收官补丁批）
+
+- 日期：2026-08-28
+- 阶段：二期 B2.1（B2 判卷补丁批：裁决 8 服务端必填 / avif 单测核查 / ADR-015 / 台账）
+- **本批补齐 B2 静默漏项（裁决 8），B2 报告完整性缺陷已记入台账。**
+- 结论：**B2.1 完成。** 三连全绿（test 295/295 = B2 尾数 293 + 新增 2、build 含 web、lint 0/0），基线 293 → 295 只增不减，提交后立即停止。
+
+### 1. 任务完成清单
+
+| 任务 | 内容 | 载体 |
+|---|---|---|
+| T0 | avif 单测存在性核查：**已命中**（`magic-sniff.spec.ts` L33-40 正例 + L40 isom 反例、L64-70 扩展名映射），条件任务结束零新增 | `magic-sniff.spec.ts`（只读核查） |
+| T1 | 裁决 8 落地：`PostFrontmatterWriteSchema`（description `trim().min(1)`）仅用于创建入口；PATCH 增量语义（出现即校验/不出现放行）；面板字段级校验；e2e 2 用例 | `posts.service.ts` / `PostEditPage.vue` / `p5b-description-required.e2e-spec.ts` |
+| T2 | ADR-015 改密窗口语义（背景/决策/窗口语义/证据链四节，≤30 行） | `docs/decisions/ADR-015-auth-token-window.md` |
+| T3 | 台账：CHANGELOG B2.1 节、REQUIREMENTS R2-17 裁决 8 状态注记、SESSIONS 本报告 | docs/* |
+
+### 2. T1 schema 复用排查结论（§3.T1.2 义务）
+
+- **读取/列表/响应路径零复用**：`scanPosts`/`readPostOrThrow` 直接 `parseMarkdown` 不过 schema，GET 列表/单篇、公开 API、sync 对存量缺 description 文件零影响——「无复用，无需为读取面拆分」成立。
+- **写入路径内三点使用** `PostFrontmatterSchema`：create（L158）/update 合并后整体校验（L184）/uploadCover（L265，输入为盘上存量）。
+- **实际拆分方式**（比整体收紧更精确，贴合 T1.3 增量语义）：新增 `PostFrontmatterWriteSchema = PostFrontmatterSchema.extend({ description: PostDescriptionRequiredSchema })` **仅用于创建入口**；PATCH 不整体过必填面（否则存量缺 description 的文件在 PATCH 其他字段时被误伤 400，且违反「不出现则放行」）——改为对 `body.frontmatter` 中**出现的 description 键**单独过 `PostDescriptionRequiredSchema`，错误形态与既有 safeParse 失败完全一致（400 + `frontmatter.description` path）；`uploadCover` 维持 optional schema（存量防误伤）。
+
+### 3. 偏差清单（§3.T1.8 受影响基线修复逐条）
+
+| # | 文件 + 用例 | 修法 |
+|---|---|---|
+| 1 | `p5-posts.e2e-spec.ts` §6.1 创建（e2e-first） | body frontmatter 补 `description:'首篇描述'` |
+| 2 | `p5-posts.e2e-spec.ts` §6.2 删除可恢复（restore-me） | 补 `description:'恢复描述'` |
+| 3 | `p5-posts.e2e-spec.ts` §6.6 草稿转正（draft-flip） | 补 `description:'转正描述'` |
+| 4 | `p5-posts.e2e-spec.ts` §6.7 重复 slug 409（fm-round） | 补 `description:'重复描述'`（否则 pipe 先 400 破坏 409 预期） |
+| 5 | `p7-media-albums.e2e-spec.ts` ref-cover（media-reference） | 补 `description:'封面描述'` |
+| 6 | `p8-articles-public.e2e-spec.ts` §6.1 MD 日期循环创建 | 补 `description:`${slug} 描述`` |
+| 7 | `p8-articles-public.e2e-spec.ts` §6.2 xss-md | 补 `description:'XSS 描述'` |
+| 8 | `p8-articles-public.e2e-spec.ts` §6.3 draft-md | 补 `description:'草稿描述'` |
+| 9 | `p8-articles-public.e2e-spec.ts` §6.4 inc-post | 补 `description:'增量描述'` |
+
+未动用例：p5 `../evil`（断言 `[400,403].toContain`，description 缺失同样 400，天然兼容）；p5/p8 既有 PATCH 均不带 description（放行语义零连带）；p4/p11/p12 无 posts 写入口（grep 全 test 目录核实仅 p5/p7/p8 命中）。
+
+### 4. 疑问清单
+
+1. **PATCH 是否应对「终态缺 description」的存量文件拒绝**：现按提示词 T1.3 精确语义实现（出现即校验/不出现放行），存量缺 description 的文章 PATCH 其他字段可过——提示词推理「创建必填 + PATCH 拒空 ⇒ 终态恒有 description」仅对新数据成立；若需强制存量补齐（如编辑时要求填描述），属裁决 8 语义扩展，转裁决。
+2. uploadCover 对存量缺 description 文件放行落盘（维持既有值）——与疑问 1 同源，语义一致，记录备查。
+
+### 5. 手动走查增补（人工核验项）
+
+| # | 项目 | 操作 | 预期 |
+|---|---|---|---|
+| 1 | 面板必填拦截 | PostEditPage 描述留空（或纯空白）点保存 | 提交被阻止，描述字段下方显示「描述为必填」，无请求发出 |
+| 2 | 服务端兜底回显 | 绕过前端直调 API（创建或 PATCH 空 description） | 400，detail.issues 指向 `frontmatter.description` |
+
+### 6. 测试数账（293 → 295，+2 只增不减）
+
+| 文件 | 增量 | 内容 |
+|---|---|---|
+| `p5b-description-required.e2e-spec.ts` | +2（新增文件） | ①创建缺 description → 400 且文章目录零落盘（写前校验）；②PATCH description="" → 400 且 md 文件 sha256 前后相等 |
+
+T0 未触发新增（avif 用例已存在）。基线修复 9 处均为 body 补字段，用例数与语义不变。
+
+### 7. commit 记录
+
+- `feat(Phase2-B2.1): posts description 服务端必填（裁决 8 补齐）`
+- `test(Phase2-B2.1): 裁决 8 e2e 与受影响基线修复`
+- `docs(Phase2-B2.1): ADR-015 改密窗口语义与台账`
