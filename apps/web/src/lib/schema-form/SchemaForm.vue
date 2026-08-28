@@ -91,6 +91,10 @@ function removeTag(field: FieldDescriptor, index: number): void {
 /** 提交：先本地 schema.parse，全通过才 emit submit 给父组件 */
 function onSubmit(): void {
   const errors = validateBySchema(props.schema, props.modelValue);
+  // [B2/裁决 9] id 只读自动分配：新增态留空（服务端 max+1），本地校验跳过该字段
+  if (descriptors.value.some((f) => f.readOnly)) {
+    delete errors['id'];
+  }
   localErrors.value = errors;
   if (Object.keys(errors).length > 0) {
     return;
@@ -160,9 +164,16 @@ function errorFor(key: string, childKey?: string): string {
           <span class="field-label-text">{{ field.label }}</span>
           <FieldHint v-if="field.required" :description="field.description" :label="field.label" />
         </template>
+        <!-- [B2/裁决 9] id 自动分配：只读展示（编辑态显示现值、新增态留空提示） -->
+        <el-input
+          v-if="field.readOnly"
+          :model-value="modelValue[field.key] === undefined || modelValue[field.key] === null ? '' : String(modelValue[field.key])"
+          disabled
+          placeholder="自动分配"
+        />
         <!-- 字符串长文本 -->
         <el-input
-          v-if="field.widget === 'textarea'"
+          v-else-if="field.widget === 'textarea'"
           :model-value="(modelValue[field.key] as string) ?? ''"
           type="textarea"
           :rows="4"

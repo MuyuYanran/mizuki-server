@@ -76,8 +76,9 @@ describe('P4 六类集合 CRUD e2e', () => {
   async function crudCycle(type: string, createBody: Record<string, unknown>, patch: Record<string, unknown>, assertChange: (item: Record<string, unknown>) => void): Promise<void> {
     const created = await server().post(`/api/v1/admin/collections/${type}`).send(createBody);
     expect(created.status).toBe(201);
-    const id = created.body.id as string;
-    expect(typeof id).toBe('string');
+    // [B2/裁决 9] 五类 array 集合 id 均为 number（max+1 自动生成）
+    const id = created.body.id as number;
+    expect(typeof id).toBe('number');
 
     let list = await server().get(`/api/v1/admin/collections/${type}`);
     expect(list.status).toBe(200);
@@ -213,19 +214,20 @@ describe('P4 六类集合 CRUD e2e', () => {
     const before = fs.readFileSync(file, 'utf8');
     const res = await server()
       .post('/api/v1/admin/collections/friends')
-      .send({ id: 'bad-1', title: '缺字段', imgurl: 'x' });
+      .send({ title: '缺字段', imgurl: 'x' });
     expect(res.status).toBe(400);
     expect(res.body.detail.issues.length).toBeGreaterThan(0);
     expect(fs.readFileSync(file, 'utf8')).toBe(before);
   });
 
-  it('§6.7 id 生成：POST 不带 id → 响应含 nanoid id；id 重复 → 409', async () => {
+  it('§6.7 id 生成：POST 不带 id → number（max+1）；id 重复 → 409', async () => {
+    // [B2/裁决 9] fixture diary 存量 id 为 [1, 2]（此前 CRUD 已各自收尾删除），新条目应为 max+1 = 3
     const first = await server()
       .post('/api/v1/admin/collections/diary')
       .send({ content: '无 id 新增', date: '2026-08-26' });
     expect(first.status).toBe(201);
-    expect(typeof first.body.id).toBe('string');
-    expect(first.body.id.length).toBeGreaterThanOrEqual(10);
+    expect(typeof first.body.id).toBe('number');
+    expect(first.body.id).toBe(3);
 
     const conflict = await server()
       .post('/api/v1/admin/collections/diary')
@@ -260,10 +262,14 @@ describe('P4 六类集合 CRUD e2e', () => {
     );
   });
 
-  it('PATCH/DELETE 不存在的条目 → 404', async () => {
+  it('[B2/裁决 9] :id 校验：非数字 id → 400；数字但不存在 → 404', async () => {
     expect(
       (await server().patch('/api/v1/admin/collections/friends/not-exists').send({ title: 'x' })).status,
+    ).toBe(400);
+    expect((await server().delete('/api/v1/admin/collections/friends/not-exists')).status).toBe(400);
+    expect(
+      (await server().patch('/api/v1/admin/collections/friends/999999').send({ title: 'x' })).status,
     ).toBe(404);
-    expect((await server().delete('/api/v1/admin/collections/friends/not-exists')).status).toBe(404);
+    expect((await server().delete('/api/v1/admin/collections/friends/999999')).status).toBe(404);
   });
 });

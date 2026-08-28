@@ -5,7 +5,7 @@ import type { Diary } from '../types';
 export const diaryData: Diary[] = [
   // 第一条：单引号 + 尾随逗号
   {
-    id: 'd-001',
+    id: 1,
     content: '今天天气很好，\n去了海边——心情 "超级" 愉快。',
     date: '2026-01-01T08:00:00+08:00',
     images: ['beach.jpg',],
@@ -15,7 +15,7 @@ export const diaryData: Diary[] = [
   },
   /* 第二条：块注释包裹 */
   {
-    id: 'd-002',
+    id: 2,
     content: '读完了《三体》，\n"给岁月以文明"。',
     date: '2026-02-14T21:30:00+08:00',
     images: [],

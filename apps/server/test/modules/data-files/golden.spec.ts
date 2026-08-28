@@ -92,7 +92,7 @@ describe('P3 golden-file：六个数据文件往返 + 外部字节不变', () =>
 
   it('diary（数组）：改一条 content + 删一条 → 再读值正确；外部字节不变', async () => {
     const rel = 'src/data/diary.ts';
-    const before = h.service.readCollection<{ id: string; content: string }[]>(rel, 'diaryData');
+    const before = h.service.readCollection<{ id: number; content: string }[]>(rel, 'diaryData');
     expect(before).toHaveLength(2);
     expect(before[0]!.content).toContain('超级');
 
@@ -106,7 +106,7 @@ describe('P3 golden-file：六个数据文件往返 + 外部字节不变', () =>
     const after = h.service.readCollection<typeof before>(rel, 'diaryData');
     expect(after).toHaveLength(1);
     expect(after[0]!.content).toBe('改写后的正文\n含换行与 "引号"');
-    expect(after[0]!.id).toBe('d-001');
+    expect(after[0]!.id).toBe(1);
     assertOutsideInitializerByteIdentical(
       path.join(FIXTURE_DIR, rel),
       path.join(h.root, rel),
@@ -117,15 +117,15 @@ describe('P3 golden-file：六个数据文件往返 + 外部字节不变', () =>
   it('friends（as const）：新增一条 → 再读值正确；外部字节不变', async () => {
     const rel = 'src/data/friends.ts';
     const added = {
-      id: 'f-003',
+      id: 3,
       title: '新增友链',
       imgurl: 'https://example.com/a.png',
       siteurl: 'https://example.com',
       tags: ['新'],
     };
-    await h.service.mutateCollection<{ id: string }[]>(rel, 'friendsData', (list) => [...list, added]);
+    await h.service.mutateCollection<{ id: number }[]>(rel, 'friendsData', (list) => [...list, added]);
 
-    const after = h.service.readCollection<{ id: string }[]>(rel, 'friendsData');
+    const after = h.service.readCollection<{ id: number }[]>(rel, 'friendsData');
     expect(after).toHaveLength(3);
     expect(after[2]).toEqual(added);
     assertOutsideInitializerByteIdentical(
@@ -137,12 +137,12 @@ describe('P3 golden-file：六个数据文件往返 + 外部字节不变', () =>
 
   it('projects（satisfies）：改 featured 字段 → 再读值正确；外部字节不变', async () => {
     const rel = 'src/data/projects.ts';
-    await h.service.mutateCollection<{ id: string; featured?: boolean }[]>(rel, 'projectsData', (list) =>
-      list.map((item) => (item.id === 'p-002' ? { ...item, featured: true } : item)),
+    await h.service.mutateCollection<{ id: number; featured?: boolean }[]>(rel, 'projectsData', (list) =>
+      list.map((item) => (item.id === 2 ? { ...item, featured: true } : item)),
     );
-    const after = h.service.readCollection<{ id: string; featured?: boolean }[]>(rel, 'projectsData');
-    expect(after.find((item) => item.id === 'p-002')?.featured).toBe(true);
-    expect(after.find((item) => item.id === 'p-001')?.featured).toBe(true);
+    const after = h.service.readCollection<{ id: number; featured?: boolean }[]>(rel, 'projectsData');
+    expect(after.find((item) => item.id === 2)?.featured).toBe(true);
+    expect(after.find((item) => item.id === 1)?.featured).toBe(true);
     assertOutsideInitializerByteIdentical(
       path.join(FIXTURE_DIR, rel),
       path.join(h.root, rel),
@@ -152,22 +152,22 @@ describe('P3 golden-file：六个数据文件往返 + 外部字节不变', () =>
 
   it('timeline（模板字符串）：新增一条（保留原有模板字符串条目）→ 值正确；外部字节不变', async () => {
     const rel = 'src/data/timeline.ts';
-    const before = h.service.readCollection<{ id: string; description?: string }[]>(rel, 'timelineData');
+    const before = h.service.readCollection<{ id: number; description?: string }[]>(rel, 'timelineData');
     expect(before[0]!.description).toContain('\n');
 
-    await h.service.mutateCollection<{ id: string; type: string; title: string; startDate: string }[]>(
+    await h.service.mutateCollection<{ id: number; type: string; title: string; startDate: string }[]>(
       rel,
       'timelineData',
       (list) => [
         ...list,
-        { id: 't-100', title: '新事件', type: 'other', startDate: '2026-08-26' },
+        { id: 100, title: '新事件', type: 'other', startDate: '2026-08-26' },
       ],
     );
 
-    const after = h.service.readCollection<{ id: string; description?: string }[]>(rel, 'timelineData');
+    const after = h.service.readCollection<{ id: number; description?: string }[]>(rel, 'timelineData');
     expect(after).toHaveLength(3);
     expect(after[0]!.description).toBe(before[0]!.description); // 模板字符串值往返无损
-    expect(after[2]!.id).toBe('t-100');
+    expect(after[2]!.id).toBe(100);
     assertOutsideInitializerByteIdentical(
       path.join(FIXTURE_DIR, rel),
       path.join(h.root, rel),
@@ -177,21 +177,21 @@ describe('P3 golden-file：六个数据文件往返 + 外部字节不变', () =>
 
   it('skills（嵌套对象/负数）：改嵌套 experience → 值正确；外部字节不变', async () => {
     const rel = 'src/data/skills.ts';
-    const before = h.service.readCollection<{ id: string; level?: number; experience?: unknown }[]>(
+    const before = h.service.readCollection<{ id: number; level?: number; experience?: unknown }[]>(
       rel,
       'skillsData',
     );
-    expect(before.find((s) => s.id === 's-003')?.level).toBe(-3);
+    expect(before.find((s) => s.id === 3)?.level).toBe(-3);
 
     await h.service.mutateCollection<typeof before>(rel, 'skillsData', (list) =>
       list.map((item) =>
-        item.id === 's-001' ? { ...item, experience: { years: 5, months: 1 } } : item,
+        item.id === 1 ? { ...item, experience: { years: 5, months: 1 } } : item,
       ),
     );
 
     const after = h.service.readCollection<typeof before>(rel, 'skillsData');
-    expect(after.find((s) => s.id === 's-001')?.experience).toEqual({ years: 5, months: 1 });
-    expect(after.find((s) => s.id === 's-003')?.level).toBe(-3);
+    expect(after.find((s) => s.id === 1)?.experience).toEqual({ years: 5, months: 1 });
+    expect(after.find((s) => s.id === 3)?.level).toBe(-3);
     assertOutsideInitializerByteIdentical(
       path.join(FIXTURE_DIR, rel),
       path.join(h.root, rel),

@@ -203,18 +203,18 @@ describe('P3 引擎机制：求值器 / 语法校验 / 写管线', () => {
     it('外部修改仅一次 → 重试后成功写入（新基底之上）', async () => {
       const rel = 'src/data/diary.ts';
       let attempts = 0;
-      await h.service.mutateCollection<{ id: string }[]>(rel, 'diaryData', (list) => {
+      await h.service.mutateCollection<{ id: number }[]>(rel, 'diaryData', (list) => {
         attempts += 1;
         if (attempts === 1) {
           // 仅首次尝试期间被外部修改一次
           fs.appendFileSync(path.join(h.root, rel), '// 外部写入一次\n');
         }
-        return [...list, { id: 'new-1' }];
+        return [...list, { id: 999 }];
       });
       expect(attempts).toBe(2);
-      const after = h.service.readCollection<{ id: string }[]>(rel, 'diaryData');
+      const after = h.service.readCollection<{ id: number }[]>(rel, 'diaryData');
       expect(after).toHaveLength(3);
-      expect(after[2]!.id).toBe('new-1');
+      expect(after[2]!.id).toBe(999);
     });
   });
 
@@ -223,18 +223,18 @@ describe('P3 引擎机制：求值器 / 语法校验 / 写管线', () => {
       const rel = 'src/data/friends.ts';
       let active = 0;
       let maxOverlap = 0;
-      const slowAppend = (id: string) =>
-        h.service.mutateCollection<{ id: string }[]>(rel, 'friendsData', async (list) => {
+      const slowAppend = (id: number) =>
+        h.service.mutateCollection<{ id: number }[]>(rel, 'friendsData', async (list) => {
           active += 1;
           maxOverlap = Math.max(maxOverlap, active);
           await new Promise((resolve) => setTimeout(resolve, 30));
           active -= 1;
-          return [...list, { id, title: id, imgurl: '', siteurl: '' }];
+          return [...list, { id, title: `新增-${id}`, imgurl: '', siteurl: '' }];
         });
-      await Promise.all([slowAppend('c-1'), slowAppend('c-2')]);
+      await Promise.all([slowAppend(101), slowAppend(102)]);
       expect(maxOverlap).toBe(1); // 串行：mutate 回调从不重叠
-      const after = h.service.readCollection<{ id: string }[]>(rel, 'friendsData');
-      expect(after.map((f) => f.id)).toEqual(['f-001', 'f-002', 'c-1', 'c-2']);
+      const after = h.service.readCollection<{ id: number }[]>(rel, 'friendsData');
+      expect(after.map((f) => f.id)).toEqual([1, 2, 101, 102]);
       // 文件完好：语法校验通过 + 尾部代码仍在
       const text = fs.readFileSync(path.join(h.root, rel), 'utf8');
       expect(text).toContain('friendsCount');
@@ -280,12 +280,12 @@ describe('P3 引擎机制：求值器 / 语法校验 / 写管线', () => {
     it('写管线第 8 步失效缓存：mutate 后 readCollection 重读新值', async () => {
       const rel = 'src/data/skills.ts';
       h.service.readCollection(rel, 'skillsData'); // 预热缓存
-      await h.service.mutateCollection<{ id: string }[]>(rel, 'skillsData', (list) => [
+      await h.service.mutateCollection<{ id: number }[]>(rel, 'skillsData', (list) => [
         ...list,
-        { id: 's-new', name: '新技能' },
+        { id: 999, name: '新技能' },
       ]);
-      const after = h.service.readCollection<{ id: string }[]>(rel, 'skillsData');
-      expect(after.some((s) => s.id === 's-new')).toBe(true);
+      const after = h.service.readCollection<{ id: number }[]>(rel, 'skillsData');
+      expect(after.some((s) => s.id === 999)).toBe(true);
     });
   });
 

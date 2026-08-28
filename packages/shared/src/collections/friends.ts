@@ -9,7 +9,8 @@
 import { z } from 'zod';
 
 export const FriendsItemSchema = z.object({
-  id: z.string(),
+  /** [B2/裁决 9] 官方 FriendItem id: number（special-friends.md §2）；max+1 自动生成，迁移语义见 ADR-014 */
+  id: z.number().int().min(1).describe('id 自动分配（新增无需填写，编辑不可修改）'),
   title: z.string(),
   /** [R2-12] 图片类字段引导（SchemaForm 渲染为帮助文案 + 必填 tooltip） */
   imgurl: z.string().describe('本地图片填媒体库回传的相对路径（public/images/uploads/…），外链直接粘贴 URL'),

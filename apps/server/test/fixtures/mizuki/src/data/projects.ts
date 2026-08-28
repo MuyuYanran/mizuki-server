@@ -3,7 +3,7 @@ import type { Project } from '../types';
 
 export const projectsData: Project[] = [
   {
-    id: 'p-001',
+    id: 1,
     title: '个人博客',
     description: '基于 Astro 的个人博客，支持暗色模式与全文搜索。',
     image: '/images/projects/blog.png',
@@ -19,7 +19,7 @@ export const projectsData: Project[] = [
     visitUrl: 'https://blog.example.com',
   },
   {
-    id: 'p-002',
+    id: 2,
     title: 'Mizuki 管理服务',
     description: 'Mizuki 博客的后端管理服务。',
     category: '工具',

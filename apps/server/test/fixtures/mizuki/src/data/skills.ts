@@ -3,7 +3,7 @@ import type { Skill } from '../types';
 
 export const skillsData: Skill[] = [
   {
-    id: 's-001',
+    id: 1,
     name: 'TypeScript',
     description: '类型体操爱好者',
     icon: 'si-typescript',
@@ -13,7 +13,7 @@ export const skillsData: Skill[] = [
     color: '#3178c6',
   },
   {
-    id: 's-002',
+    id: 2,
     name: 'Node.js',
     category: '运行时',
     level: 8,
@@ -21,7 +21,7 @@ export const skillsData: Skill[] = [
   },
   // 第三条：包含前缀负号（历史遗留字段，校验用）
   {
-    id: 's-003',
+    id: 3,
     name: 'LegacyScore',
     level: -3,
   },

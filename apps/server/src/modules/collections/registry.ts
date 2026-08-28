@@ -23,6 +23,9 @@ export interface CollectionDef {
   shape: 'array' | 'grouped';
   itemSchema: z.ZodType;
   idField: string;
+  /** [B2/裁决 9] id 为 number（max+1 生成 + 载入时自动换新迁移，ADR-014）；
+   * devices 的 idField 为 name（官方 grouped 规格），保持 string，不参与迁移 */
+  numericId: boolean;
   imageDir?: string;
   public: boolean;
 }
@@ -34,6 +37,7 @@ export const REGISTRY: CollectionDef[] = [
     varName: 'diaryData',
     shape: 'array',
     idField: 'id',
+    numericId: true,
     imageDir: 'public/images/diary',
     public: true,
     itemSchema: DiaryItemSchema,
@@ -44,6 +48,7 @@ export const REGISTRY: CollectionDef[] = [
     varName: 'friendsData',
     shape: 'array',
     idField: 'id',
+    numericId: true,
     public: true,
     itemSchema: FriendsItemSchema,
   },
@@ -53,6 +58,7 @@ export const REGISTRY: CollectionDef[] = [
     varName: 'projectsData',
     shape: 'array',
     idField: 'id',
+    numericId: true,
     public: true,
     itemSchema: ProjectsItemSchema,
   },
@@ -62,6 +68,7 @@ export const REGISTRY: CollectionDef[] = [
     varName: 'timelineData',
     shape: 'array',
     idField: 'id',
+    numericId: true,
     public: true,
     itemSchema: TimelineItemSchema,
   },
@@ -71,6 +78,7 @@ export const REGISTRY: CollectionDef[] = [
     varName: 'skillsData',
     shape: 'array',
     idField: 'id',
+    numericId: true,
     public: true,
     itemSchema: SkillsItemSchema,
   },
@@ -80,6 +88,7 @@ export const REGISTRY: CollectionDef[] = [
     varName: 'devicesData',
     shape: 'grouped',
     idField: 'name',
+    numericId: false,
     imageDir: 'public/images/device',
     public: true,
     itemSchema: DeviceItemSchema,

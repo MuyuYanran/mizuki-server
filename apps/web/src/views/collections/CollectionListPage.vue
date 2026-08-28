@@ -335,6 +335,7 @@ function goHome(): void {
         :key="col.key"
         :prop="col.key"
         :label="col.label"
+        :width="col.readOnly ? 80 : undefined"
       >
         <template #default="{ row }">{{ cellText(row, col) }}</template>
       </el-table-column>

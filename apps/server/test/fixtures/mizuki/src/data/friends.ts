@@ -3,7 +3,7 @@ import type { Friend } from '../types';
 
 export const friendsData: Friend[] = [
   {
-    id: 'f-001',
+    id: 1,
     title: 'Astro 官方博客',
     imgurl: 'https://astro.build/favicon.svg',
     desc: 'The web framework for content-driven websites',
@@ -11,7 +11,7 @@ export const friendsData: Friend[] = [
     tags: ['前端', 'astro'],
   },
   {
-    id: 'f-002',
+    id: 2,
     title: 'TypeScript',
     imgurl: 'https://www.typescriptlang.org/icons/icon-48x48.png',
     desc: 'TypeScript is JavaScript with syntax for types',

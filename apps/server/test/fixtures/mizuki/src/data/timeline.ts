@@ -3,7 +3,7 @@ import type { TimelineItem } from '../types';
 
 export const timelineData: TimelineItem[] = [
   {
-    id: 't-001',
+    id: 1,
     title: '大学毕业',
     description: `计算机科学与技术专业毕业，
 获得工学学士学位。`,
@@ -17,7 +17,7 @@ export const timelineData: TimelineItem[] = [
     featured: true,
   },
   {
-    id: 't-002',
+    id: 2,
     title: 'Mizuki 开源',
     description: '博客主题正式发布。',
     type: 'project',

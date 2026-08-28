@@ -1,6 +1,7 @@
 // fixture 类型定义集中处（数据文件 import type 引用，写回时不被触碰）
+// [B2/裁决 9] 五类集合 id 迁移为 number（max+1 自动生成，ADR-014）；devices 为 grouped 无 id
 export interface Diary {
-  id: string;
+  id: number;
   content: string;
   date: string;
   images?: string[];
@@ -10,7 +11,7 @@ export interface Diary {
 }
 
 export interface Friend {
-  id: string;
+  id: number;
   title: string;
   imgurl: string;
   desc?: string;
@@ -19,7 +20,7 @@ export interface Friend {
 }
 
 export interface Project {
-  id: string;
+  id: number;
   title: string;
   description?: string;
   image?: string;
@@ -36,7 +37,7 @@ export interface Project {
 }
 
 export interface TimelineItem {
-  id: string;
+  id: number;
   title: string;
   description?: string;
   type: 'education' | 'certificate' | 'project' | 'other';
@@ -50,7 +51,7 @@ export interface TimelineItem {
 }
 
 export interface Skill {
-  id: string;
+  id: number;
   name: string;
   description?: string;
   icon?: string;

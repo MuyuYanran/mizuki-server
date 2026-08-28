@@ -237,10 +237,14 @@ function describeField(key: string, raw: ZodType): FieldDescriptor {
 /**
  * ZodObject schema → FieldDescriptor[]（表单渲染入口）。
  * 遍历 schema.shape 的每个字段，递归描述。
+ * [B2/裁决 9] 顶层 number id 字段标记 readOnly（新增自动分配、编辑不可改）。
  */
 export function describeSchema(schema: ZodObject<Record<string, ZodType>>): FieldDescriptor[] {
   const shape = schema.shape;
-  return Object.entries(shape).map(([key, type]) => describeField(key, type));
+  return Object.entries(shape).map(([key, type]) => {
+    const fd = describeField(key, type);
+    return key === 'id' && fd.widget === 'number' ? { ...fd, readOnly: true } : fd;
+  });
 }
 
 /** 提交前用同一份 schema 在浏览器端 parse 一次，返回按字段路径索引的错误映射 */
@@ -305,6 +309,9 @@ export function emptyValueFromSchema(schema: ZodObject<Record<string, ZodType>>)
         }
       }
       out[key] = child;
+    } else if (key === 'id' && kind === 'ZodNumber') {
+      // [B2/裁决 9] id 自动分配：新增表单不填（服务端 max+1），留空绕过本地必填校验
+      out[key] = undefined;
     } else if (!required) {
       out[key] = undefined;
     } else if (isDateWidget(kind, key)) {

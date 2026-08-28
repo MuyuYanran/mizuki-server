@@ -6,7 +6,10 @@
  * [状态] ACTIVE
  *
  * 规则（P4 §3.3）：
- * - POST：无 id（devices 无 name）时自动生成 nanoid；id 冲突 → 409；
+ * - POST：无 id（devices 无 name）时自动生成；id 冲突 → 409；
+ * - [B2/裁决 9] 五类 numericId 集合 id 为 number：POST 自动生成改 max+1
+ *   （冲突重试，上界 1000 次）；引擎载入文件时检测非 number id 即自动
+ *   换新迁移（ADR-014：原始值层操作、原子写回、幂等、无旧引用兼容）；
  * - PATCH/DELETE 目标不存在 → 404；
  * - grouped（devices）：POST body 含 group；DELETE 后空分组键自动清理；
  * - timeline POST 未给 icon/color 时按 type 填充默认映射（ADR-004）；
@@ -23,6 +26,9 @@ import type { CollectionDef } from './registry';
 
 type Item = Record<string, unknown>;
 type GroupedData = Record<string, Item[]>;
+
+/** [B2/裁决 9] id 生成冲突重试上界（提示词 T3.3） */
+const MAX_ID_RETRY = 1000;
 
 /**
  * timeline 按 type 的默认 icon/color。
@@ -48,39 +54,43 @@ export class CollectionsService {
     private readonly emitter: EventEmitter2,
   ) {}
 
-  /** 全量列表（array → 数组；grouped → 分组对象） */
-  list(def: CollectionDef): unknown {
+  /** 全量列表（array → 数组；grouped → 分组对象）；载入前先跑 id 迁移触发 */
+  async list(def: CollectionDef): Promise<unknown> {
+    await this.ensureNumericIds(def);
     return this.dataFiles.readCollection(def.file, def.varName);
   }
 
-  /** 新增条目（grouped 时 input 须含 group 字段） */
+  /** 新增条目（grouped 时 input 须含 group 字段）；先跑 id 迁移保证 max+1 基准正确 */
   async create(def: CollectionDef, input: unknown): Promise<Item> {
+    await this.ensureNumericIds(def);
     const item = def.shape === 'grouped' ? await this.createGrouped(def, input) : await this.createArray(def, input);
     this.emitChanged(def, 'create');
     return item;
   }
 
-  /** 修改条目（按 idField 定位；grouped 时跨分组查找） */
+  /** 修改条目（按 idField 定位；numericId 集合 :id 为数字，grouped 跨分组查找） */
   async update(def: CollectionDef, id: string, patchInput: unknown): Promise<Item> {
+    await this.ensureNumericIds(def);
     const patch = stripGroup(patchInput);
+    const targetId = def.numericId ? Number(id) : id;
     let updated: Item | undefined;
     if (def.shape === 'grouped') {
       await this.dataFiles.mutateCollection<GroupedData>(
         def.file,
         def.varName,
         (data) => {
-          const located = locateGrouped(data, def.idField, id);
+          const located = locateGrouped(data, def.idField, targetId);
           if (!located) {
             throw new NotFoundException(`条目不存在：${def.type}/${id}`);
           }
           const merged = this.parseItemOrThrow(def, { ...located.item, ...patch });
-          const renamed = String(merged[def.idField] ?? '');
+          const renamed = merged[def.idField];
           const group = data[located.group] ?? [];
           const conflict = group.some(
             (item) => item[def.idField] === renamed && item !== located.item,
           );
           if (conflict) {
-            throw new ConflictException(`条目已存在：${def.type}/${renamed}`);
+            throw new ConflictException(`条目已存在：${def.type}/${String(renamed)}`);
           }
           updated = merged;
           return { ...data, [located.group]: group.map((item) => (item === located.item ? merged : item)) };
@@ -92,14 +102,14 @@ export class CollectionsService {
         def.file,
         def.varName,
         (list) => {
-          const index = list.findIndex((item) => item[def.idField] === id);
+          const index = list.findIndex((item) => item[def.idField] === targetId);
           if (index < 0) {
             throw new NotFoundException(`条目不存在：${def.type}/${id}`);
           }
           const merged = this.parseItemOrThrow(def, { ...list[index]!, ...patch });
-          const newId = String(merged[def.idField] ?? '');
+          const newId = merged[def.idField];
           if (list.some((item, i) => i !== index && item[def.idField] === newId)) {
-            throw new ConflictException(`条目已存在：${def.type}/${newId}`);
+            throw new ConflictException(`条目已存在：${def.type}/${String(newId)}`);
           }
           updated = merged;
           return list.map((item, i) => (i === index ? merged : item));
@@ -113,12 +123,14 @@ export class CollectionsService {
 
   /** 删除条目（grouped 时自动清理空分组键） */
   async remove(def: CollectionDef, id: string): Promise<void> {
+    await this.ensureNumericIds(def);
+    const targetId = def.numericId ? Number(id) : id;
     if (def.shape === 'grouped') {
       await this.dataFiles.mutateCollection<GroupedData>(
         def.file,
         def.varName,
         (data) => {
-          const located = locateGrouped(data, def.idField, id);
+          const located = locateGrouped(data, def.idField, targetId);
           if (!located) {
             throw new NotFoundException(`条目不存在：${def.type}/${id}`);
           }
@@ -140,7 +152,7 @@ export class CollectionsService {
         def.file,
         def.varName,
         (list) => {
-          const index = list.findIndex((item) => item[def.idField] === id);
+          const index = list.findIndex((item) => item[def.idField] === targetId);
           if (index < 0) {
             throw new NotFoundException(`条目不存在：${def.type}/${id}`);
           }
@@ -154,25 +166,90 @@ export class CollectionsService {
 
   // ── 内部实现 ──
 
-  private async createArray(def: CollectionDef, input: unknown): Promise<Item> {
-    const raw = { ...(input as Item) };
-    if (raw[def.idField] === undefined || raw[def.idField] === '') {
-      raw[def.idField] = nanoid();
+  /**
+   * [B2/裁决 9] 引擎载入文件时的 id 迁移触发（ADR-014）：
+   * 在 zod parse 之前对原始值检测——发现任一 id 非 number，立即执行 max+1
+   * 换新并经引擎既有管线原子写回（文件锁 + temp+rename + pre_write 备份），
+   * 再走正常流程。迁移函数在原始值层操作（不传 schema，不依赖新 schema 的
+   * parse 成功）；max 基准取文件内现存 number id 最大值（全 string 则从 1 起）；
+   * 换新后保证文件内唯一；幂等（全 number 不触发）。
+   */
+  private async ensureNumericIds(def: CollectionDef): Promise<void> {
+    if (!def.numericId || def.shape !== 'array') {
+      return;
     }
-    applyTimelineDefaults(def, raw);
-    const item = this.parseItemOrThrow(def, raw);
+    const current = this.dataFiles.readCollection<unknown>(def.file, def.varName);
+    if (!Array.isArray(current) || !(current as Item[]).some((item) => typeof item[def.idField] !== 'number')) {
+      return; // 幂等：全 number（或结构异常交由后续正常流程报错）不触发
+    }
+    logger.warn({ type: def.type, file: def.file }, '检测到非 number id，执行自动换新迁移（ADR-014）');
     await this.dataFiles.mutateCollection<Item[]>(
       def.file,
       def.varName,
       (list) => {
-        if (list.some((existing) => existing[def.idField] === item[def.idField])) {
-          throw new ConflictException(`条目已存在：${def.type}/${String(item[def.idField])}`);
+        let nextId = maxNumericId(list, def.idField);
+        const used = new Set<number>();
+        for (const item of list) {
+          if (typeof item[def.idField] === 'number') {
+            used.add(item[def.idField] as number);
+          }
         }
-        return [...list, item];
+        return list.map((item) => {
+          if (typeof item[def.idField] === 'number') {
+            return item;
+          }
+          do {
+            nextId += 1;
+          } while (used.has(nextId));
+          used.add(nextId);
+          return { ...item, [def.idField]: nextId };
+        });
       },
-      def.itemSchema.array(),
+      // 故意不传 schema：迁移发生在原始值层，不得依赖新 schema 的 parse 成功
     );
-    return item;
+  }
+
+  /** [B2/裁决 9] numericId 集合的自动 id：文件内现存 number id 最大值 + 1 */
+  private nextAutoId(def: CollectionDef): number {
+    const current = this.dataFiles.readCollection<unknown>(def.file, def.varName);
+    const items = Array.isArray(current) ? (current as Item[]) : [];
+    return maxNumericId(items, def.idField) + 1;
+  }
+
+  private async createArray(def: CollectionDef, input: unknown): Promise<Item> {
+    const raw = { ...(input as Item) };
+    applyTimelineDefaults(def, raw);
+    // [B2/裁决 9] numericId：id 缺省/0 → max+1 自动生成（冲突重试，上界 1000 次）
+    const autoId = def.numericId && (raw[def.idField] === undefined || raw[def.idField] === '' || raw[def.idField] === 0);
+    if (!def.numericId && (raw[def.idField] === undefined || raw[def.idField] === '')) {
+      raw[def.idField] = nanoid(); // devices 无 idField 概念（name 由用户填），此分支仅防御
+    }
+    for (let attempt = 0; ; attempt += 1) {
+      if (autoId) {
+        delete raw[def.idField];
+        raw[def.idField] = this.nextAutoId(def);
+      }
+      const item = this.parseItemOrThrow(def, raw);
+      try {
+        await this.dataFiles.mutateCollection<Item[]>(
+          def.file,
+          def.varName,
+          (list) => {
+            if (list.some((existing) => existing[def.idField] === item[def.idField])) {
+              throw new ConflictException(`条目已存在：${def.type}/${String(item[def.idField])}`);
+            }
+            return [...list, item];
+          },
+          def.itemSchema.array(),
+        );
+        return item;
+      } catch (error) {
+        if (autoId && error instanceof ConflictException && attempt < MAX_ID_RETRY) {
+          continue; // 并发写入挪动了 max 基准 → 重算 max+1 再试
+        }
+        throw error;
+      }
+    }
   }
 
   private async createGrouped(def: CollectionDef, input: unknown): Promise<Item> {
@@ -247,7 +324,7 @@ function stripGroup(input: unknown): Item {
 function locateGrouped(
   data: GroupedData,
   idField: string,
-  id: string,
+  id: string | number,
 ): { group: string; item: Item } | undefined {
   for (const [group, items] of Object.entries(data)) {
     const item = items.find((entry) => entry[idField] === id);
@@ -256,6 +333,18 @@ function locateGrouped(
     }
   }
   return undefined;
+}
+
+/** [B2/裁决 9] 列表内 number id 最大值（无 number id → 0，自动生成即从 1 起） */
+function maxNumericId(list: Item[], idField: string): number {
+  let max = 0;
+  for (const item of list) {
+    const value = item[idField];
+    if (typeof value === 'number' && Number.isInteger(value) && value > max) {
+      max = value;
+    }
+  }
+  return max;
 }
 
 /** timeline POST：未提供 icon/color 时按 type 填充默认映射（ADR-004） */

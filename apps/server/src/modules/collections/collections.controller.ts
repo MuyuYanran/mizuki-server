@@ -23,9 +23,9 @@ export class CollectionsController {
 
   @ApiOperation({ summary: '集合全量列表（:type 白名单校验，未知 → 400）' })
   @Get(':type')
-  list(@Param('type') type: string): unknown {
+  async list(@Param('type') type: string): Promise<unknown> {
     const def = this.requireDef(type);
-    return this.collections.list(def);
+    return await this.collections.list(def);
   }
 
   @ApiOperation({ summary: '集合新增（grouped 类型 body 含 group）' })
@@ -36,19 +36,19 @@ export class CollectionsController {
     return this.collections.create(def, body);
   }
 
-  @ApiOperation({ summary: '集合项修改（:type/:id）' })
+  @ApiOperation({ summary: '集合项修改（:type/:id；numericId 集合 :id 须为数字）' })
   @Patch(':type/:id')
   update(@Param('type') type: string, @Param('id') id: string, @Body() body: unknown): unknown {
     const def = this.requireDef(type);
-    return this.collections.update(def, id, body);
+    return this.collections.update(def, routeId(def, id), body);
   }
 
-  @ApiOperation({ summary: '集合项删除（grouped 自动清理空分组）' })
+  @ApiOperation({ summary: '集合项删除（grouped 自动清理空分组；numericId 集合 :id 须为数字）' })
   @Delete(':type/:id')
   @HttpCode(HttpStatus.OK)
   async remove(@Param('type') type: string, @Param('id') id: string): Promise<{ deleted: true }> {
     const def = this.requireDef(type);
-    await this.collections.remove(def, id);
+    await this.collections.remove(def, routeId(def, id));
     return { deleted: true };
   }
 
@@ -60,4 +60,12 @@ export class CollectionsController {
     }
     return def;
   }
+}
+
+/** [B2/裁决 9] :id 路由参数校验：numericId 集合仅接受正整数字符串（无需双兼容） */
+function routeId(def: CollectionDef, id: string): string {
+  if (def.numericId && !/^\d+$/.test(id)) {
+    throw new BadRequestException(`id 须为正整数：${def.type}/${id}`);
+  }
+  return id;
 }

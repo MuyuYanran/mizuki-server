@@ -6,7 +6,8 @@
 import { z } from 'zod';
 
 export const DiaryItemSchema = z.object({
-  id: z.string(),
+  /** [B2/裁决 9] id 为 number（max+1 自动生成）；迁移语义见 ADR-014 */
+  id: z.number().int().min(1).describe('id 自动分配（新增无需填写，编辑不可修改）'),
   content: z.string(),
   /** ISO 8601 */
   date: z.string(),
