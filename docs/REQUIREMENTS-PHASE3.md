@@ -43,10 +43,18 @@
    官方字段面（mode/hidden/layout 枚举/columns/cover.jpg 校验）、g2 timeline type 枚举
    （education|work|project|achievement 映射语义）、h3~h6 projects/timeline/skills/devices
    字段面——落地时遵守 **ADR-013 幽灵字段禁令**（字段、服务、表单同批可见）。
+   **b1/b2/b3 已由 C2a 落地**（hidden/layout/columns 对齐共享面、外链 photos 收紧官方 14
+   字段 + settings 四子键；白名单重裁决见 ADR-017；详情见 CHANGELOG Phase3-C2a）。
 2. **R2-16 包管理器确定性解析**：→ C3 认领（ADR-011 设计基线在位）。
 3. **description 存量体检**：真实主题构建是否因存量 md 缺 description 报错 → C2 核对。
+   **C2a 已核对**：fixture 两 post 与官方示例 frontmatter（press-file/press-folder/
+   other-structure）均含 description，官方 press 文档明确 description 为必需字段——
+   存量无缺项；若真实构建对缺字段报错，三期补「缺失字段体检」工具（本批仅清点）。
 4. **p9 测试数据目录隔离**：p9-process 等基线套件使用仓库真实 data 目录 → C5 统一 mkdtemp 隔离。
 5. **外链 photos 富元数据子规格**：camera/lens/settings 待官方文档补齐后收紧。
+   **C2a 已收紧**：官方 14 字段逐字对齐（src 必填其余可选），settings 从自由 record 收紧
+   为 `{aperture/shutter/iso/focal 均 string}` 四子键 `.strict()` 对象，photos 整体
+   `.strict()` 未知子字段拒绝（B2 疑问 4 二次收紧条件达成）。
 6. **工程债清单**：前端路由级代码分割（chunk 2.5MB）、eslint-plugin-vue 引入评估、
    Vditor 代码高亮暗色配色（B3.6 已知限制 2）、RichArticleEditPage pubDate 裸 el-input
    （TipTap 冻结唯一残留）、UploadedFileLike 类型收敛、富文本软删恢复入口、部署 checklist 残项。

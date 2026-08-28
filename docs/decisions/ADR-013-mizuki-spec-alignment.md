@@ -32,6 +32,6 @@
 
 依九项裁决 2/3 落地后留档：
 
-1. **上传白名单终集（裁决 3）**：`jpg/jpeg/png/gif/webp/avif` 六格式；`bmp`（sharp 0.35 预编译版无法解码，放行即必 400 死入口）、`svg`（XSS 面）、`tiff`（裁决排除）排除。tiff 魔数签名与单测保留。
+1. **上传白名单终集（裁决 3）**：`jpg/jpeg/png/gif/webp/avif` 六格式；`bmp`（sharp 0.35 预编译版无法解码，放行即必 400 死入口）、`svg`（XSS 面）、`tiff`（裁决排除）排除。tiff 魔数签名与单测保留。**【Phase3-C2a 修订见 ADR-017】**（bmp/tiff/tif 已准入，svg 维持排除）。
 2. **转码拆分（裁决 2）**：相册上传管线移除「非 JPG 强转 JPG」，png/webp/gif/avif 原格式落盘；posts 封面（cover.jpg 硬约定）维持转码；媒体库直传维持现状（media 模块各自裁断，不再全局统一转码策略）。
 3. **tiff 两层注记**：能力层（`magic-sniff.ts` 双端序魔数 `II*\0`/`MM\0*` 识别 + 单测）保留；放行层（上传白名单）排除。即：服务端能**认出** tiff 但不**收** tiff；用户手动放置到 Mizuki 目录的 tiff 文件不受影响，仍可经既有渲染通道正常展示——仅管理面上传不支持。

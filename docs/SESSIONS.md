@@ -1876,3 +1876,83 @@ T0 未触发新增（avif 用例已存在）。基线修复 9 处均为 body 补
 - `feat(Phase3-C1): 文章字段面扩展与 PATCH 删键语义`
 - `fix(Phase3-C1): 公开 API 加密文章双泄漏点修复`
 - `docs(Phase3-C1): permalink 裁决级快照与台账`
+
+## Phase3-C2a 交付报告 — 相册字段面对齐官方 + 白名单重裁决 + 体检清尾（C-Plus 连续执行）
+
+- 日期：2026-08-29
+- 阶段：三期 C2a（B4 遗留 b1/b2/b3 相册三项落地 + 白名单重裁决 ADR-017 + description 体检/data.bak 清尾）
+- 结论：**C2a 完成。** 三连全绿（test **301 → 312**、build 0、lint 0/0）。提交后立即停止，不开启 C2b。
+
+### 1. 任务完成清单（T1–T7）
+
+| 任务 | 内容 | 载体 |
+|---|---|---|
+| T1 | 相册 info 字段面对齐：共享面 +hidden/layout(grid/masonry)/columns(1-6)；外链 photos 收紧官方 14 字段，settings 自由 record → 四子键 `.strict()`，photos 整体 `.strict()` | `apps/server/src/modules/albums/albums.service.ts` |
+| T2 | 服务层：`listPublic()` hidden 过滤公开列表；上传白名单 +bmp+tiff/tif、bmp 跳过 sharp probe、错误文案同步；media 管线 bmp 重编码防御拒绝 | `albums.service.ts` / `public-albums.controller.ts` / `media.service.ts` / `magic-sniff.ts` |
+| T3 | 面板两页：hidden/layout/columns 三控件 + 「已隐藏」徽标 + 外链照片编辑对话框 14 字段（settings 四小输入框） | `apps/web/src/views/albums/AlbumsPage.vue` / `AlbumDetailPage.vue` / `apps/web/src/api/albums.ts` |
+| T4 | e2e 10 用例（b1 hidden 往返/layout·columns 保真与非法值；b2 外链 14 字段往返/settings 非法形状；b3 bmp·tiff 落盘/伪造 400） | `apps/server/test/p7c-album-fields.e2e-spec.ts` |
+| T5 | ADR-017 四节（背景/决策/理由/影响）+ ADR-013 白名单条目注记 | `docs/decisions/ADR-017-upload-whitelist-final.md` / `ADR-013-*.md` |
+| T6 | description 体检（无缺项）+ 删除 `apps/server/data.bak/` | 清点（fixture + 官方快照）+ 删除动作 |
+| T7 | 台账：CHANGELOG C2a 节 + REQUIREMENTS-PHASE3 §3 三处销账 + SESSIONS 本报告 | docs/* |
+
+### 2. T1 与 B2 既有 schema 的字段名差异清单
+
+| 字段 | B2 既有 | C2a | 差异类型 |
+|---|---|---|---|
+| hidden | 仅存在于 `AlbumInfoExternalSchema`（`z.boolean().optional()`） | 移入共享面 `AlbumInfoBaseFields`（本地/外链两模式共用） | 作用域扩展，字段名不变 |
+| layout | `z.string().optional()` | `z.enum(['grid','masonry']).optional()` | 校验收紧（枚举），字段名不变 |
+| columns | `z.number().int().positive().optional()` | `z.number().int().min(1).max(6).optional()` | 校验收紧（上界 6），字段名不变 |
+| settings | `z.record(z.string(), z.string()).optional()`（自由 record） | `z.object({aperture/shutter/iso/focal 均 string}).strict().optional()` | 收紧（官方四子键 + 未知键拒绝） |
+| photos 整体 | 无 `.strict()` | `.strict()` | 收紧（未知子字段拒绝） |
+| 其余 13 字段（id/src/thumbnail/alt/title/description/tags/date/location/width/height/camera/lens） | 同官方命名 | 逐字保留 | 零改名 |
+
+### 3. T4 数账（301 → 312，+11）与基线修复清单
+
+| 文件 | 增量 | 内容 |
+|---|---|---|
+| `p7c-album-fields.e2e-spec.ts` | +10（新增文件） | b1 hidden 过滤往返 ×2 + layout/columns 保真 ×1 + 非法值 400 ×2；b2 外链 14 字段往返 ×1 + settings 非法形状 ×1；b3 bmp 落盘 ×1 + tiff 落盘 ×1 + 伪造 400 ×1 |
+| `magic-sniff.spec.ts` | +1 | 原「白名单终集排除」用例拆分为「BMP 魔数识别」新用例（+1）+「bmp/tiff/tif 准入、svg 排除」用例；「扩展名映射」用例断言补 bmp/tiff/tif |
+| `p7-media-albums.e2e-spec.ts` | 0 | §6.6 tiff 用例由「放行层排除 400」改写为「ADR-017 准入 201 原格式落盘」（sharp 生成真实 tiff，格式回读断言） |
+| 合计 | **+11** | 301 → 312（≥310 下限达成，恰达） |
+
+### 4. fixture 变更清单
+
+- **零变更**。p7c b2 外链 14 字段用例经 API 创建靶点，未动 `external-demo` 既有 photos；T4 §4.3「追加一条完整 14 字段照片」授权未使用。
+
+### 5. 偏差与疑问
+
+1. **media 管线 bmp 新增防御分支**（T2 范围微扩）：`FORMAT_MIME/FORMAT_EXT` 因 `MagicFormat` +bmp 需要完整 Record，media 重编码 bmp 分支 sharp 无法解码不可达——留防御拒绝（400「媒体库暂不支持 bmp 重编码」），避免落盘 `.undefined` 文件名；不改变任何既有行为。
+2. **疑问：hidden 徽标形态**已采用 AlbumsPage `el-tag type="warning" size="small">已隐藏`、AlbumDetailPage 详情页同示 hidden 状态；若官方主题列表对 hidden 另有样式口径，后续可对齐（不阻塞）。
+3. **疑问：外链照片编辑 settings 录入形态**本批采用四个小输入框（aperture/shutter/iso/focal，空子键不落盘，仅非空才构建 settings 对象）；JSON 文本框形态未选（保真优先，避免手写 JSON 出错）。
+4. **疑问（走查遗留）**：官方「设为封面」便捷按钮本批不做（上传 cover.jpg 即天然封面，Server 零改动），记入走查疑问清单待人工拍板。
+5. 范围外发现：无新增（posts/articles 字段面、id 迁移、Vditor/TipTap 均零触碰）。
+
+### 6. 手动走查清单（人工核验项）
+
+| # | 项目 | 操作 | 预期 |
+|---|---|---|---|
+| 1 | hidden 徽标 | 创建 hidden:true 相册 → 相册列表页 | 该相册行出现黄色「已隐藏」徽标；管理端可见该相册 |
+| 2 | 公开列表过滤 | 建 hidden:true 相册后请求 `GET /public/albums` | 该相册不出现在公开列表（元信息与图片列表均无） |
+| 3 | 外链照片编辑 | 外链相册详情 → 新增照片 → 填满 14 字段（含 settings 四子键）保存 → 重载 | 全部字段回显；盘上 info.json photos 项保真 |
+| 4 | settings 录入 | 仅填 aperture 其余留空 → 保存 | 盘上 settings 仅含 aperture 键（空子键不落盘） |
+| 5 | bmp/tiff 上传 | 相册详情上传真实 .bmp 与 .tiff 文件 | 均 201，盘上保留原扩展名原格式；bmp 不因 sharp 解码失败被拒 |
+| 6 | 伪造扩展名 | 文本文件改名 .bmp 上传 | 400「文件内容与扩展名不符（魔数校验失败）」 |
+
+### 7. 体检文件清单（T6.1 description 体检）
+
+- fixture post：`apps/server/test/fixtures/mizuki/src/content/posts/hello-world/index.md`（含 description）、`.../relative-images/index.md`（含 description）
+- 官方快照示例：`docs/refs/mizuki-docs/press-file.md` / `press-folder.md` / `other-structure.md`（示例 frontmatter 均含 description，press 文档明确「description：文章描述（必需）」）
+- **结论**：无缺 description 存量文件；若真实主题构建对缺字段报错，三期补「缺失字段体检」工具，本批仅清点。
+- 删除动作：`apps/server/data.bak/` 已删除（B2.1 备份纪律物，两次全量验证 295→301 通过，使命完成）。
+
+### 8. 工作树终态
+
+- 未跟踪合规文件：`docs/HANDOFF-ARCHITECT.md`（授权保留不动）；`.tmpvitest/` 已入 .gitignore（C1 先例）。
+- 提交 4 个（见下）；提交后停止，不开启 C2b（g2/anime 另批待人工拍板）。
+
+### 9. commit 记录
+
+- `feat(Phase3-C2a): 相册 info 字段面对齐官方（hidden/layout/columns 与 photos 收紧）`
+- `feat(Phase3-C2a): 上传白名单重裁决（+bmp+tiff，ADR-017）与魔数扩展`
+- `test(Phase3-C2a): p7c 相册字段面 e2e 与受影响基线修复`
+- `docs(Phase3-C2a): ADR-017、体检清尾与台账`

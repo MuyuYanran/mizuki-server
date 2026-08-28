@@ -1,5 +1,16 @@
 # 变更日志
 
+## Phase3-C2a — 相册字段面对齐官方 + 白名单重裁决 + 体检清尾（C-Plus 连续执行）
+
+- **T1 相册 info schema 字段面对齐官方**（special-gallery 裁决级供料）：共享面（本地/外链 union）补齐 `hidden: z.boolean().optional()` / `layout: z.enum(['grid','masonry']).optional()` / `columns: z.number().int().min(1).max(6).optional()`（默认 3 语义由消费方处理，schema 不填充默认值）；外链 photos 收紧为官方 14 字段（src 必填，其余可选），**settings 从 B2 自由 record 收紧为官方四子键 `{aperture/shutter/iso/focal 均 string}` 的 `.strict()` 对象**，photos 整体 `.strict()` 未知子字段拒绝（B2 疑问 4「官方补规格后二次收紧」条件达成）；字段名与 B2 逐字一致零改名（仅 hidden 从外链 schema 移入共享面、layout/columns 校验收紧）
+- **T2 服务层**：公开列表走 `listPublic()` 对 `hidden:true` 相册过滤（元信息与图片列表均不返回；管理端 list() 不过滤见全部）；外链照片 CRUD 校验面随 T1 收紧自动生效（settings 非法形状 → 400）；上传白名单 +bmp+tiff/tif（svg 维持排除，ADR-017），bmp 跳过 sharp probe 原格式直落盘（sharp 0.35 无法解码 bmp，魔数嗅探先拒伪造件）；media 管线 bmp 重编码防御拒绝
+- **T3 面板**：AlbumsPage 创建对话框 + AlbumDetailPage 编辑对话框补 hidden（el-switch）/ layout（el-select grid/masonry 可空）/ columns（el-input-number 1-6）三控件；AlbumsPage 列表对 hidden 相册显示「已隐藏」el-tag warning 徽标；AlbumDetailPage 外链照片编辑对话框补齐官方 14 字段（settings 用四个小输入框 aperture/shutter/iso/focal，空子键不落盘，仅非空才构建 settings 对象）
+- **T4 e2e**：新建 `apps/server/test/p7c-album-fields.e2e-spec.ts` 10 用例（§b1 hidden 过滤往返 + layout/columns 保真与非法值 400；§b2 外链 14 字段往返 + settings 非法形状 400；§b3 bmp/tiff 原格式落盘 + 伪造扩展名 400）
+- **T5 ADR-017**（`docs/decisions/ADR-017-upload-whitelist-final.md`）：白名单终集九扩展名 + svg 排除定案（B4 bmp 死入口否决 → B2 裁决 2 原格式落盘消除前提）；ADR-013 白名单条目追加「C2a 修订见 ADR-017」注记
+- **T6 体检清尾**：description 存量体检——fixture 两个 post（hello-world/relative-images）与官方示例 frontmatter（press-file/press-folder/other-structure）均含 description，官方 press 文档明确 description 为必需字段，**无缺 description 存量文件**（若官方构建对缺字段报错，三期补「缺失字段体检」工具，本批仅清点）；删除 `apps/server/data.bak/`（B2.1 备份使命完成）
+- **受影响基线修复**：`magic-sniff.spec.ts`（白名单排除测试拆分为 BMP 魔数新用例 + 准入用例，+1）；`p7-media-albums` §6.6 tiff 用例「放行层排除 400」改写为「ADR-017 准入 201 原格式落盘」（sharp 生成真实 tiff）
+- **验收**：test 301 → **312**（+11，≥310 下限）、build 0、lint 0/0；纪律：零新增依赖、零 any/as any/@ts-ignore、零表结构变更、fixture 零变更、posts/articles 字段面与公开 API 形状零变化（/public/albums 响应内容随 hidden 过滤属本批授权语义）
+
 ## Phase3-C1 — 文章字段面扩展与公开 API 双泄漏点修复（三期首个功能批）
 
 - **T1 字段面与 PATCH 删键语义**：`PostFrontmatterSchema` 新增 `encrypted`/`password`/`comment` 三字段（`.nullable().optional()`；`permalink` 为 P5 既有字段，本批并入可删键面）——语义注记入码：encrypted/password 为主题构建期客户端加密所用（press-key 快照，Server 仅存储不参与加密）、comment:false 文章级禁用评论（twikoo 快照，缺失=继承全局）、permalink 主题构建期消费 Server 不解析 URL（permalink 快照）。**四可删键语义**（本批唯一合并规则变更，范围严格受限）：JSON 传输无法表达 undefined，null 即删除指令——create/update 合并前 `stripNullDeleteKeys` 统一删除值为 null 的可删键（浅拷贝后删键，不原地修改入参防共享引用污染）；创建体中四字段为 null 等价于缺失；非 null 行为不变，其余字段（含 passthrough 自定义键）合并语义零变化
