@@ -67,41 +67,41 @@ describe('P4 六类 schema 与 fixture 数据核对', () => {
 
   it('必填字段缺失被拒：friends 缺 siteurl / diary 缺 content / timeline 非法 type', () => {
     expect(
-      FriendsItemSchema.safeParse({ id: 'x', title: 't', imgurl: 'i' }).success,
+      FriendsItemSchema.safeParse({ id: 1, title: 't', imgurl: 'i' }).success,
     ).toBe(false);
-    expect(DiaryItemSchema.safeParse({ id: 'x', date: 'd' }).success).toBe(false);
+    expect(DiaryItemSchema.safeParse({ id: 1, date: 'd' }).success).toBe(false);
     expect(
-      TimelineItemSchema.safeParse({ id: 'x', title: 't', type: 'invalid', startDate: 's' }).success,
+      TimelineItemSchema.safeParse({ id: 1, title: 't', type: 'invalid', startDate: 's' }).success,
     ).toBe(false);
   });
 
   it('[B4] friends 官方必填面：缺 desc 与空 tags 均被拒', () => {
     // 缺 desc（官方 FriendItem：desc 必填）
     expect(
-      FriendsItemSchema.safeParse({ id: 'x', title: 't', imgurl: 'i', siteurl: 's', tags: ['a'] }).success,
+      FriendsItemSchema.safeParse({ id: 1, title: 't', imgurl: 'i', siteurl: 's', tags: ['a'] }).success,
     ).toBe(false);
     // 空 tags（官方：tags 至少一个）
     expect(
-      FriendsItemSchema.safeParse({ id: 'x', title: 't', imgurl: 'i', desc: 'd', siteurl: 's', tags: [] }).success,
+      FriendsItemSchema.safeParse({ id: 1, title: 't', imgurl: 'i', desc: 'd', siteurl: 's', tags: [] }).success,
     ).toBe(false);
     // 全字段齐备通过
     expect(
-      FriendsItemSchema.safeParse({ id: 'x', title: 't', imgurl: 'i', desc: 'd', siteurl: 's', tags: ['a'] }).success,
+      FriendsItemSchema.safeParse({ id: 1, title: 't', imgurl: 'i', desc: 'd', siteurl: 's', tags: ['a'] }).success,
     ).toBe(true);
   });
 
   it('类型错误被拒：skills.level 非数字 / projects.featured 非布尔', () => {
-    expect(SkillsItemSchema.safeParse({ id: 'x', name: 'n', level: 'high' }).success).toBe(false);
-    expect(ProjectsItemSchema.safeParse({ id: 'x', title: 't', featured: 'yes' }).success).toBe(false);
+    expect(SkillsItemSchema.safeParse({ id: 1, name: 'n', level: 'high' }).success).toBe(false);
+    expect(ProjectsItemSchema.safeParse({ id: 1, title: 't', featured: 'yes' }).success).toBe(false);
   });
 
   it('未知字段被剥离（zod 默认 strip，防止脏字段落盘）', () => {
     const result = DiaryItemSchema.parse({
-      id: 'x',
+      id: 1,
       content: 'c',
       date: 'd',
       evil: 'should-be-stripped',
     });
-    expect(result).toEqual({ id: 'x', content: 'c', date: 'd' });
+    expect(result).toEqual({ id: 1, content: 'c', date: 'd' });
   });
 });

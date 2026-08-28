@@ -17,6 +17,7 @@ describe('P0b config.json zod 校验加载（§6.2）', () => {
       mode: 'manage',
       backupDir: 'data/backups',
       uploadLimitMb: 10,
+      swagger: true, // [B2/裁决 6] 新增默认字段
     });
   });
 
@@ -38,6 +39,7 @@ describe('P0b config.json zod 校验加载（§6.2）', () => {
       mode: 'additive',
       backupDir: 'data/my-backups',
       uploadLimitMb: 5,
+      swagger: true, // [B2/裁决 6] 缺省补默认 true
     });
   });
 

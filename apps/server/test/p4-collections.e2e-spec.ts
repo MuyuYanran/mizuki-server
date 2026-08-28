@@ -250,7 +250,8 @@ describe('P4 六类集合 CRUD e2e', () => {
     await server().delete(`/api/v1/admin/collections/timeline/${res.body.id}`);
   });
 
-  it('§6.4 写后文件可编译：全部 6 个数据文件 tsc --noEmit 通过', () => {
+  // 全量并行跑时 15+ worker 争抢 CPU，tsc 冷编译可超 30s 默认上限（B2 实测 37s）→ 放宽到 120s
+  it('§6.4 写后文件可编译：全部 6 个数据文件 tsc --noEmit 通过', { timeout: 120_000 }, () => {
     const dataDir = path.join(mizukiRoot, 'src/data');
     const files = fs.readdirSync(dataDir).filter((f) => f.endsWith('.ts')).map((f) => path.join(dataDir, f));
     expect(files).toHaveLength(6);

@@ -64,10 +64,11 @@ function sha256(p: string): string {
 
 describe('P2 BackupService（唯一备份实现）', () => {
   let h: Harness;
+  // 全量并行跑时 15+ worker 争抢磁盘，Windows 下 rmSync 清理可超 10s 默认钩子上限（B2 实测）→ 放宽到 60s
+  afterEach(() => cleanup(h), 60_000);
   beforeEach(() => {
     h = createHarness();
   });
-  afterEach(() => cleanup(h));
 
   it('§6.1a pre_write：备份→篡改→恢复→内容哈希与原始一致', async () => {
     const target = path.join(h.mizukiRoot, 'src', 'data', 'diary.ts');

@@ -340,7 +340,8 @@ describe('P8 富文本与公开 API e2e', () => {
       (entry) => entry.name === 'pub-album',
     );
     expect(album?.info.title).toBe('公开相册');
-    expect(album?.images).toContain('one.jpg');
+    // [B2/裁决 2] 相册上传移除非 JPG 强转 JPG：png 原格式落盘，文件名不再是 one.jpg
+    expect(album?.images).toContain('one.png');
   });
 
   // ── §6.8 混合详情渲染 ──
