@@ -112,7 +112,7 @@ describe('P5 Markdown 文章 e2e', () => {
   it('§6.1 CRUD：创建文章 → 读回断言', async () => {
     const created = await server()
       .post('/api/v1/admin/posts')
-      .send({ slug: 'e2e-first', frontmatter: { title: '第一篇', tags: ['x'] }, content: '初始正文。' });
+      .send({ slug: 'e2e-first', frontmatter: { title: '第一篇', description: '首篇描述', tags: ['x'] }, content: '初始正文。' }); // [B2.1/裁决 8] 创建必填 description
     expect(created.status).toBe(201);
     expect(created.body.slug).toBe('e2e-first');
 
@@ -211,7 +211,7 @@ describe('P5 Markdown 文章 e2e', () => {
   it('§6.2 删除可恢复：删除后经备份恢复，目录与内容完整回来', async () => {
     const created = await server()
       .post('/api/v1/admin/posts')
-      .send({ slug: 'restore-me', frontmatter: { title: '待恢复' }, content: '恢复验收正文。' });
+      .send({ slug: 'restore-me', frontmatter: { title: '待恢复', description: '恢复描述' }, content: '恢复验收正文。' }); // [B2.1/裁决 8]
     expect(created.status).toBe(201);
 
     const removed = await server().delete('/api/v1/admin/posts/restore-me');
@@ -304,7 +304,7 @@ describe('P5 Markdown 文章 e2e', () => {
   it('§6.6 事件：草稿转发布收到 article.published（sourceType=markdown）', async () => {
     const created = await server()
       .post('/api/v1/admin/posts')
-      .send({ slug: 'draft-flip', frontmatter: { title: '草稿转正', draft: true }, content: 'x' });
+      .send({ slug: 'draft-flip', frontmatter: { title: '草稿转正', description: '转正描述', draft: true }, content: 'x' }); // [B2.1/裁决 8]
     expect(created.status).toBe(201);
     expect(PostEventsSubscriber.articlePublished.some((e) => e.slug === 'draft-flip')).toBe(false);
 
@@ -357,7 +357,7 @@ describe('P5 Markdown 文章 e2e', () => {
 
     const duplicate = await server()
       .post('/api/v1/admin/posts')
-      .send({ slug: 'fm-round', frontmatter: { title: '重复' }, content: 'x' });
+      .send({ slug: 'fm-round', frontmatter: { title: '重复', description: '重复描述' }, content: 'x' }); // [B2.1/裁决 8]（409 用例须先过 pipe 校验）
     expect(duplicate.status).toBe(409);
   });
 

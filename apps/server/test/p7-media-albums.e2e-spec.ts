@@ -175,7 +175,7 @@ describe('P7 媒体与相册 e2e', () => {
     // 构造引用：文章 frontmatter.image 指向该媒体路径（相对 Mizuki 根）
     const post = await server()
       .post('/api/v1/admin/posts')
-      .send({ slug: 'ref-cover', frontmatter: { title: '引用封面', image: mediaPath }, content: 'x' });
+      .send({ slug: 'ref-cover', frontmatter: { title: '引用封面', description: '封面描述', image: mediaPath }, content: 'x' }); // [B2.1/裁决 8]
     expect(post.status).toBe(201);
 
     const denied = await server().delete(`/api/v1/admin/media/${mediaId}`);

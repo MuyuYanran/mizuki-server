@@ -115,7 +115,7 @@ describe('P8 富文本与公开 API e2e', () => {
     for (const [slug, date] of mdDates) {
       const res = await server()
         .post('/api/v1/admin/posts')
-        .send({ slug, frontmatter: { title: `MD ${slug}`, pubDate: date }, content: `${slug} 正文` });
+        .send({ slug, frontmatter: { title: `MD ${slug}`, description: `${slug} 描述`, pubDate: date }, content: `${slug} 正文` }); // [B2.1/裁决 8]
       expect(res.status).toBe(201);
     }
     const rtDates: [string, string][] = [
@@ -211,7 +211,7 @@ describe('P8 富文本与公开 API e2e', () => {
       .post('/api/v1/admin/posts')
       .send({
         slug: 'xss-md',
-        frontmatter: { title: 'XSS MD', pubDate: '2026-08-21' },
+        frontmatter: { title: 'XSS MD', description: 'XSS 描述', pubDate: '2026-08-21' },
         content: '正常段落。\n\n<script>alert(1)</script>',
       });
     expect(created.status).toBe(201);
@@ -228,7 +228,7 @@ describe('P8 富文本与公开 API e2e', () => {
     // draft markdown
     await server()
       .post('/api/v1/admin/posts')
-      .send({ slug: 'draft-md', frontmatter: { title: '草稿 MD', draft: true }, content: 'x' });
+      .send({ slug: 'draft-md', frontmatter: { title: '草稿 MD', description: '草稿描述', draft: true }, content: 'x' }); // [B2.1/裁决 8]
     // draft richtext
     const draftRt = await server()
       .post('/api/v1/admin/articles')
@@ -257,7 +257,7 @@ describe('P8 富文本与公开 API e2e', () => {
     // 新建 → 行出现（订阅者增量插入，未调用 sync）
     const created = await server()
       .post('/api/v1/admin/posts')
-      .send({ slug: 'inc-post', frontmatter: { title: '增量', pubDate: '2026-08-23' }, content: 'v1' });
+      .send({ slug: 'inc-post', frontmatter: { title: '增量', description: '增量描述', pubDate: '2026-08-23' }, content: 'v1' }); // [B2.1/裁决 8]
     expect(created.status).toBe(201);
     await waitFor(() => {
       const row = sqlite.prepare("SELECT * FROM article WHERE slug = 'inc-post' AND source_type = 'markdown'").get();
