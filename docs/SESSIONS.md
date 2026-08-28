@@ -1603,3 +1603,87 @@ manage 模式（6）：01 登录页浅色、02 仪表盘浅色（菜单 8 项）
 - `test(Phase2-B4): 上传格式白名单扩展（tiff）与魔数用例`
 - `feat(Phase2-B4): friends 必填面对齐官方、timeline 映射修订与 fixture 官方化（含必填面用例）`
 - `docs(Phase2-B4): ADR-013、SPEC-ALIGNMENT-B4 与台账更新`
+
+## Phase2-B2 交付报告 — 后端增强（二期收官批）
+
+- 日期：2026-08-28
+- 阶段：二期 B2 终版（九项裁决落地批：外链相册 / 转码拆分 / id 迁移 / 四件套 / manage 收窄 / content-posts 预览通道 / 台账 / 交叉回归）
+- 结论：**B2 完成，二期 B 线收官。** 三连全绿（test 293/293、build 含 web、lint 0/0），基线 254 → 293 只增不减，提交后立即停止，等待人工验收会议，不开启三期规划。
+
+### 1. 任务完成清单
+
+| 任务 | 内容 | 载体 |
+|---|---|---|
+| T1 | 相册外链模式（R2-14 重定义）：AlbumInfoExternal（mode:"external"+cover+photos[] 富元数据）union schema、外链 info.json 读写、外链照片 CRUD、mode 双向切换精确规则（409 含现存数） | `albums.service.ts` / shared collections / `p7b-external-albums.e2e-spec.ts` 12 用例 |
+| T2 | 相册上传移除非 JPG 强转 JPG（原格式落盘）；tiff 能力层保留 / 放行层排除；README+ADR-013 注记两层关系 | `albums.service.ts` / `magic-sniff.ts` / p7 e2e +2 |
+| T3 | id 类型迁移（裁决 9，ADR-014）：五类集合 number 化（devices 例外）、载入触发原始值层迁移（防死锁）、max+1 生成、路由数字校验、面板 id 只读、fixture number 化 + 全仓引用点同步、备份 round-trip | `collections.service.ts` / registry / shared / mapper / `p4b-id-migration.e2e-spec.ts` 6 用例 |
+| T4 | 四件套：改密端点 + token_version 吊销 / mode PATCH 活取值 / Swagger 开关 / 面板改密表单 | auth、system、app-config、main.ts、SettingsPage / `p2b-t4-auth-system` 9 用例 |
+| T5 | manage 菜单收窄（裁决 7）：仅隐藏富文本文章，六类集合菜单保留 | MainLayout / router / system store / `p2b-t5-manage-narrow` 2 用例 |
+| T6 | content-posts 预览通道（裁决 1）：/site-assets 新出口（GET only、四边界复用 ADR-012）、contentPostSrc 纯函数两分支改写、VditorEditor contentSlug 接线 | main.ts / image-src.ts / VditorEditor / PostEditPage / `p2b-t6-content-posts` 8 用例 |
+| T7 | 台账：ADR-014 新建、ADR-013 追加、R2-14 勾销重定义、R2-16 状态注记、README 注记、CHANGELOG | docs/* |
+| T8 | 交叉回归：全量 293 用例（含 B1.5 站点资产 10 用例、P8 公开 API 四路径、media-reference、备份 round-trip、统计数量一致性随套件复跑） | `pnpm test` 全绿 |
+
+### 2. 偏差清单
+
+1. **devices 未参与 id 迁移（对「六类集合」字面要求的收窄）**：官方 grouped 规格 devices 无数字 id（idField 为用户填写的 name），与 diary 等五类的 `id: number` 语义不同——迁移实覆盖五类，registry `numericId:false` 注记，ADR-014 §决策 6 留档。
+2. **T5 e2e 以服务端 API 可达性语义补足**：web 端无测试基建先例（B1 起人工走查），manage 收窄的 UI 隐藏效果转手动走查项 3；e2e 断言 manage 模式下六类集合 API 200（菜单保留的数据层保证）。
+3. **受影响基线断言修复 4 处（提示词 T3.5「受影响断言修复记偏差」义务）**：`app-config.spec` ×2（toEqual 精确匹配补 `swagger:true` 默认字段）；`schemas.spec` 8 处 id 字面量 `'x'`→`1`（负例测试改为只隔离目标字段）；`p8 §6.7` `one.jpg`→`one.png`（裁决 2 原格式落盘的直接行为变化）；`p4 §6.4` tsc 用例超时 30s→120s（全量并行下 worker 争抢 CPU 实测 37s，非代码回归）。
+4. **/site-assets `content-posts` 首段为新命名空间**：`public/` 下若存在同名目录 `content-posts/` 将被本出口遮蔽——fixture 与官方项目均无该目录，风险留档（ADR-012 口径内新出口，既有通道行为未变）。
+5. **B3 走查 3（编辑器保存往返字节一致）复跑方式**：该走查为前端 puppeteer 层断言；本批 VditorEditor 仅新增 contentSlug 预览改写路径且保存前 restoreValue 还原逻辑未动，服务端等价面（p5 frontmatter 往返保真、p2b-t6 保存无关性）随全量复跑通过，编辑器层复验转手动走查项 5。
+
+### 3. 疑问清单
+
+1. **R2-16（包管理器确定性解析）实现缺位确认**：ADR-011 设计基线已先行落盘（233f55c 随需求文档入库），但 `ProcessManagerService` 解析链实现不存在于 server src——原旧版 B2 批次范围被重排后无人认领。已按提示词 T7 在 REQUIREMENTS-PHASE2 状态注记转三期输入。
+2. **timeline type 枚举 g2 与 h3~h6 字段面**：B4 审计【B2 落地（待裁决）】8 项中，本批提示词规格基线未纳入（仅 R2-14 外链形状 + id 迁移两项）——b1/b2/b3（相册 mode/hidden/layout/columns/cover.jpg）、g2、h3/h4/h5/h6 仍为待裁决遗留，随「三期输入增量」记录。
+3. **p9-process 部分用例 dbPath 落在 `apps/server/data`（仓库真实数据目录）**：全量跑日志观察所见，基线既有行为非本批引入；建议三期统一测试数据目录隔离。
+4. **外链 photos 富元数据子结构**：camera/lens/settings 无官方字段级子规格，schema 以自由 string/record 收纳（除 src 外全可选）；若官方后续补规格需二次收紧。
+
+### 4. fixture 变更清单（唯一数据源）
+
+| 文件 | 变更 | 依据 |
+|---|---|---|
+| `test/fixtures/mizuki/src/data/{diary,friends,projects,timeline,skills}.ts` | 五类集合 id 全部由 nanoid string 改为 number（1..n 顺序重编） | 裁决 9 / ADR-014 |
+| `test/fixtures/mizuki/src/types.ts` | 集合条目类型 id 注记 number（devices grouped 无 id） | 裁决 9 |
+| 其余 fixture（external-demo、relative-images 等） | 零变更（B4 交付原样作为 T1/T6 测试靶） | — |
+
+全仓 id 引用点同步（提示词 T3.5）：e2e 断言（p4/p4b/p7b 等）、跨集合引用、media-reference 测试数据、备份 round-trip 断言均已 grep 逐一核对，无遗漏的 string id 断言。
+
+### 5. 测试增量逐条（基线 254 → 293，+39 只增不减）
+
+| 文件 | 增量 | 内容 |
+|---|---|---|
+| `p7b-external-albums.e2e-spec.ts` | +12（新增文件） | 外链相册全生命周期 5、mode 切换双向拒绝/放行 2、读写信息/照片字段校验 5（提示词下限 5+） |
+| `p4b-id-migration.e2e-spec.ts` | +6（新增文件） | 死锁证明（string→列表接口→number 化）、混合 max+1 基准、幂等磁盘字节不变、:id 数字校验、备份 round-trip number（下限 6+） |
+| `p2b-t4-auth-system.e2e-spec.ts` | +9（新增文件） | 改密吊销 3（旧 refresh 401/新密码可登录/旧 access 有效期内仍可用）、mode 2、Swagger 2、password 表结构/校验 2 |
+| `p2b-t6-content-posts.e2e-spec.ts` | +8（新增文件） | 相对路径/子目录改写 200 字节一致 2、认证穿越三变体 404、无 JWT 401、不存在文件 404、非 GET 404（下限 5+） |
+| `p2b-t5-manage-narrow.e2e-spec.ts` | +2（新增文件） | manage 下六类集合 API 200、富文本 API 可达（下限 2） |
+| `p7-media-albums.e2e-spec.ts` | +2 | 原格式落盘：上传 png → 相册目录同名 .png；webp/gif 落盘后缀跟随（下限 2） |
+
+新增 e2e 合计 39（下限 ≥27、期末 ≥281 达标：293）。
+
+### 6. 三期输入增量（仅记录建议与遗留，不展开规划）
+
+1. **R2-16 实现**：包管理器确定性解析（ADR-011 设计在位）——Windows spawn 垫片问题的工程化解法仍未落地；
+2. **B4 审计遗留 8 项**（SPEC-ALIGNMENT-B4【B2 落地（待裁决）】未随本批基线纳入）：b1/b2/b3 相册 info.json 官方字段面（mode/hidden/layout 枚举/columns/cover.jpg 校验）、g2 timeline type 枚举（education|work|project|achievement 映射语义）、h3/h4/h5/h6 projects/timeline/skills/devices 字段面——落地时遵守 ADR-013 幽灵字段禁令（字段、服务、表单同批可见）；
+3. **外链相册 photos 富元数据官方子规格**：camera/lens/settings 待官方文档补齐后收紧；
+4. **测试数据目录统一隔离**：p9-process 等个别基线套件使用仓库真实 data 目录，建议三期统一 mkdtemp 隔离；
+5. **手动走查遗留**：见下节 5 项，尤其暗色外链相册页与改密全流程需真人验收。
+
+### 7. 手动走查清单
+
+| # | 项目 | 操作 | 预期 |
+|---|---|---|---|
+| 1 | 改密全流程 | 设置页 → 修改密码卡片：旧密码错 → 报错；正确改密 → 提示「已吊销所有会话」→ 自动回登录页；新密码登录成功；旧标签页操作触发 401 跳登录 | 全链路符合裁决 5 窗口语义 |
+| 2 | 外链相册 UI | 相册列表打开 external-demo → 灯箱逐张查看 photos（cover 显示）→ 编辑 alt/width 等字段保存 | 字段持久化、灯箱正常 |
+| 3 | mode 切换后菜单变化 | 系统设置切 manage → 侧边栏仅剩富文本文章隐藏、六类集合菜单在；切回 additive 菜单恢复 | 菜单随 status 即时变化（无需刷新重登） |
+| 4 | 暗色外链相册页 | 主题切暗色 → 打开 external-demo 相册页 | 明暗变量正常、灯箱/封面可读 |
+| 5 | 编辑器相对路径图片预览 | 打开 relative-images 文章编辑（Vditor）→ 预览区 `./figure.png` 破图修复为可显示；改正文引用 `../escape.png` 不被改写（破图即图未就位）；保存后源文件引用原文不变 | 改写仅预览层 |
+
+### 8. commit 记录
+
+- `feat(Phase2-B2): id 类型迁移——六类集合 id 由 nanoid string 迁移为 number（裁决 9）`（T3，已先行提交 bcf9a50）
+- `feat(Phase2-B2): 相册外链模式（R2-14）与上传原格式落盘（裁决 2/3）`（T1+T2）
+- `feat(Phase2-B2): 四件套——改密吊销/mode 端点/Swagger 开关/面板改密表单（裁决 5/4/6）`（T4）
+- `feat(Phase2-B2): manage 菜单收窄与 content-posts 预览通道（裁决 7/1）`（T5+T6）
+- `test(Phase2-B2): 受影响基线断言修复与超时放宽`（偏差 3）
+- `docs(Phase2-B2): ADR-014、ADR-013 追加、REQUIREMENTS/README/CHANGELOG/SESSIONS 台账`（T7）

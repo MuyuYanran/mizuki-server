@@ -1,5 +1,18 @@
 # 变更日志
 
+## Phase2-B2 — 后端增强（二期收官批：外链相册 / id 迁移 / 四件套 / 预览通道）
+
+- **T1 相册外链模式（R2-14 重定义落地）**：shared 新增 `AlbumInfoExternal`（`mode:"external"` + cover + `photos[]`，除 src 外全可选：thumbnail/alt/width/height/camera/lens/settings），与本地模式（缺省/local）组成 union；albums 服务读写外链 info.json（以 B4 fixture `external-demo` 官方样例为准）；外链照片 CRUD + 外链相册管理路由；mode 切换精确规则——切 external 要求本地照片目录与记录为空否则 409（错误信息含现存本地照片数），切 local 要求 photos 为空否则 409；e2e `p7b-external-albums` 12 用例（创建→加照片→改字段→删照片→删相册全生命周期 + 双向拒绝/放行）
+- **T2 转码拆分与 tiff 注记（裁决 2/3）**：相册上传管线移除「非 JPG 强转 JPG」，png/webp/gif/avif 原格式落盘（posts 封面 cover.jpg 硬约定维持转码、媒体库直传维持现状）；tiff 能力层（magic-sniff 双端序签名 + 单测）保留、放行层（上传白名单）排除——手动放置的文件仍可正常渲染，仅管理面上传不支持；README 与 ADR-013 追加注记两层关系
+- **T3 id 类型迁移（裁决 9，ADR-014）**：五类集合（diary/friends/projects/timeline/skills）id 由 nanoid string 迁移为 number（devices 官方 grouped 规格无数字 id，idField=name 保持 string）；迁移触发于引擎载入文件时——zod parse **之前**对原始 JSON 检测（防死锁），max+1 换新并经引擎既有文件锁 + temp+rename 原子写回，幂等、不保留旧映射、不做旧引用兼容；POST 自动生成改 max+1（冲突重试上界 1000 次）；`:id` 路由改数字校验无双兼容；shared mapper 与 media-reference 类型同步；面板 SchemaForm id 字段只读展示（「id 自动分配」）、集合页 id 只读窄列；fixture 六类数据 number 化并 grep 全仓同步引用点；备份导出 JSON id 为 number + round-trip 断言；迁移 e2e `p4b-id-migration` 6 用例（①死锁证明：setup 直写临时 string 文件→列表接口→响应与磁盘均 number 化）
+- **T4 四件套（裁决 5/4/6）**：① `PATCH /admin/auth/password`——旧密码 argon2id verify + 新密码哈希，admin_user 表新增 token_version（migration 机制 ALTER，非删库），改密 +1 吊销全部 refresh；refresh 校验 token 内 ver 与表内 ver 不一致即 401，access 15min 自然过期不吊销；② `PATCH /admin/system/mode`——写 config.json + resetAppConfigCache 活取值生效，进程不重启；③ Swagger 开关——config 新增 `swagger` 字段（默认 true），main.ts 按值挂载 docs，README 生产部署清单注记公网建议置 false；④ 面板设置页「修改密码」卡片（旧/新/确认新 + 强度校验同注册），成功后提示「已吊销所有会话，请重新登录」并自动登出；e2e `p2b-t4-auth-system` 9 用例（旧 refresh 401 / 新密码可登录 / 旧 access 有效期内仍可用）
+- **T5 manage 菜单收窄（裁决 7）**：`MINIMAL_HIDDEN_PREFIXES` 仅保留 `/articles`（富文本文章），六类集合菜单保留、路由守卫同步放行 `/collections/*`；e2e `p2b-t5-manage-narrow` 2 用例（manage 模式下六类集合 API 200、富文本 API 仍 200——数据层语义，UI 隐藏效果转手动走查）
+- **T6 content-posts 预览通道（裁决 1）**：`/site-assets/content-posts/<slug>/<rel>` → `src/content/posts/<slug>/<rel>`（GET only 只读），四条安全边界（JWT/逐段解码走私拒绝/扩展名白名单/safeRealJoin 路径监狱 + isFile 复查）全部复用 ADR-012 既有机制零新语义；预览层两分支定案——相对路径解析后落在 slug 目录内即改写（含子目录 `./sub/x.png`），逃出 slug 目录（../）不改写；无条件改写不做文件存在性检查（纯函数，破图即「图未就位」）；web 端 `contentPostSrc()` 纯函数 + VditorEditor `contentSlug` prop 接线（保存前 restoreValue 还原，源文件零改动）；e2e `p2b-t6-content-posts` 8 用例（相对路径/子目录改写 200 字节一致、认证穿越三变体 404、无 JWT 401、不存在文件 404）
+- **T7 台账**：ADR-014（id 迁移语义：自动换新/载入触发/原始值层/无兼容/devices 例外）；ADR-013 追加（白名单终集/转码拆分/tiff 两层注记）；REQUIREMENTS-PHASE2 R2-14 勾销并按官方形状重定义、R2-16 状态注记（ADR-011 设计先行、实现未落地转三期输入）；README 注记（Swagger 开关/上传白名单）
+- **受影响基线断言修复**：`app-config.spec` ×2（toEqual 补 `swagger: true` 默认字段）；`schemas.spec` id 字面量 `'x'` → `1`（number id 后字符串字面量反而干扰失败原因定位）；`p8 §6.7` `one.jpg` → `one.png`（裁决 2 直接行为变化）；`p4 §6.4` tsc 编译用例超时放宽 30s→120s（全量并行下 worker 争抢 CPU 实测 37s）
+- **纪律**：公开 API 四路径冻结零变化；/site-assets 既有行为不变（仅新增 content-posts 出口）；六类集合 schema 除 id 类型迁移外零新增字段（幽灵字段禁令）；token_version 走 drizzle migration（0001_add_token_version.sql）非删库重来；零新增依赖
+- **验收**：三连全绿（test 293/293 = B4 尾数 254 + 新增 39、build 含 web、lint 0/0）
+
 ## Phase2-B4 — Mizuki 真实主题规格对齐审计（R2-17，裁决呈报批次）
 
 - **官方文档快照落盘**：`docs/refs/mizuki-docs/` 16 页（来源 docs.mizuki.mysqil.com，快照 2026-08-28，CC-BY-4.0；清单与快照说明见其 README）；摘录证据基座 `docs/audits/b4-doc-excerpts.md`

@@ -108,11 +108,15 @@
 SchemaForm 对必填字段渲染问号图标 el-tooltip，悬停显示解释、移开消失；
 解释文案来自 schema description（未配则显示通用必填提示）。
 
-## R2-14 相册功能对齐原版（必须）
-基于原版能力面（外部相册 / 加密相册 / webp / 灯箱预览 / 大相册分页）：
-- info.json 扩展：相册条目可选 source:"external" + urls[]（远端图源），
-  默认缺省为本地；扩展 encrypted:true 标记位（仅存储与展示 🔒 徽章，
-  解锁逻辑属博客前端二期）；
+## R2-14 相册功能对齐原版（必须）【B2 已完成 · 需求重定义】
+> 重定义依据：B4 审计（SPEC-ALIGNMENT-B4）证实旧形状 source:"external"+urls[] 与官方不符；
+> B2 终版提示词规格基线 1 定案，以官方 `mode:"external"` 形状为准，旧形状作废。
+- info.json 外链模式（终版形状）：`{ mode:"external", cover:<url>, photos:[{src(必填),
+  thumbnail, alt, width, height, camera, lens, settings}] }`，photos 除 src 外全可选；
+  本地模式保持现状（mode:"local" 或缺省）；
+- 模式切换精确规则：切 external 要求该相册本地照片目录与记录为空，否则 409
+  （错误信息含现存本地照片数）；切 local 要求 photos 数组为空，否则 409；
+- 外链照片 CRUD 与外链相册管理（增删/改 info.json）路由齐备；
 - 列表端点输出统一 items 数组：[{type:'file',name}|{type:'url',url}]，
   本地与外部合并有序；
 - SSRF 红线：服务端绝不代理抓取外部 URL，仅存储与透传；
@@ -138,6 +142,9 @@ SchemaForm 对必填字段渲染问号图标 el-tooltip，悬停显示解释、�
   启动的 command_snapshot 存的是改写后的最终命令（task_run 表字段沿用）；
 - 验收见 B2 修订。
 - 注：ADR 编号顺延使用，010 已用于 WebP 决策。
+- 【状态（B2 终版批注）】设计基线 ADR-011 已先行落盘，实现未随二期 B 线任一批次落地
+  （原旧版 B2 批次范围被 B1.5/B3/B3.6/B4 及终版 B2 重排取代）；本项遗留转三期输入
+  （仅记录不展开，见 SESSIONS Phase2-B2 报告「三期输入增量」）。
 
 ## R2-17 规格对齐审计（B4，已完成）
 - 以官方文档快照（`docs/refs/mizuki-docs/`）为唯一依据，对 Server 数据规格与测试资产做系统性对齐审计（`docs/SPEC-ALIGNMENT-B4.md`，摘录证据 `docs/audits/b4-doc-excerpts.md`，基线原则记 ADR-013）；

@@ -20,7 +20,7 @@
 │   ├── REQUIREMENTS.md  # 需求规格（字段级数据规格 / 硬性约束）
 │   ├── STRUCTURE.md     # 目录结构说明
 │   ├── SECURITY-REVIEW.md  # 安全复查报告（P11）
-│   ├── decisions/       # ADR 决策记录（ADR-001 ~ 012）
+│   ├── decisions/       # ADR 决策记录（ADR-001 ~ 014）
 │   └── prompts/         # 分阶段提示词存档（开发方式入口）
 ├── pnpm-workspace.yaml
 ├── tsconfig.base.json
@@ -48,7 +48,8 @@ node apps/server/bin/mizuki-server          # 面板 / API：http://localhost:20
 ```
 
 - 打开 `http://localhost:20154` 进入面板；首次运行走**初始化向导**（检测 Mizuki 目录 → 设置管理员账号密码，仅可执行一次）。
-- 登录后即可管理内容、上传媒体、创建/恢复备份、启停构建任务；Swagger 文档见 `http://localhost:20154/api/v1/docs`（公开/管理/系统三分组）。
+- 登录后即可管理内容、上传媒体、创建/恢复备份、启停构建任务；Swagger 文档见 `http://localhost:20154/api/v1/docs`（公开/管理/系统三分组）。**公网部署建议**在 config.json 中置 `"swagger": false` 关闭文档挂载（本地默认开启）。
+- 媒体/相册上传白名单为 jpg/jpeg/png/gif/webp/avif；tiff 服务端可识别（魔数签名保留）但不在上传白名单（ADR-013 追加），手动放置到 Mizuki 目录的文件不受影响、仍可正常渲染，仅管理面上传不支持。
 - 端口可用 `MIZUKI_SERVER_PORT` 覆盖；web 产物目录可用 `MIZUKI_WEB_DIST` 覆盖（默认 `apps/web/dist`，不存在时后端自动跳过静态托管，仅提供 API）。
 
 ### 开发形态（前后端分离热更新）
