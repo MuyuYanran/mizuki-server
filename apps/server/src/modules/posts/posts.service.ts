@@ -48,7 +48,7 @@ export const PostSlugSchema = z
   .refine((value) => !value.includes('..') && value !== '.', 'slug 非法');
 
 /**
- * frontmatter 字段（P5 §3.2 逐字）：12 个已知字段 + 未知字段原样保留。
+ * frontmatter 字段（P5 §3.2 逐字 + Phase3-C1 扩展）：15 个已知字段 + 未知字段原样保留。
  * published ⚠ 类型以 Mizuki 为准（可能为日期），故放宽为 boolean | string | Date；
  * date/pubDate 允许 string 或 YAML 解析出的 Date。
  */
@@ -62,12 +62,22 @@ export const PostFrontmatterSchema = z
     tags: z.array(z.string()).optional(),
     category: z.string().optional(),
     author: z.string().optional(),
-    permalink: z.string().optional(),
+    // [Phase3-C1/决议 2] 四可删键（裁决级快照 permalink.md / press-key.md / twikoo.md）：
+    // - encrypted/password：主题构建期客户端加密所用（bcryptjs 比对 + crypto-js 解密），
+    //   Server 仅存储字段、不参与加密；
+    // - comment:false：文章级禁用评论，缺失 = 继承全局 commentConfig.enable；
+    // - permalink：主题构建期消费（相对 posts 构建路径生成固定链接），Server 不解析 URL；
+    // - .nullable()：null 为删键哨兵（见 NULL_DELETE_KEYS / stripNullDeleteKeys），
+    //   写入口合并后统一删除值为 null 的可删键（JSON 传输无法表达 undefined）。
+    permalink: z.string().nullable().optional(),
     pinned: z.boolean().optional(),
     draft: z.boolean().optional(),
     image: z.string().optional(),
     date: DateLikeSchema.optional(),
     pubDate: DateLikeSchema.optional(),
+    encrypted: z.boolean().nullable().optional(),
+    password: z.string().nullable().optional(),
+    comment: z.boolean().nullable().optional(),
   })
   .passthrough();
 
@@ -83,6 +93,23 @@ export const PostDescriptionRequiredSchema = z.string().trim().min(1);
 export const PostFrontmatterWriteSchema = PostFrontmatterSchema.extend({
   description: PostDescriptionRequiredSchema,
 });
+
+/**
+ * [Phase3-C1] 可删键集合（决议 2）：JSON 请求体无法表达 undefined，null 即删除指令。
+ * 仅这四个键参与删键语义；其余字段（含 passthrough 自定义键）合并语义零变化。
+ */
+const NULL_DELETE_KEYS = ['encrypted', 'password', 'comment', 'permalink'] as const;
+
+/** null 删键哨兵处理：浅拷贝后删除值为 null 的可删键（不原地修改入参，防共享引用污染） */
+function stripNullDeleteKeys(frontmatter: Record<string, unknown>): Record<string, unknown> {
+  const result = { ...frontmatter };
+  for (const key of NULL_DELETE_KEYS) {
+    if (result[key] === null) {
+      delete result[key];
+    }
+  }
+  return result;
+}
 
 /** POST /admin/posts body */
 export const CreatePostBodySchema = z.object({
@@ -169,7 +196,8 @@ export class PostsService {
   async createPost(body: z.infer<typeof CreatePostBodySchema>): Promise<PostView> {
     const slug = validateSlug(body.slug);
     // [B2.1/裁决 8] 创建入口 description 必填（控制器 pipe 已校验，此为纵深防御，保持同 schema）
-    const frontmatter = PostFrontmatterWriteSchema.parse(body.frontmatter);
+    // [Phase3-C1] 创建体中四可删键为 null 等价于缺失（删除指令先于落盘，不写 null 值）
+    const frontmatter = stripNullDeleteKeys(PostFrontmatterWriteSchema.parse(body.frontmatter));
     const dirAbs = this.postDirAbs(slug);
     if (fs.existsSync(dirAbs)) {
       throw new ConflictException(`文章已存在：${slug}`);
@@ -193,8 +221,12 @@ export class PostsService {
   /** 修改文章：frontmatter 增量合并后整体校验，正文缺省保留原值 */
   async updatePost(slug: string, body: z.infer<typeof UpdatePostBodySchema>): Promise<PostView> {
     const existing = this.readPostOrThrow(slug);
-    const mergedFrontmatter =
+    // [Phase3-C1] PATCH 删键语义（本批唯一合并规则变更，范围严格限四可删键）：
+    // incoming 值为 null → 从合并结果删除该键（null 哨兵 = 删除指令，覆盖既有值）；
+    // 非 null 行为不变；其余字段（含 passthrough 自定义键）合并语义零变化。
+    const mergedRaw =
       body.frontmatter !== undefined ? { ...existing.frontmatter, ...body.frontmatter } : existing.frontmatter;
+    const mergedFrontmatter = stripNullDeleteKeys(mergedRaw);
     const parsed = PostFrontmatterSchema.safeParse(mergedFrontmatter);
     if (!parsed.success) {
       throw new BadRequestException({

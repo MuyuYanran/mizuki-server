@@ -3,14 +3,15 @@
  * [P10c] Markdown 文章编辑页（CodeMirror 6 + frontmatter 表单 + 封面）
  * [职责] 新建/编辑 Markdown 文章：
  *   - CodeMirror 6 编辑正文（语法高亮）；
- *   - 侧栏 frontmatter 表单（§6.10 的 12 个已知字段）；
+ *   - 侧栏 frontmatter 表单（§6.10 的 12 个已知字段 + [Phase3-C1] 加密与发布区块）；
  *   - 未知 frontmatter 键原样保留（提交时以读取时的完整 frontmatter 为基础合并）；
  *   - 封面上传（POST /admin/posts/:slug/cover）；
  *   - 上传 Markdown 文件入口（读文本填入编辑器）。
  * [状态] ACTIVE
  *
  * 往返保真（§3.2）：未知 frontmatter 键不丢——编辑时 fullFm 持有读取的完整 frontmatter，
- *   表单只编辑 12 个已知字段，提交时 { ...fullFm, ...formFm } 合并（已知字段覆盖，未知键保留）。
+ *   表单只编辑已知字段（12 既有 + [Phase3-C1] 加密与发布 4 键），提交时
+ *   { ...fullFm, ...formFm } 合并（已知字段覆盖，未知键保留；四可删键清空按 null 提交）。
  */
 import { computed, onMounted, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
@@ -50,7 +51,7 @@ function onEngineChange(next: Engine): void {
   localStorage.setItem(ENGINE_KEY, next);
 }
 
-/** 表单编辑的 12 个已知字段 */
+/** 表单编辑的 15 个已知字段（12 既有 + [Phase3-C1] 加密与发布三字段） */
 const fm = ref({
   title: '',
   published: true as boolean,
@@ -65,6 +66,10 @@ const fm = ref({
   /** [B3.6] 默认当天（与 B1 SchemaForm 一致）；编辑时 populateForm 覆盖 */
   date: todayString(),
   pubDate: todayString(),
+  /** [Phase3-C1/决议 2] 加密与发布区块：加密开关 / 密码 / 评论禁用（继承全局 = 取消勾选） */
+  encrypted: false,
+  password: '',
+  commentDisabled: false,
 });
 
 /** 标签输入 */
@@ -100,7 +105,7 @@ async function loadPost(): Promise<void> {
   }
 }
 
-/** 从完整 frontmatter 填充表单 12 字段 */
+/** 从完整 frontmatter 填充表单字段（12 既有 + [Phase3-C1] 加密与发布三字段） */
 function populateForm(fmData: Record<string, unknown>): void {
   fm.value.title = typeof fmData['title'] === 'string' ? fmData['title'] : '';
   fm.value.published = fmData['published'] !== false; // 缺省视为已发布
@@ -114,6 +119,10 @@ function populateForm(fmData: Record<string, unknown>): void {
   fm.value.image = typeof fmData['image'] === 'string' ? fmData['image'] : '';
   fm.value.date = dateToString(fmData['date']);
   fm.value.pubDate = dateToString(fmData['pubDate']);
+  // [Phase3-C1] 加密与发布：comment 仅显式 false 视为禁用（缺失 = 继承全局）
+  fm.value.encrypted = fmData['encrypted'] === true;
+  fm.value.password = typeof fmData['password'] === 'string' ? fmData['password'] : '';
+  fm.value.commentDisabled = fmData['comment'] === false;
 }
 
 function dateToString(value: unknown): string {
@@ -126,7 +135,11 @@ function dateToString(value: unknown): string {
   return '';
 }
 
-/** 构建提交用的 frontmatter（合并：未知键保留 + 已知字段覆盖） */
+/**
+ * 构建提交用的 frontmatter（合并：未知键保留 + 已知字段覆盖）。
+ * [Phase3-C1] 四可删键按 null 提交（依托 Server PATCH 删键语义）：
+ * encrypted 关闭 / password 空串 / comment 取消勾选 / permalink 清空 → null（删键）。
+ */
 function buildFrontmatter(): Record<string, unknown> {
   return {
     ...fullFm.value,
@@ -136,12 +149,15 @@ function buildFrontmatter(): Record<string, unknown> {
     tags: fm.value.tags.length > 0 ? fm.value.tags : undefined,
     category: fm.value.category || undefined,
     author: fm.value.author || undefined,
-    permalink: fm.value.permalink || undefined,
     pinned: fm.value.pinned,
     draft: fm.value.draft,
     image: fm.value.image || undefined,
     date: fm.value.date || undefined,
     pubDate: fm.value.pubDate || undefined,
+    encrypted: fm.value.encrypted || null,
+    password: fm.value.password || null,
+    comment: fm.value.commentDisabled ? false : null,
+    permalink: fm.value.permalink || null,
   };
 }
 
@@ -281,10 +297,11 @@ function goBack(): void {
   router.push('/posts');
 }
 
-/** 未知 frontmatter 键（非 12 个已知字段） */
+/** 未知 frontmatter 键（非 15 个已知字段） */
 const KNOWN_FM_KEYS = new Set([
   'title', 'published', 'description', 'tags', 'category', 'author',
   'permalink', 'pinned', 'draft', 'image', 'date', 'pubDate',
+  'encrypted', 'password', 'comment',
 ]);
 const unknownKeys = computed<string[]>(() =>
   Object.keys(fullFm.value).filter((k) => !KNOWN_FM_KEYS.has(k)),
@@ -389,9 +406,6 @@ function formatValue(value: unknown): string {
           <el-form-item label="作者">
             <el-input v-model="fm.author" />
           </el-form-item>
-          <el-form-item label="永久链接">
-            <el-input v-model="fm.permalink" placeholder="/post/..." />
-          </el-form-item>
           <el-form-item label="封面">
             <el-input v-model="fm.image" placeholder="cover.jpg 或路径" />
             <label v-if="isEdit" class="upload-btn" :class="{ disabled: coverUploading }">
@@ -421,6 +435,22 @@ function formatValue(value: unknown): string {
               class="date-input"
               @update:model-value="(v: unknown) => onDatePick('pubDate', v)"
             />
+          </el-form-item>
+
+          <!-- [Phase3-C1/决议 2] 加密与发布区块：字段由主题构建期消费，Server 仅存储 -->
+          <el-divider content-position="left">加密与发布</el-divider>
+          <div class="encrypt-hint">加密由主题在构建期完成（客户端解密），此处仅保存配置字段</div>
+          <el-form-item label="加密">
+            <el-switch v-model="fm.encrypted" />
+          </el-form-item>
+          <el-form-item label="密码">
+            <el-input v-model="fm.password" type="password" show-password placeholder="your-secret-password" />
+          </el-form-item>
+          <el-form-item label="禁用评论">
+            <el-checkbox v-model="fm.commentDisabled">禁用本文评论</el-checkbox>
+          </el-form-item>
+          <el-form-item label="固定链接">
+            <el-input v-model="fm.permalink" placeholder="encrypted-example" />
           </el-form-item>
         </el-form>
 
@@ -493,6 +523,12 @@ function formatValue(value: unknown): string {
 
 .date-input {
   width: 100%;
+}
+
+.encrypt-hint {
+  color: var(--el-text-color-secondary);
+  font-size: 12px;
+  margin: 0 0 8px;
 }
 
 .upload-btn {

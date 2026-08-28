@@ -27,6 +27,7 @@ build/
 coverage/
 .nyc_output/
 .test-tmp/
+.tmpvitest/
 
 # ── Logs ──
 *.log
