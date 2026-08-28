@@ -59,6 +59,7 @@ const FORMAT_MIME: Record<MagicFormat, string> = {
   webp: 'image/webp',
   gif: 'image/gif',
   tiff: 'image/tiff',
+  avif: 'image/avif',
 };
 
 /** 格式 → 输出扩展名（随机文件名用；jpeg 统一 .jpg） */
@@ -68,6 +69,7 @@ const FORMAT_EXT: Record<MagicFormat, string> = {
   webp: 'webp',
   gif: 'gif',
   tiff: 'tiff',
+  avif: 'avif',
 };
 
 /** 对外媒体记录 */
@@ -101,7 +103,7 @@ export class MediaService {
     const ext = path.extname(file.originalname).toLowerCase();
     const expectedFormat = EXTENSION_FORMAT[ext];
     if (!expectedFormat) {
-      throw new BadRequestException(`扩展名不在白名单：${ext || '(空)'}（允许 jpg/jpeg/png/webp/gif/tif/tiff）`);
+      throw new BadRequestException(`扩展名不在白名单：${ext || '(空)'}（允许 jpg/jpeg/png/gif/webp/avif）`);
     }
     // 2. 魔数嗅探：真实类型必须与扩展名一致（文本改名 .png 等伪造件在此拒绝）
     const sniffed = sniffImageFormat(file.buffer);
@@ -234,6 +236,8 @@ export class MediaService {
         return image.gif().toBuffer();
       case 'tiff':
         return image.tiff().toBuffer();
+      case 'avif':
+        return image.avif().toBuffer();
     }
   }
 

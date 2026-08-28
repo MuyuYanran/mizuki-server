@@ -58,8 +58,8 @@ export const AlbumNameSchema = z
 /** 相册内图片文件名（同相册名规则；实际产物恒为 .jpg） */
 export const AlbumImageNameSchema = AlbumNameSchema;
 
-/** info.json 字段（REQUIREMENTS §6.9 逐字） */
-export const AlbumInfoSchema = z.object({
+/** info.json 公共字段（本地/外链两模式共用；本地字段面保持 REQUIREMENTS §6.9 现状） */
+const AlbumInfoBaseFields = {
   title: z.string().min(1),
   description: z.string().optional(),
   date: z.string().optional(),
@@ -67,8 +67,62 @@ export const AlbumInfoSchema = z.object({
   tags: z.array(z.string()).optional(),
   layout: z.string().optional(),
   columns: z.number().int().positive().optional(),
+} as const;
+
+/**
+ * [R2-14] 外链照片：src 必填，其余全可选。
+ * 字段面以官方 special-gallery §外链模式详解样例（B4 fixture external-demo）为准，
+ * 在提示词基线（src/thumbnail/alt/width/height/camera/lens/settings）之上补充
+ * 官方样例实际携带的 id/title/description/tags/date/location。
+ */
+export const ExternalPhotoSchema = z.object({
+  id: z.string().optional(),
+  src: z.string().min(1),
+  thumbnail: z.string().optional(),
+  alt: z.string().optional(),
+  title: z.string().optional(),
+  description: z.string().optional(),
+  tags: z.array(z.string()).optional(),
+  date: z.string().optional(),
+  location: z.string().optional(),
+  width: z.number().int().positive().optional(),
+  height: z.number().int().positive().optional(),
+  camera: z.string().optional(),
+  lens: z.string().optional(),
+  settings: z.record(z.string(), z.string()).optional(),
 });
+export type ExternalPhoto = z.infer<typeof ExternalPhotoSchema>;
+
+/** 本地模式 info.json（mode 缺省或 "local"，其余与现状逐字一致） */
+export const AlbumInfoLocalSchema = z.object({
+  ...AlbumInfoBaseFields,
+  mode: z.literal('local').optional(),
+});
+export type AlbumInfoLocal = z.infer<typeof AlbumInfoLocalSchema>;
+
+/** 外链模式 info.json（R2-14：mode:"external" + cover + photos[]） */
+export const AlbumInfoExternalSchema = z.object({
+  ...AlbumInfoBaseFields,
+  mode: z.literal('external'),
+  cover: z.string().min(1),
+  photos: z.array(ExternalPhotoSchema),
+  hidden: z.boolean().optional(),
+});
+export type AlbumInfoExternal = z.infer<typeof AlbumInfoExternalSchema>;
+
+/**
+ * info.json 双模式 schema（union：external 在前——local parse 会剥离未知键，
+ * 顺序颠倒会把外链 info.json 误判为本地并丢掉 cover/photos）。
+ * 读取/写入统一走此 schema；mode 判定由 raw.mode 驱动。
+ */
+export const AlbumInfoSchema = z.union([AlbumInfoExternalSchema, AlbumInfoLocalSchema]);
 export type AlbumInfo = z.infer<typeof AlbumInfoSchema>;
+
+/** 外链照片数组下标路由参数（:index，非负整数字符串 → number） */
+export const ExternalPhotoIndexSchema = z
+  .string()
+  .regex(/^\d+$/, '外链照片下标须为非负整数')
+  .transform((value) => Number(value));
 
 /** POST /admin/albums body */
 export const CreateAlbumBodySchema = z.object({
@@ -76,11 +130,17 @@ export const CreateAlbumBodySchema = z.object({
   info: AlbumInfoSchema,
 });
 
-/** PATCH /admin/albums/:id body（增量合并后整体过 AlbumInfoSchema） */
-export const UpdateAlbumBodySchema = AlbumInfoSchema.partial().refine(
-  (value) => Object.keys(value).length > 0,
-  { message: '至少提供一个待修改字段' },
-);
+/** PATCH /admin/albums/:id body（增量合并后按目标 mode 整体校验；mode 变更即模式切换） */
+export const UpdateAlbumBodySchema = z
+  .object({
+    ...AlbumInfoBaseFields,
+    title: z.string().min(1).optional(),
+    mode: z.enum(['local', 'external']).optional(),
+    cover: z.string().min(1).optional(),
+    photos: z.array(ExternalPhotoSchema).optional(),
+    hidden: z.boolean().optional(),
+  })
+  .refine((value) => Object.keys(value).length > 0, { message: '至少提供一个待修改字段' });
 
 /** 对外相册视图 */
 export interface AlbumView {
@@ -134,7 +194,7 @@ export class AlbumsService implements MediaReferenceContributor {
     return albums.sort((a, b) => a.name.localeCompare(b.name));
   }
 
-  /** 创建相册：目录已存在 → 409；写 info.json 后发射 content.changed */
+  /** 创建相册：目录已存在 → 409；写 info.json 后发射 content.changed（info 可为本地或外链模式） */
   async create(body: z.infer<typeof CreateAlbumBodySchema>): Promise<AlbumView> {
     const name = AlbumNameSchema.parse(body.name);
     const info = AlbumInfoSchema.parse(body.info);
@@ -147,21 +207,112 @@ export class AlbumsService implements MediaReferenceContributor {
     await this.backup.preWriteBackup(infoAbs, `album create: ${name}`); // 新文件 → 跳过
     this.atomicWrite(infoAbs, JSON.stringify(info, null, 2));
     this.emitAlbumChanged(name);
-    logger.info({ album: name }, '相册创建完成');
+    logger.info({ album: name, mode: info.mode ?? 'local' }, '相册创建完成');
     return { name, info, images: [] };
   }
 
-  /** 修改相册元信息：增量合并 → 整体校验 → 备份 → 原子写 → 事件 */
+  /**
+   * 修改相册元信息：增量合并 → 按目标 mode 整体校验 → 备份 → 原子写 → 事件。
+   * [R2-14] mode 变更即模式切换，精确规则：
+   * - local → external：本地照片目录须为空（否则 409，错误信息含现存本地照片数）；
+   * - external → local：photos 数组须为空（否则 409）。
+   */
   async update(name: string, patch: z.infer<typeof UpdateAlbumBodySchema>): Promise<AlbumView> {
     const validatedName = AlbumNameSchema.parse(name);
     const existing = this.readInfoOrThrow(validatedName);
-    const merged = AlbumInfoSchema.parse({ ...existing, ...patch });
+    const existingMode = existing.mode ?? 'local';
+    const targetMode = patch.mode ?? existingMode;
+    if (patch.mode !== undefined && patch.mode !== existingMode) {
+      this.assertModeSwitch(validatedName, existingMode, targetMode);
+    }
+    const mergedRaw: Record<string, unknown> = { ...existing, ...patch };
+    if (targetMode === 'external') {
+      // 切换（或维持）外链模式：photos 允许缺省为空数组（切换后经外链照片 CRUD 增补）
+      mergedRaw['photos'] ??= [];
+      mergedRaw['mode'] = 'external';
+    }
+    const merged = (
+      targetMode === 'external' ? AlbumInfoExternalSchema : AlbumInfoLocalSchema
+    ).parse(mergedRaw) as AlbumInfo;
     const infoAbs = path.join(this.albumDirAbs(validatedName), 'info.json');
     await this.backup.preWriteBackup(infoAbs, `album update: ${validatedName}`);
     this.atomicWrite(infoAbs, JSON.stringify(merged, null, 2));
     this.emitAlbumChanged(validatedName);
-    logger.info({ album: validatedName }, '相册元信息更新完成');
+    logger.info({ album: validatedName, mode: merged.mode ?? 'local' }, '相册元信息更新完成');
     return { name: validatedName, info: merged, images: this.listImages(validatedName) };
+  }
+
+  /** [R2-14] 模式切换精确规则（双向 409 拒绝条件） */
+  private assertModeSwitch(name: string, from: 'local' | 'external', to: 'local' | 'external'): void {
+    if (from === 'local' && to === 'external') {
+      const count = this.listImages(name).length;
+      if (count > 0) {
+        throw new ConflictException(`本地照片目录非空（现存 ${count} 张本地照片），禁止切换为外链模式`);
+      }
+      return;
+    }
+    if (from === 'external' && to === 'local') {
+      const count = (this.readInfoOrThrow(name) as AlbumInfoExternal).photos.length;
+      if (count > 0) {
+        throw new ConflictException(`外链 photos 数组非空（现存 ${count} 条外链照片），禁止切换为本地模式`);
+      }
+    }
+  }
+
+  // ── [R2-14] 外链照片 CRUD（仅外链模式相册；按数组下标定位） ──
+
+  /** 追加一条外链照片 → 返回更新后相册视图 */
+  async addExternalPhoto(name: string, photoInput: unknown): Promise<AlbumView> {
+    const validatedName = AlbumNameSchema.parse(name);
+    const external = this.readExternalOrThrow(validatedName);
+    const photo = ExternalPhotoSchema.parse(photoInput);
+    const photos = [...external.photos, photo];
+    await this.writeExternalPhotos(validatedName, photos);
+    logger.info({ album: validatedName, index: external.photos.length }, '外链照片已追加');
+    return this.buildView(validatedName);
+  }
+
+  /** 修改外链照片字段（:index 数组下标，增量合并） */
+  async updateExternalPhoto(name: string, index: number, patchInput: unknown): Promise<AlbumView> {
+    const validatedName = AlbumNameSchema.parse(name);
+    const external = this.readExternalOrThrow(validatedName);
+    const existing = external.photos[index];
+    if (!existing) {
+      throw new NotFoundException(`外链照片不存在：${validatedName}/photos/${index}`);
+    }
+    const patch = ExternalPhotoSchema.partial().parse(patchInput);
+    if (Object.keys(patch).length === 0) {
+      throw new BadRequestException('至少提供一个待修改字段');
+    }
+    const merged = ExternalPhotoSchema.parse({ ...existing, ...patch });
+    const photos = [...external.photos];
+    photos[index] = merged;
+    await this.writeExternalPhotos(validatedName, photos);
+    logger.info({ album: validatedName, index }, '外链照片字段已更新');
+    return this.buildView(validatedName);
+  }
+
+  /** 删除外链照片（:index 数组下标） */
+  async deleteExternalPhoto(name: string, index: number): Promise<AlbumView> {
+    const validatedName = AlbumNameSchema.parse(name);
+    const external = this.readExternalOrThrow(validatedName);
+    if (!external.photos[index]) {
+      throw new NotFoundException(`外链照片不存在：${validatedName}/photos/${index}`);
+    }
+    const photos = external.photos.filter((_, i) => i !== index);
+    await this.writeExternalPhotos(validatedName, photos);
+    logger.info({ album: validatedName, index }, '外链照片已删除');
+    return this.buildView(validatedName);
+  }
+
+  /** 外链 photos 数组整体写回（备份 + 原子写 + 事件；await 保证响应前落盘） */
+  private async writeExternalPhotos(name: string, photos: ExternalPhoto[]): Promise<void> {
+    const infoAbs = path.join(this.albumDirAbs(name), 'info.json');
+    const existing = this.readInfoOrThrow(name) as AlbumInfoExternal;
+    const merged: AlbumInfoExternal = { ...existing, photos };
+    await this.backup.preWriteBackup(infoAbs, `album photos: ${name}`);
+    this.atomicWrite(infoAbs, JSON.stringify(merged, null, 2));
+    this.emitAlbumChanged(name);
   }
 
   /** 删除相册：引用检查 → 逐文件备份 → 删目录 → 事件 */
@@ -187,7 +338,11 @@ export class AlbumsService implements MediaReferenceContributor {
 
   // ── 相册图片 ──
 
-  /** 上传图片：§3.1 校验复用 + 非 JPG 自动转 JPG（文件名保持 `<原名>.jpg` 语义） */
+  /**
+   * 上传图片：§3.1 校验复用 + 原格式落盘。
+   * [B2 裁决 2] 移除「非 JPG 强转 JPG」：png/webp/gif/avif 按原格式落盘
+   * （EXIF 保留由用户自主决定）；解码兜底保留，损坏图片仍拒绝。
+   */
   async uploadImage(name: string, file: UploadedFileLike): Promise<{ name: string; path: string }> {
     const validatedName = AlbumNameSchema.parse(name);
     const dirAbs = this.albumDirAbs(validatedName);
@@ -199,7 +354,7 @@ export class AlbumsService implements MediaReferenceContributor {
     const ext = path.extname(file.originalname).toLowerCase();
     const expectedFormat = EXTENSION_FORMAT[ext];
     if (!expectedFormat) {
-      throw new BadRequestException(`扩展名不在白名单：${ext || '(空)'}（允许 jpg/jpeg/png/webp/gif/tif/tiff）`);
+      throw new BadRequestException(`扩展名不在白名单：${ext || '(空)'}（允许 jpg/jpeg/png/gif/webp/avif）`);
     }
     if (sniffImageFormat(file.buffer) !== expectedFormat) {
       throw new BadRequestException('文件内容与扩展名不符（魔数校验失败）');
@@ -209,27 +364,26 @@ export class AlbumsService implements MediaReferenceContributor {
       throw new PayloadTooLargeException(`文件超出上传上限 ${getAppConfig().uploadLimitMb}MB`);
     }
 
-    // 相册特有步骤：统一转 JPG（重编码顺带去 EXIF）
-    let jpegBuffer: Buffer;
+    // 解码兜底（仅校验，不转码）：嗅探通过但内容损坏在此拒绝
     try {
-      jpegBuffer = await sharp(file.buffer).rotate().jpeg().toBuffer();
+      await sharp(file.buffer).metadata();
     } catch {
       throw new BadRequestException('图片解码失败，已拒绝');
     }
 
-    // 文件名：`<原名>.jpg` 语义；同名冲突追加随机后缀
+    // 文件名：`<原名><原扩展名>`（原格式落盘）；同名冲突追加随机后缀
     const base = sanitizeFileBase(path.basename(file.originalname, path.extname(file.originalname)));
-    let fileName = `${base}.jpg`;
+    let fileName = `${base}${ext}`;
     if (fs.existsSync(path.join(dirAbs, fileName))) {
-      fileName = `${base}-${nanoid(6)}.jpg`;
+      fileName = `${base}-${nanoid(6)}${ext}`;
       logger.info({ album: validatedName, fileName }, '相册图片同名冲突，使用随机后缀');
     }
     const relPath = `${ALBUMS_REL_DIR}/${validatedName}/${fileName}`;
     const absPath = this.joinWithinRoot(relPath);
     await this.backup.preWriteBackup(absPath, `album image: ${validatedName}/${fileName}`); // 新文件 → 跳过
-    this.atomicWrite(absPath, jpegBuffer);
+    this.atomicWrite(absPath, file.buffer);
     this.emitImageChanged(relPath, 'save');
-    logger.info({ album: validatedName, fileName }, '相册图片保存完成（已转 JPG）');
+    logger.info({ album: validatedName, fileName, format: expectedFormat }, '相册图片保存完成（原格式落盘）');
     return { name: fileName, path: relPath };
   }
 
@@ -343,6 +497,20 @@ export class AlbumsService implements MediaReferenceContributor {
     } catch {
       return undefined;
     }
+  }
+
+  /** [R2-14] 读取外链模式 info.json；相册不存在/损坏由 readInfoOrThrow 报错，非外链模式 → 409 */
+  private readExternalOrThrow(name: string): AlbumInfoExternal {
+    const info = this.readInfoOrThrow(name);
+    if ((info.mode ?? 'local') !== 'external') {
+      throw new ConflictException(`相册「${name}」非外链模式，禁止外链照片操作`);
+    }
+    return info as AlbumInfoExternal;
+  }
+
+  /** 对外相册视图组装（外链照片 CRUD 等写操作后的统一返回出口） */
+  private buildView(name: string): AlbumView {
+    return { name, info: this.readInfoOrThrow(name), images: this.listImages(name) };
   }
 
   /** 相册内图片文件名列表（排除 info.json，升序） */

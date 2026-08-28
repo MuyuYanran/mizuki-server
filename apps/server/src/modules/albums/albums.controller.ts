@@ -4,10 +4,14 @@
  *   命名经 zod + safeJoin 校验）：
  *   GET    /admin/albums                  相册列表
  *   POST   /admin/albums                  创建（目录 + info.json）
- *   PATCH  /admin/albums/:id              修改元信息
+ *   PATCH  /admin/albums/:id              修改元信息（含 mode 切换）
  *   DELETE /admin/albums/:id              删除（引用检查 → 备份 → 删目录）
  *   POST   /admin/albums/:id/images       上传图片（非 JPG 自动转 JPG）
  *   DELETE /admin/albums/:id/images/:name 删除单张图片
+ *   [R2-14] 外链照片 CRUD（仅外链模式相册）：
+ *   POST   /admin/albums/:id/external-photos          追加外链照片
+ *   PATCH  /admin/albums/:id/external-photos/:index   修改外链照片字段
+ *   DELETE /admin/albums/:id/external-photos/:index   删除外链照片
  * [状态] ACTIVE
  */
 import {
@@ -32,6 +36,8 @@ import {
   AlbumNameSchema,
   AlbumsService,
   CreateAlbumBodySchema,
+  ExternalPhotoIndexSchema,
+  ExternalPhotoSchema,
   UpdateAlbumBodySchema,
   type UploadedFileLike,
 } from './albums.service';
@@ -95,5 +101,38 @@ export class AlbumsController {
     @Param('name', new ZodValidationPipe(AlbumImageNameSchema)) name: string,
   ) {
     return this.albums.deleteImage(id, name);
+  }
+
+  /** [R2-14] 追加一条外链照片（仅外链模式相册） */
+  @ApiOperation({ summary: '追加外链照片（仅外链模式相册，写入 info.json.photos）' })
+  @Post(':id/external-photos')
+  @HttpCode(HttpStatus.CREATED)
+  addExternalPhoto(
+    @Param('id', new ZodValidationPipe(AlbumNameSchema)) id: string,
+    @Body(new ZodValidationPipe(ExternalPhotoSchema)) body: unknown,
+  ) {
+    return this.albums.addExternalPhoto(id, body);
+  }
+
+  /** [R2-14] 修改外链照片字段（:index 数组下标，增量合并） */
+  @ApiOperation({ summary: '修改外链照片字段（:index 数组下标，增量合并）' })
+  @Patch(':id/external-photos/:index')
+  updateExternalPhoto(
+    @Param('id', new ZodValidationPipe(AlbumNameSchema)) id: string,
+    @Param('index', new ZodValidationPipe(ExternalPhotoIndexSchema)) index: number,
+    @Body() body: unknown,
+  ) {
+    return this.albums.updateExternalPhoto(id, index, body);
+  }
+
+  /** [R2-14] 删除外链照片（:index 数组下标） */
+  @ApiOperation({ summary: '删除外链照片（:index 数组下标）' })
+  @Delete(':id/external-photos/:index')
+  @HttpCode(HttpStatus.OK)
+  deleteExternalPhoto(
+    @Param('id', new ZodValidationPipe(AlbumNameSchema)) id: string,
+    @Param('index', new ZodValidationPipe(ExternalPhotoIndexSchema)) index: number,
+  ) {
+    return this.albums.deleteExternalPhoto(id, index);
   }
 }

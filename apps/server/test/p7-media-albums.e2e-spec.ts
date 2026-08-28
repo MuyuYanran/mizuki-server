@@ -20,8 +20,8 @@ import { initAndLogin, withAuth } from './helpers/admin-auth';
 /**
  * P7 §6.1–6.8 验收依据（supertest e2e，沿用 P6 装配：先 init + login 取 token）：
  * 伪造扩展名拒绝、合法格式入库、10MB 上限、重编码去 EXIF、被引用删除 409 +
- * 明细、无引用删除成功、四模块注册断言、相册 CRUD 往返（转 JPG）、路径防护、
- * 事件断言（media.changed / content.changed scope='album'）。
+ * 明细、无引用删除成功、四模块注册断言、相册 CRUD 往返（原格式落盘，B2 裁决 2）、
+ * 路径防护、事件断言（media.changed / content.changed scope='album'）。
  */
 
 const FIXTURE_DIR = path.resolve(__dirname, 'fixtures/mizuki');
@@ -261,25 +261,33 @@ describe('P7 媒体与相册 e2e', () => {
     expect(album?.info.title).toBe('旅行相册（改）');
   });
 
-  it('§6.6 相册图片：上传 PNG → 产物为 JPG；删除单张 → 目录与列表更新', async () => {
+  it('§6.6 [B2/裁决 2] 原格式落盘：上传 PNG → 同名 .png 落盘（不再强转 JPG）；删除单张 → 目录与列表更新', async () => {
     const png = await makeImage('png');
     const uploaded = await server()
       .post('/api/v1/admin/albums/trip-2026/images')
       .attach('file', png, 'sunset.png');
     expect(uploaded.status).toBe(201);
-    expect(uploaded.body.name).toBe('sunset.jpg'); // 非 JPG 自动转 JPG，文件名保持原名语义
+    expect(uploaded.body.name).toBe('sunset.png'); // 原格式落盘：文件名保持原扩展名
     const abs = path.join(mizukiRoot, uploaded.body.path);
     expect(fs.existsSync(abs)).toBe(true);
-    expect((await sharp(abs).metadata()).format).toBe('jpeg');
+    expect((await sharp(abs).metadata()).format).toBe('png'); // 不再强转 JPG
 
     let album = (await server().get('/api/v1/admin/albums')).body as { name: string; images: string[] }[];
-    expect(album.find((entry) => entry.name === 'trip-2026')?.images).toContain('sunset.jpg');
+    expect(album.find((entry) => entry.name === 'trip-2026')?.images).toContain('sunset.png');
 
-    const removed = await server().delete('/api/v1/admin/albums/trip-2026/images/sunset.jpg');
+    const removed = await server().delete('/api/v1/admin/albums/trip-2026/images/sunset.png');
     expect(removed.status).toBe(200);
     expect(fs.existsSync(abs)).toBe(false);
     album = (await server().get('/api/v1/admin/albums')).body as { name: string; images: string[] }[];
-    expect(album.find((entry) => entry.name === 'trip-2026')?.images).not.toContain('sunset.jpg');
+    expect(album.find((entry) => entry.name === 'trip-2026')?.images).not.toContain('sunset.png');
+  });
+
+  it('§6.6 [B2/裁决 3] tiff 放行层排除：合法 tiff 魔数上传 → 400 白名单拒绝（能力层签名保留见单测）', async () => {
+    // 构造真实 TIFF 魔数内容（II*\0 小端头）
+    const tiffHeader = Buffer.from([0x49, 0x49, 0x2a, 0x00, 0x08, 0x00, 0x00, 0x00]);
+    const res = await server().post('/api/v1/admin/albums/trip-2026/images').attach('file', tiffHeader, 'a.tiff');
+    expect(res.status).toBe(400);
+    expect(String(res.body.message)).toContain('白名单');
   });
 
   // ── §6.7 路径防护 ──
