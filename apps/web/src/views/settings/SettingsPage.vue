@@ -10,9 +10,12 @@
  * data/config.json（启动配置，如 mizukiRoot）不在此修改——页面注明该边界。
  * Mizuki 侧 config/主题配置文件接管属二期能力，本页仅覆盖 settings 表范围。
  */
-import { computed, onMounted, ref } from 'vue';
+import { computed, onMounted, reactive, ref } from 'vue';
+import { useRouter } from 'vue-router';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import { settingsApi } from '../../api/settings';
+import { authApi } from '../../api/auth';
+import { clearAuth } from '../../stores/auth';
 import { ApiError } from '../../api/http';
 
 /** 单个设置项的编辑态 */
@@ -154,6 +157,51 @@ function handleError(e: unknown, fallback: string): void {
   }
 }
 
+// ── [B2/裁决 5] 修改密码卡片 ──
+
+const router = useRouter();
+
+const passwordForm = reactive({ oldPassword: '', newPassword: '', confirm: '' });
+const changingPassword = ref(false);
+
+/** 强度校验同注册（后端 InitBody/changePassword 同基线：最短 8 位） */
+function passwordValid(): boolean {
+  if (passwordForm.oldPassword === '' || passwordForm.newPassword === '' || passwordForm.confirm === '') {
+    ElMessage.warning('请完整填写旧密码、新密码与确认密码');
+    return false;
+  }
+  if (passwordForm.newPassword.length < 8) {
+    ElMessage.error('新密码最短 8 位（强度基线同注册）');
+    return false;
+  }
+  if (passwordForm.newPassword !== passwordForm.confirm) {
+    ElMessage.error('两次输入的新密码不一致');
+    return false;
+  }
+  return true;
+}
+
+async function onChangePassword(): Promise<void> {
+  if (!passwordValid()) {
+    return;
+  }
+  changingPassword.value = true;
+  try {
+    await authApi.changePassword(passwordForm.oldPassword, passwordForm.newPassword);
+    // 成功：服务端已吊销全部 refresh 会话 → 清本地凭据并回登录页
+    ElMessage.success('密码已修改，已吊销所有会话，请重新登录');
+    clearAuth();
+    passwordForm.oldPassword = '';
+    passwordForm.newPassword = '';
+    passwordForm.confirm = '';
+    void router.push('/login');
+  } catch (e) {
+    handleError(e, '修改密码失败');
+  } finally {
+    changingPassword.value = false;
+  }
+}
+
 onMounted(() => {
   void fetchAll();
 });
@@ -165,6 +213,23 @@ onMounted(() => {
     <el-alert type="info" :closable="false" class="boundary-note">
       本页仅管理运行态设置（site_setting 表）。启动配置（如 Mizuki 项目根路径、运行模式）在初始化向导设定，不在此修改。Mizuki 侧 config/主题配置文件接管属二期能力。
     </el-alert>
+
+    <el-divider content-position="left">修改密码</el-divider>
+    <el-form label-width="200px" class="password-form">
+      <el-form-item label="旧密码">
+        <el-input v-model="passwordForm.oldPassword" type="password" show-password autocomplete="current-password" />
+      </el-form-item>
+      <el-form-item label="新密码（最短 8 位）">
+        <el-input v-model="passwordForm.newPassword" type="password" show-password autocomplete="new-password" />
+      </el-form-item>
+      <el-form-item label="确认新密码">
+        <el-input v-model="passwordForm.confirm" type="password" show-password autocomplete="new-password" />
+      </el-form-item>
+      <el-form-item>
+        <el-button type="primary" :loading="changingPassword" @click="onChangePassword">修改密码</el-button>
+        <span class="password-hint">修改成功后将吊销所有会话，需要重新登录</span>
+      </el-form-item>
+    </el-form>
 
     <div v-for="group in grouped" :key="group.group" class="setting-group">
       <el-divider content-position="left">{{ group.label }}</el-divider>
@@ -222,5 +287,13 @@ onMounted(() => {
   color: var(--el-color-danger);
   font-size: 12px;
   width: 100%;
+}
+.password-form {
+  max-width: 520px;
+}
+.password-hint {
+  margin-left: 12px;
+  color: var(--el-text-color-secondary);
+  font-size: 12px;
 }
 </style>

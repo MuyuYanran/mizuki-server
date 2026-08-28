@@ -19,6 +19,9 @@ export const adminUser = sqliteTable('admin_user', {
   failedLoginCount: integer('failed_login_count').notNull().default(0),
   /** 锁定到期时间 */
   lockedUntil: integer('locked_until', { mode: 'timestamp' }),
+  /** [B2/裁决 5] 会话版本：改密时 +1，refresh token 内 ver 与表内不一致 → 401
+   *  （access 15min 自然过期，不做吊销） */
+  tokenVersion: integer('token_version').notNull().default(0),
 });
 
 /** 统一文章索引（核心表）：Markdown 文章为文件哈希镜像，富文本以它为主存储 */

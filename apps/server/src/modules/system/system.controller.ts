@@ -8,12 +8,12 @@
  */
 import fs from 'node:fs';
 import path from 'node:path';
-import { Body, Controller, Get, HttpCode, HttpStatus, Inject, Post, Query } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, HttpStatus, Inject, Patch, Post, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { desc, sql } from 'drizzle-orm';
 import { Public } from '../../common/decorators/public.decorator';
 import { ZodValidationPipe } from '../../common/pipes/zod-validation.pipe';
-import { getAppConfig } from '../../config/app-config';
+import { getAppConfig, mergeAndPersistConfig, resetAppConfigCache } from '../../config/app-config';
 import { type DrizzleDb, DRIZZLE_DB } from '../../infra/db/db.module';
 import { operationLog } from '../../infra/db/schema';
 import { z } from 'zod';
@@ -23,6 +23,11 @@ import { MizukiDetectorService, type DetectResult } from './mizuki-detector.serv
 /** POST /system/detect body */
 const DetectBodySchema = z.object({
   path: z.string().min(1),
+});
+
+/** PATCH /admin/system/mode body（[B2/裁决 4] 运行模式运行期变更） */
+const PatchModeBodySchema = z.object({
+  mode: z.enum(['manage', 'additive', 'overwrite']),
 });
 
 /** 日志分页参数上限（防御深分页） */
@@ -79,6 +84,22 @@ export class SystemController {
   @Post('system/init')
   init(@Body(new ZodValidationPipe(InitBodySchema)) body: InitBody) {
     return this.authService.initialize(body);
+  }
+
+  /**
+   * [B2/裁决 4] 运行模式变更（需认证）：写入 config.json + 活取值生效
+   * （P11 坑 5 先例：getAppConfig() 每请求活取，进程不重启）。
+   * 返回变更后的 mode（即 GET /admin/system/status 随后返回值）。
+   */
+  @ApiTags('管理')
+  @ApiBearerAuth()
+  @ApiOperation({ summary: '运行模式变更（需认证）：写 config.json，进程不重启立即生效' })
+  @Patch('admin/system/mode')
+  patchMode(@Body(new ZodValidationPipe(PatchModeBodySchema)) body: { mode: 'manage' | 'additive' | 'overwrite' }) {
+    mergeAndPersistConfig({ mode: body.mode });
+    resetAppConfigCache();
+    const mode = getAppConfig().mode;
+    return { mode };
   }
 
   /**

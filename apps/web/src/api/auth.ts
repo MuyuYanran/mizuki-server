@@ -15,6 +15,7 @@ const PATHS = {
   refresh: '/admin/auth/refresh',
   logout: '/admin/auth/logout',
   me: '/admin/auth/me',
+  password: '/admin/auth/password',
 } as const;
 
 export const authApi = {
@@ -29,5 +30,9 @@ export const authApi = {
   },
   me(): Promise<AdminUser> {
     return request<AdminUser>('GET', PATHS.me);
+  },
+  /** [B2/裁决 5] 修改密码：成功后服务端已吊销全部 refresh 会话 */
+  changePassword(oldPassword: string, newPassword: string): Promise<{ passwordChanged: boolean }> {
+    return request<{ passwordChanged: boolean }>('PATCH', PATHS.password, { oldPassword, newPassword });
   },
 };

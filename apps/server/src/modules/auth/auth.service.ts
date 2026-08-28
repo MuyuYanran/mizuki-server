@@ -11,8 +11,6 @@
  * 安全纪律：密码 / secret / token 一律不落日志（P6 §5）。
  */
 import { randomBytes } from 'node:crypto';
-import fs from 'node:fs';
-import path from 'node:path';
 import {
   BadRequestException,
   ConflictException,
@@ -29,7 +27,7 @@ import { nanoid } from 'nanoid';
 import { z } from 'zod';
 import { logger } from '../../common/logger';
 import type { AccessTokenVerifier, AuthenticatedUser } from '../../common/guards/jwt-auth.guard';
-import { defaultConfigPath, getAppConfig, resetAppConfigCache } from '../../config/app-config';
+import { getAppConfig, mergeAndPersistConfig, resetAppConfigCache } from '../../config/app-config';
 import { type DrizzleDb, DRIZZLE_DB } from '../../infra/db/db.module';
 import { adminUser } from '../../infra/db/schema';
 import { MizukiDetectorService } from '../system/mizuki-detector.service';
@@ -59,6 +57,14 @@ export const InitBodySchema = z.object({
 });
 
 export type InitBody = z.infer<typeof InitBodySchema>;
+
+/** PATCH /admin/auth/password body（[B2/裁决 5] 强度基线同注册：最短 8 位） */
+export const ChangePasswordBodySchema = z.object({
+  oldPassword: z.string().min(1),
+  newPassword: z.string().min(8).max(200),
+});
+
+export type ChangePasswordBody = z.infer<typeof ChangePasswordBodySchema>;
 
 /** access / refresh 时效（P6 §3.1 默认值） */
 const ACCESS_TTL = '15m';
@@ -165,10 +171,14 @@ export class AuthService implements AccessTokenVerifier {
       .set({ failedLoginCount: 0, lockedUntil: null, lastLoginAt: new Date() })
       .where(eq(adminUser.id, user.id));
     logger.info({ username }, '登录成功');
-    return this.issueTokenPair({ id: user.id, username: user.username });
+    return this.issueTokenPair({ id: user.id, username: user.username }, user.tokenVersion);
   }
 
-  /** 刷新：校验 refresh token → 签发新的一对（轮换） */
+  /**
+   * 刷新：校验 refresh token → 签发新的一对（轮换）。
+   * [B2/裁决 5] refresh token 内 ver 与表内 token_version 比对，不一致 → 401
+   * （改密吊销语义；access 15min 自然过期，不做吊销）。
+   */
   async refresh(refreshToken: string): Promise<{ accessToken: string; refreshToken: string }> {
     const payload = await this.verifyToken(refreshToken, 'refresh');
     const rows = await this.db.select().from(adminUser).where(eq(adminUser.id, payload.sub));
@@ -176,7 +186,35 @@ export class AuthService implements AccessTokenVerifier {
     if (!user) {
       throw new UnauthorizedException('refresh token 对应的用户不存在');
     }
-    return this.issueTokenPair({ id: user.id, username: user.username });
+    if (payload.ver !== user.tokenVersion) {
+      logger.info({ userId: user.id }, 'refresh 拒绝：token 版本过期（密码已修改或会话已吊销）');
+      throw new UnauthorizedException('会话已失效，请重新登录');
+    }
+    return this.issueTokenPair({ id: user.id, username: user.username }, user.tokenVersion);
+  }
+
+  /**
+   * [B2/裁决 5] 修改密码：旧密码 argon2id verify → 新密码哈希落库 +
+   * token_version +1（吊销全部既有 refresh token；access 15min 自然过期）。
+   */
+  async changePassword(userId: string, oldPassword: string, newPassword: string): Promise<{ passwordChanged: true }> {
+    const rows = await this.db.select().from(adminUser).where(eq(adminUser.id, userId));
+    const user = rows[0];
+    if (!user) {
+      throw new UnauthorizedException('认证凭据对应的用户不存在');
+    }
+    const valid = await argon2.verify(user.passwordHash, oldPassword);
+    if (!valid) {
+      logger.warn({ userId }, '修改密码拒绝：旧密码不正确');
+      throw new BadRequestException('旧密码不正确');
+    }
+    const passwordHash = await argon2.hash(newPassword, { type: argon2.argon2id });
+    await this.db
+      .update(adminUser)
+      .set({ passwordHash, tokenVersion: user.tokenVersion + 1 })
+      .where(eq(adminUser.id, user.id));
+    logger.info({ userId }, '密码已修改，token_version 已递增（全部 refresh 会话吊销）');
+    return { passwordChanged: true };
   }
 
   /** access token 校验（守卫调用）：签名/时效/类型 claim 全通过才返回用户 */
@@ -207,16 +245,20 @@ export class AuthService implements AccessTokenVerifier {
 
   // ── 内部实现 ──
 
-  /** 签发双 Token（claims：sub / username / type / jti / iat / exp） */
-  private async issueTokenPair(admin: { id: string; username: string }): Promise<{ accessToken: string; refreshToken: string }> {
+  /**
+   * 签发双 Token（claims：sub / username / type / ver / jti / iat / exp）。
+   * [B2/裁决 5] ver = 签发时的 token_version：refresh 校验比对，access 不校验
+   * （15min 自然过期，不做吊销）。
+   */
+  private async issueTokenPair(admin: { id: string; username: string }, tokenVersion: number): Promise<{ accessToken: string; refreshToken: string }> {
     return {
-      accessToken: await this.signToken(admin, 'access', ACCESS_TTL),
-      refreshToken: await this.signToken(admin, 'refresh', REFRESH_TTL),
+      accessToken: await this.signToken(admin, 'access', ACCESS_TTL, tokenVersion),
+      refreshToken: await this.signToken(admin, 'refresh', REFRESH_TTL, tokenVersion),
     };
   }
 
-  private async signToken(admin: { id: string; username: string }, type: TokenType, ttl: string): Promise<string> {
-    return new SignJWT({ username: admin.username, type })
+  private async signToken(admin: { id: string; username: string }, type: TokenType, ttl: string, ver: number): Promise<string> {
+    return new SignJWT({ username: admin.username, type, ver })
       .setProtectedHeader({ alg: 'HS256' })
       .setSubject(admin.id)
       .setJti(nanoid())
@@ -226,12 +268,12 @@ export class AuthService implements AccessTokenVerifier {
       .sign(secretKey(this.getJwtSecret()));
   }
 
-  /** 校验签名/时效与 type claim，返回 payload（sub 必为字符串） */
-  private async verifyToken(token: string, expectedType: TokenType): Promise<{ sub: string }> {
-    let payload: { sub?: string; type?: unknown };
+  /** 校验签名/时效与 type claim，返回 payload（sub 必为字符串；ver 为可选数值） */
+  private async verifyToken(token: string, expectedType: TokenType): Promise<{ sub: string; ver: number | undefined }> {
+    let payload: { sub?: string; type?: unknown; ver?: unknown };
     try {
       const verified = await jwtVerify(token, secretKey(this.getJwtSecret()));
-      payload = verified.payload as { sub?: string; type?: unknown };
+      payload = verified.payload as { sub?: string; type?: unknown; ver?: unknown };
     } catch {
       throw new UnauthorizedException('认证凭据无效或已过期');
     }
@@ -241,7 +283,9 @@ export class AuthService implements AccessTokenVerifier {
     if (typeof payload.sub !== 'string' || payload.sub === '') {
       throw new UnauthorizedException('认证凭据缺少主体声明');
     }
-    return { sub: payload.sub };
+    // ver 仅由本服务签发（number）；缺失/非法按 undefined 处理，由调用方决定是否比对
+    const ver = typeof payload['ver'] === 'number' ? payload['ver'] : undefined;
+    return { sub: payload.sub, ver };
   }
 
   /**
@@ -271,31 +315,6 @@ export class AuthService implements AccessTokenVerifier {
 /** jose 密钥编码（HS256 对称密钥） */
 function secretKey(secret: string): Uint8Array {
   return new TextEncoder().encode(secret);
-}
-
-/**
- * config.json 合并持久化：读取现有配置 → 合并 patch → 原子写（临时文件 + rename）。
- * 配置文件格式在启动时已由 loadAppConfig 校验，此处解析失败按空配置处理并告警。
- */
-function mergeAndPersistConfig(patch: Record<string, unknown>): void {
-  const configPath = defaultConfigPath();
-  let current: Record<string, unknown> = {};
-  if (fs.existsSync(configPath)) {
-    try {
-      const raw: unknown = JSON.parse(fs.readFileSync(configPath, 'utf8'));
-      if (typeof raw === 'object' && raw !== null && !Array.isArray(raw)) {
-        current = raw as Record<string, unknown>;
-      }
-    } catch {
-      logger.warn({ configPath }, 'config.json 解析失败，按空配置合并写入');
-    }
-  }
-  const next = { ...current, ...patch };
-  fs.mkdirSync(path.dirname(configPath), { recursive: true });
-  const tmp = path.join(path.dirname(configPath), `.tmp-${nanoid(8)}`);
-  fs.writeFileSync(tmp, JSON.stringify(next, null, 2));
-  fs.renameSync(tmp, configPath);
-  logger.info({ configPath, keys: Object.keys(patch) }, 'config.json 已更新');
 }
 
 /**

@@ -9,13 +9,21 @@
  *
  * @Public 豁免清单逐字见 P6 §3.3——logout 不在豁免清单内，需有效 Token。
  */
-import { Body, Controller, Get, HttpCode, HttpStatus, Post, Req } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, HttpStatus, Patch, Post, Req } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
 import { Public } from '../../common/decorators/public.decorator';
 import { ZodValidationPipe } from '../../common/pipes/zod-validation.pipe';
 import type { AuthenticatedUser } from '../../common/guards/jwt-auth.guard';
-import { AuthService, LoginBodySchema, RefreshBodySchema, type LoginBodyType, type RefreshBodyType } from './auth.service';
+import {
+  AuthService,
+  ChangePasswordBodySchema,
+  LoginBodySchema,
+  RefreshBodySchema,
+  type ChangePasswordBody,
+  type LoginBodyType,
+  type RefreshBodyType,
+} from './auth.service';
 
 /** 守卫挂载到请求上的认证用户（最小结构） */
 interface MeRequest {
@@ -63,5 +71,23 @@ export class AuthController {
       return this.auth.me('');
     }
     return this.auth.me(user.id);
+  }
+
+  /**
+   * [B2/裁决 5] 修改密码（需 access token）：旧密码 verify + 新密码哈希 +
+   * token_version +1 吊销全部 refresh 会话；access 15min 自然过期不吊销。
+   * 客户端成功后应清除本地会话并回到登录页。
+   */
+  @ApiBearerAuth()
+  @ApiOperation({ summary: '修改密码（需认证）：旧密码校验 + token_version 递增吊销全部 refresh 会话' })
+  @Patch('password')
+  @HttpCode(HttpStatus.OK)
+  changePassword(@Req() req: MeRequest, @Body(new ZodValidationPipe(ChangePasswordBodySchema)) body: ChangePasswordBody) {
+    const user = req.authUser;
+    if (!user) {
+      // 守卫已保证非公开路由必有认证用户；理论不可达
+      return this.auth.changePassword('', body.oldPassword, body.newPassword);
+    }
+    return this.auth.changePassword(user.id, body.oldPassword, body.newPassword);
   }
 }

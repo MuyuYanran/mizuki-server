@@ -1,0 +1,1 @@
+ALTER TABLE `admin_user` ADD `token_version` integer DEFAULT 0 NOT NULL;

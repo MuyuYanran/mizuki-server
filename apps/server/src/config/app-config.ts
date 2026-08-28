@@ -24,6 +24,8 @@ export const AppConfigSchema = z.object({
   /** [P6] JWT HS256 密钥（init 时生成并持久化，保证重启后 refresh token 仍有效；
    *   环境变量 MIZUKI_JWT_SECRET 优先，见 ADR-005） */
   jwtSecret: z.string().optional(),
+  /** [B2/裁决 6] Swagger 文档挂载开关（默认 true；公网部署建议置 false，见 README） */
+  swagger: z.boolean().default(true),
 });
 
 export type AppConfig = z.infer<typeof AppConfigSchema>;
@@ -81,4 +83,31 @@ export function getAppConfig(): AppConfig {
 /** 仅供测试重置单例使用 */
 export function resetAppConfigCache(): void {
   cached = undefined;
+}
+
+/**
+ * [B2/裁决 4] config.json 合并持久化（原 auth.service 内私有实现上收共享）：
+ * 读取现有配置 → 合并 patch → 原子写（临时文件 + rename）。不重置进程内缓存，
+ * 调用方随后调用 resetAppConfigCache() 使变更随下一次 getAppConfig() 活取生效，
+ * 进程不重启（P11 坑 5「活取值」先例）。
+ */
+export function mergeAndPersistConfig(patch: Record<string, unknown>): void {
+  const configPath = defaultConfigPath();
+  let current: Record<string, unknown> = {};
+  if (fs.existsSync(configPath)) {
+    try {
+      const raw: unknown = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+      if (typeof raw === 'object' && raw !== null && !Array.isArray(raw)) {
+        current = raw as Record<string, unknown>;
+      }
+    } catch {
+      logger.warn({ configPath }, 'config.json 解析失败，按空配置合并写入');
+    }
+  }
+  const next = { ...current, ...patch };
+  fs.mkdirSync(path.dirname(configPath), { recursive: true });
+  const tmp = path.join(path.dirname(configPath), `.tmp-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
+  fs.writeFileSync(tmp, JSON.stringify(next, null, 2));
+  fs.renameSync(tmp, configPath);
+  logger.info({ configPath, keys: Object.keys(patch) }, 'config.json 已更新');
 }
