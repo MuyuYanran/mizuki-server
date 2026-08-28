@@ -282,12 +282,20 @@ describe('P7 媒体与相册 e2e', () => {
     expect(album.find((entry) => entry.name === 'trip-2026')?.images).not.toContain('sunset.png');
   });
 
-  it('§6.6 [B2/裁决 3] tiff 放行层排除：合法 tiff 魔数上传 → 400 白名单拒绝（能力层签名保留见单测）', async () => {
-    // 构造真实 TIFF 魔数内容（II*\0 小端头）
-    const tiffHeader = Buffer.from([0x49, 0x49, 0x2a, 0x00, 0x08, 0x00, 0x00, 0x00]);
-    const res = await server().post('/api/v1/admin/albums/trip-2026/images').attach('file', tiffHeader, 'a.tiff');
-    expect(res.status).toBe(400);
-    expect(String(res.body.message)).toContain('白名单');
+  it('§6.6 [Phase3-C2a/ADR-017] tiff 重裁决：真实 tiff 魔数上传 → 201 原格式落盘（原「放行层排除」撤回）', async () => {
+    // [ADR-017] 白名单终集 +tiff/tif：tiff 由「放行层排除（400）」改为「准入 + 原格式落盘」。
+    // sharp 可解码 tiff（B4 已证支持）——此处用 sharp 生成真实 tiff 验证放行层准入后行为。
+    const tiff = await sharp({
+      create: { width: 8, height: 8, channels: 3, background: { r: 1, g: 2, b: 3 } },
+    })
+      .tiff()
+      .toBuffer();
+    const res = await server().post('/api/v1/admin/albums/trip-2026/images').attach('file', tiff, 'a.tiff');
+    expect(res.status).toBe(201);
+    expect(res.body.name).toBe('a.tiff');
+    const abs = path.join(mizukiRoot, String(res.body.path));
+    expect(fs.existsSync(abs)).toBe(true);
+    expect((await sharp(abs).metadata()).format).toBe('tiff');
   });
 
   // ── §6.7 路径防护 ──

@@ -61,20 +61,31 @@ describe('common/security/magic-sniff（魔数嗅探）', () => {
     expect(sniffImageFormat(Buffer.alloc(0))).toBeUndefined();
   });
 
-  it('扩展名映射覆盖白名单终集扩展名（.jpg/.jpeg 同归 jpeg；.avif 归 avif）[B2 裁决 3]', () => {
+  it('扩展名映射覆盖白名单终集扩展名（.jpg/.jpeg 同归 jpeg；.avif 归 avif；bmp/tiff/tif 归新格式）[B2 裁决 3 + Phase3-C2a/ADR-017]', () => {
     expect(EXTENSION_FORMAT['.jpg']).toBe('jpeg');
     expect(EXTENSION_FORMAT['.jpeg']).toBe('jpeg');
     expect(EXTENSION_FORMAT['.png']).toBe('png');
     expect(EXTENSION_FORMAT['.webp']).toBe('webp');
     expect(EXTENSION_FORMAT['.gif']).toBe('gif');
     expect(EXTENSION_FORMAT['.avif']).toBe('avif');
+    // [Phase3-C2a/ADR-017] 白名单终集 +bmp+tiff/tif
+    expect(EXTENSION_FORMAT['.bmp']).toBe('bmp');
+    expect(EXTENSION_FORMAT['.tiff']).toBe('tiff');
+    expect(EXTENSION_FORMAT['.tif']).toBe('tiff');
     expect(EXTENSION_FORMAT['.txt']).toBeUndefined();
   });
 
-  it('[B2 裁决 3] 白名单终集排除：bmp（sharp 无法解码）/ svg（XSS 面）/ tiff（能力层在、放行层排除）不在白名单', () => {
-    expect(EXTENSION_FORMAT['.bmp']).toBeUndefined();
+  it('BMP 魔数 BM 识别（两字节头）[Phase3-C2a/ADR-017 新增]', () => {
+    expect(sniffImageFormat(Buffer.from([0x42, 0x4d, 0x00, 0x00]))).toBe('bmp');
+    expect(sniffImageFormat(Buffer.from([0x42, 0x4d]))).toBe('bmp');
+    // 非 BM 起始不误判
+    expect(sniffImageFormat(Buffer.from([0x42, 0x4e, 0x00, 0x00]))).toBeUndefined();
+  });
+
+  it('[Phase3-C2a/ADR-017] 白名单终集：bmp/tiff/tif 准入（放行层扩展），svg 维持排除（XSS 面）', () => {
+    expect(EXTENSION_FORMAT['.bmp']).toBe('bmp');
+    expect(EXTENSION_FORMAT['.tif']).toBe('tiff');
+    expect(EXTENSION_FORMAT['.tiff']).toBe('tiff');
     expect(EXTENSION_FORMAT['.svg']).toBeUndefined();
-    expect(EXTENSION_FORMAT['.tif']).toBeUndefined();
-    expect(EXTENSION_FORMAT['.tiff']).toBeUndefined();
   });
 });
