@@ -1818,3 +1818,61 @@ T0 未触发新增（avif 用例已存在）。基线修复 9 处均为 body 补
 
 - `docs(Phase3-C0.1): 官方功能面规划级快照 10 件与 feature-surface 清单`
 - `docs(Phase3-C0.1): MASTER-PLAN 注记与台账`
+
+## Phase3-C1 交付报告 — 文章字段面扩展与公开 API 泄漏点修复（三期首个功能批）
+
+- 日期：2026-08-29
+- 阶段：三期 C1（决议 2 落地：文章密码锁字段面 + PATCH 删键语义 + 公开 API 双泄漏点修复 + 面板区块 + e2e）
+- 结论：**C1 完成。** 三连全绿（test **295 → 301**、build 0、lint 0/0）。提交后立即停止，不开启 C2。
+
+### 1. 任务完成清单
+
+| 任务 | 内容 | 载体 |
+|---|---|---|
+| T0 | permalink 快照升级：规划级 → 裁决级（保留来源 URL，原文 verbatim + 头部声明改「裁决级快照」） | `docs/audits/phase3/permalink.md` |
+| T1 | 字段面：`PostFrontmatterSchema` 新增 encrypted/password/comment（`.nullable().optional()`）+ 语义注记；PATCH 删键语义（`NULL_DELETE_KEYS` + `stripNullDeleteKeys`，create/update 两入口） | `apps/server/src/modules/posts/posts.service.ts` |
+| T2 | 泄漏点 B 无条件剥离 password（浅拷贝后删键）+ 泄漏点 A 条件清空 html（encrypted===true → ''） | `apps/server/src/modules/articles/articles.service.ts`（publicDetail md 分支） |
+| T3 | 侧栏「加密与发布」区块（加密开关/密码/禁用评论/固定链接）+ null 提交适配 + 灰字提示 | `apps/web/src/views/posts/PostEditPage.vue` |
+| T4 | e2e 6 用例（全部经 API 创建，fixture 零变更） | `apps/server/test/p5c-encrypted-articles.e2e-spec.ts` |
+| T5 | 台账：CHANGELOG C1 节 + REQUIREMENTS-PHASE3 §1.2「C1 已落地」注记 + SESSIONS 本报告 | docs/* |
+
+### 2. T1 合并语义变更说明（本批唯一合并规则变更，范围严格受限）
+
+- **动机**：JSON 请求体无法表达 undefined，「取消勾选/清空输入」需要显式删除指令——null 即删键哨兵。
+- **实现**：`NULL_DELETE_KEYS = ['encrypted','password','comment','permalink']`；create（`PostFrontmatterWriteSchema.parse` 后）与 update（`{...existing, ...incoming}` 合并后）统一过 `stripNullDeleteKeys`——浅拷贝后删除值为 null 的可删键（不原地修改入参，防共享引用污染；同时兜住盘上 YAML 空值 `password:` 解析出的 null）。
+- **边界**：incoming 非 null 行为不变；既有值被 null 覆盖即删除（如 PATCH `{comment:null}` 删既有 `comment:false`）；其余字段（含 passthrough 自定义键）合并语义零变化；schema 层 `.nullable()` 保障 null 通过入口校验后才被删除（不阻断 400）。
+- **面板配合**：`buildFrontmatter` 四可删键取消/清空一律按 null 提交（password 空串亦 null，防落盘空密码）；comment 勾选提交 false、取消提交 null。
+
+### 3. 偏差清单
+
+1. **T1「新增四字段」实为新增三**：`permalink` 为 P5 十二字段面既有字段（`posts.service.ts` 原已 `z.string().optional()`），本批改为 `.nullable().optional()` 并入可删键面；schema 注记与 CHANGELOG 已如实记录。
+2. **面板 permalink 控件迁移**：既有「永久链接」el-form-item（placeholder "/post/..."）按 T3 区块定义移入「加密与发布」区块，更名「固定链接」（对齐官方文档「固定连接」标题）、placeholder 改 "encrypted-example"（对齐裁决级快照示例）——避免双控件绑同一字段。
+3. **环境适配（.gitignore 一行入批）**：执行沙箱阻止 vitest 写系统临时目录（EPERM mkdir），测试运行改用 `TMP/TEMP = 仓库内 .tmpvitest/`；工作树出现的 `.gitignore` 增补 `.tmpvitest/` 忽略规则并入本批提交（否则该目录污染 git status）。
+4. **基线零修复**：p5c 新增前全量 295/295 复跑确认，无任何既有用例受 T1/T2 行为变化影响（既有测试不涉四可删键与公开详情 password 断言）。
+
+### 4. 疑问清单
+
+1. **公开详情保留 encrypted 键**：泄漏点修复仅剥离 password；`encrypted: true` 原样返回（供前端识别加密态渲染密码框，html 已为空）。若官方主题仅靠构建产物（加密组件内嵌标志）而不读 frontmatter.encrypted，该键是否也应剥离——留人工核验，不阻塞。
+2. **管理端 password 明文传输**：面板→API 为明文（HTTPS 前提下），与官方构建期加密语义一致（Server 本就明文落盘 frontmatter 供主题构建消费）；如需端到端保密需主题侧方案，超出 Server 范围，记录备查。
+3. C0 报告疑问 1（MASTER-PLAN §5 修订时机）本批未处理，维持留裁决。
+
+### 5. 手动走查清单（人工核验项）
+
+| # | 项目 | 操作 | 预期 |
+|---|---|---|---|
+| 1 | 面板加密区块交互往返 | 编辑既有文章：开加密开关 + 输密码 + 保存 → 重载页面 | 开关开启、密码经 show-password 回显；盘上 md 含 `encrypted: true` 与 `password: '...'` |
+| 2 | 删键交互往返 | 取消勾选「禁用本文评论」+ 清空固定链接 → 保存 → 查盘上 md | md 无 comment/permalink 键（null 删键生效，非空值覆盖） |
+| 3 | 公开页加密文章表现 | 主题构建后访问加密文章 | 出现密码输入框（主题加密组件接管）；未输密码不见正文——面板/Server 侧已由 e2e 保证不泄露明文 |
+| 4 | 公开 API 直连核验 | `GET /api/v1/public/articles/<加密文章 slug>` | `html: ""`、frontmatter 无 password、有 encrypted |
+
+### 6. 测试数账（295 → 301，+6 只增不减）
+
+| 文件 | 增量 | 内容 |
+|---|---|---|
+| `p5c-encrypted-articles.e2e-spec.ts` | +6（新增文件） | §1 加密详情 html=''/无 password；§2 非加密手写 password 无条件剥离；§3 管理端 password 保留；§4 comment+permalink 往返；§5 PATCH 删键+改值；§6 PATCH 正文不清加密态 |
+
+### 7. commit 记录
+
+- `feat(Phase3-C1): 文章字段面扩展与 PATCH 删键语义`
+- `fix(Phase3-C1): 公开 API 加密文章双泄漏点修复`
+- `docs(Phase3-C1): permalink 裁决级快照与台账`

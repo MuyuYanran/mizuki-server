@@ -1,5 +1,15 @@
 # 变更日志
 
+## Phase3-C1 — 文章字段面扩展与公开 API 双泄漏点修复（三期首个功能批）
+
+- **T1 字段面与 PATCH 删键语义**：`PostFrontmatterSchema` 新增 `encrypted`/`password`/`comment` 三字段（`.nullable().optional()`；`permalink` 为 P5 既有字段，本批并入可删键面）——语义注记入码：encrypted/password 为主题构建期客户端加密所用（press-key 快照，Server 仅存储不参与加密）、comment:false 文章级禁用评论（twikoo 快照，缺失=继承全局）、permalink 主题构建期消费 Server 不解析 URL（permalink 快照）。**四可删键语义**（本批唯一合并规则变更，范围严格受限）：JSON 传输无法表达 undefined，null 即删除指令——create/update 合并前 `stripNullDeleteKeys` 统一删除值为 null 的可删键（浅拷贝后删键，不原地修改入参防共享引用污染）；创建体中四字段为 null 等价于缺失；非 null 行为不变，其余字段（含 passthrough 自定义键）合并语义零变化
+- **T2 公开 API 双泄漏点修复**（安全注记：存量缺陷补漏，公开 API 冻结语义内优先级最高的安全例外——路径与响应形状不变）：`articles.service.publicDetail` md 分支——泄漏点 B 无条件剥离：frontmatter 浅拷贝后删除 password 键，无论 encrypted 与否 password 永不出公开面；泄漏点 A 条件清空：`encrypted === true` 时 html 固定为 `''`（正文由主题构建期加密组件接管），非加密文章 html 行为逐字节不变。列表 item 字段面（本就不含 password/正文）与管理端读回（管理员可编辑 password）零改动
+- **T3 面板**：PostEditPage 侧栏新增「加密与发布」区块（置于既有侧栏字段之后、额外字段区块之前）：el-switch 加密 / el-input 密码（type="password" show-password）/ el-checkbox「禁用本文评论」（勾选提交 comment:false，取消提交 null 删键）/ el-input 固定链接（placeholder "encrypted-example"；原「永久链接」item 移入本区块更名）；区块顶部灰字提示「加密由主题在构建期完成（客户端解密），此处仅保存配置字段」；提交适配——四可删键取消/清空按 null 提交，password 空串按 null 提交（防落盘空密码）
+- **T0 快照升级**：`docs/audits/phase3/permalink.md` 规划级 → 裁决级（架构师 2026-08-28 抓取原文 verbatim）
+- **T4 e2e**：新建 `apps/server/test/p5c-encrypted-articles.e2e-spec.ts` 6 用例（§1 加密详情 html=''/frontmatter 无 password；§2 非加密手写 password 无条件剥离且 html 明文不变；§3 管理端读回 password 保留；§4 comment:false+permalink 往返保真；§5 PATCH comment:null 删键+permalink 改值生效；§6 加密文章 PATCH 正文不清加密态）
+- **环境适配**：执行沙箱阻止 vitest 写系统临时目录（EPERM）→ 测试运行时 TMP/TEMP 重定向仓库内 `.tmpvitest/`，`.gitignore` 增补忽略规则
+- **验收**：test **295 → 301**（+6，恰达下限）、build 0、lint 0/0；纪律：零新增依赖、零 any/as any/@ts-ignore、零表结构变更、fixture 零变更、TipTap 系与 RichArticle* 零触碰、公开列表 item 字段面零改动
+
 ## Phase3-C0.1 — 官方功能面侦察入仓（纯文档批）
 
 - **T1 规划级快照 10 件 + README**（`docs/audits/phase3/`，每件头部统一注明来源 URL + 「规划级快照：架构师 2026-08-28 取证的要点转述；该页面被选定落地时须重新抓取原文升级为裁决级快照」）：`permalink.md`（v7.2+ 文章固定链接，独立于 slug，影响 URL/RSS/sitemap，P5 十二字段未含 → C1 候选）、`anime.md`（数据源三选一 bangumi/bilibili/local，AnimeItem 字段面，B4 i2「无规格」判定被推翻 → 第七集合候选）、`site-config.md`、`banner.md`、`navbar.md`（含 LinkPreset 标识符引用雷点注记 → C7 专项裁决）、`sidebar.md`（Sidepanel 六子页合并）、`music.md`、`sakura.md`、`article-extras.md`（toc/share/Edit-History/copyright/codeblock 五子页合并）、`misc-config.md`（font/footer/auto-res/fullscreen/hide/umami/pio 七子页合并）；`README.md`（快照分级说明 + B4 已覆盖页面引用指引，不重建）

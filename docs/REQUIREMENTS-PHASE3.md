@@ -11,7 +11,8 @@
 2. **文章密码锁（新 C1）**：字段面 `encrypted`/`password`/`comment` 纳入 post schema 与面板表单；
    公开 API 修复两个泄漏点（详情 html 明文正文 + frontmatter 明文密码）——encrypted 文章详情
    返回 `{frontmatter:<剥离 password>, html:''}`，非加密文章零变化，列表不动。**公开 API 冻结
-   优先级最高的安全例外**，理由：泄漏点为存量缺陷非新面。
+   优先级最高的安全例外**，理由：泄漏点为存量缺陷非新面。（**C1 已落地**：2026-08-29，
+   四可删键含 P5 既有 permalink；PATCH 增设 null 删键哨兵语义；详见 CHANGELOG Phase3-C1 节。）
 3. **C3 方案**：包管理器解析链四层——① config/env 显式路径 → ② lockfile 探测（P9 既有）→
    ③ 真实二进制定位：Windows `where.exe` / POSIX `which -a` 列全候选，逐候选 `--version`
    探活，失败跳下个 → ④ 全失败报错附配置指引；全程 `shell:false`。C3 批先核对 ADR-011 原文，
