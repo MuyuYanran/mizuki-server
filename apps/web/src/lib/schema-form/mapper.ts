@@ -58,6 +58,8 @@ export interface FieldDescriptor {
   children?: FieldDescriptor[];
   /** schema `.describe()` 元数据：字段下方帮助文案 + 必填 tooltip（R2-12/13） */
   description?: string;
+  /** [B2/裁决 9] 只读字段：顶层 number id——新增自动分配、编辑不可改，列表页渲染窄列 */
+  readOnly?: boolean;
 }
 
 /** 字段名 → 中文标签覆盖（六类 schema 共用的语义化命名） */
