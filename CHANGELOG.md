@@ -1,5 +1,18 @@
 # 变更日志
 
+## Phase2-B4 — Mizuki 真实主题规格对齐审计（R2-17，裁决呈报批次）
+
+- **官方文档快照落盘**：`docs/refs/mizuki-docs/` 16 页（来源 docs.mizuki.mysqil.com，快照 2026-08-28，CC-BY-4.0；清单与快照说明见其 README）；摘录证据基座 `docs/audits/b4-doc-excerpts.md`
+- **审计总表**：`docs/SPEC-ALIGNMENT-B4.md` 27 行逐条三列（官方规格含摘录引用 / Server 现状含代码行号 / 处置四分类）——【本批已修】4、【维持现状】4（附理由）、✅已对齐 4、【B2 落地（待裁决）】8、【需裁决】7
+- **friends 必填面对齐官方（本批已修）**：shared `FriendsItemSchema` desc 必填、tags `min(1)`（官方 FriendItem §2 逐字）；fixture f-002 补 desc/非空 tags；schemas.spec 新增「缺 desc/空 tags 均拒」用例；p4 e2e friends 创建体同步；**id 类型（官方 number vs Server nanoid string）涉服务行为，转追加裁决项 9**
+- **上传格式扩展（本批已修）**：magic-sniff 补 TIFF 双端序魔数（`II*\0`/`MM\0*`）+ `.tif/.tiff` 入白名单 + media/albums FORMAT 映射与 reencode 分支 + 白名单提示文案同步；单测补 tiff 正反用例与「bmp/svg/avif 不在白名单」回归锚。**bmp 实证不落地**：sharp 0.35 预编译版无法解码 BMP（本批 probe 实测），放行即必 400 死入口——与 svg（XSS 面）、avif（ftyp 嗅探成本）一并转 T4-3 裁决
+- **fixture 官方化（本批已修，B2 测试靶就位）**：新增官方外链模式相册样例（`public/images/albums/external-demo/info.json`，mode:"external"+cover+photos[] 富元数据，逐字对齐 special-gallery §外链模式详解）；新增文件夹方案相对路径图片文章样例（`src/content/posts/relative-images/` index.md+figure.png，`![](./figure.png)`）；friends/timeline 数据对齐官方示例值
+- **ADR-004 兑现（本批已修）**：`TIMELINE_DEFAULTS.education` 按官方示例逐字修订为 `material-symbols:school`/`#059669`（官方图标集为 Iconify 非 Lucide）；certificate/project/other 无官方示例暂定保留并逐行注记；fixture t-001 同步；ADR-004 遗留义务勾销
+- **裁决呈报（未实施）**：T4-1 相对路径图片预览通道 / T4-2 非 JPG 强转 JPG 去留 / T4-3 上传白名单终集与 svg 处置 / T4-4 运行期 mode 端点 / T4-5 改密端点 / T4-6 生产 Swagger 开关 / T4-7 manage 隐藏范围 / T4-8 posts description 必填策略 / 追加项 9 六类 id 类型——各含背景/候选≥2/利弊/建议（标注「建议，待人工裁决」）
+- **台账**：ADR-013（对齐基线原则：快照唯一依据、处置四分类、幽灵字段禁令）；REQUIREMENTS-PHASE2 追加 R2-17；R2-14 的外链相册形状与官方不符（source:"external"+urls[] vs 官方 mode:"external"+photos[]）已列入 B2 输入增量
+- **纪律**：albums/posts 控制器与 service 行为零改动（仅白名单常量与错误文案同步）；公开 API 冻结路径零变化；/site-assets 边界未触碰；零新增依赖
+- **验收**：三连全绿（test 254/254 = B3.6 尾数 250 + 新增 4、build 含 web、lint 0/0）
+
 ## Phase2-B3.6 — Vditor 暗色内容区修复 + 日期控件补齐 + 相册上传接线（人工裁决补丁）
 
 - **Vditor 暗色内容区修复（真缺陷）**：根因——`options.theme` 只换 chrome 变量，`.vditor-reset` 内容层排版由 content-theme（`preview.theme.current`，默认 `light`）独立承载，暗色下内容层仍亮色硬编码 → 深底深字。修复双链：主链路为构造选项 `preview: { theme: { current } }` + `setTheme` 第二参同步内容主题（官方 content-theme 样式，自托管 `/vditor/3.11.3/dist/css/content-theme/` 已含）；兜底层为 `theme.css` 新增 `--mizuki-vditor-*` 11 变量（亮色值与官方默认逐一对齐、暗色值对齐官方 dark.css）+ VditorEditor `:deep(.vditor-reset)` 规则（文字/背景/标题分隔线/引用/表格/行内码/代码块/kbd）；sv 模式由 chrome 变量接管不受影响；三模式明暗截图取证

@@ -1532,3 +1532,74 @@ manage 模式（6）：01 登录页浅色、02 仪表盘浅色（菜单 8 项）
 ### 5. commit 记录
 
 - `fix(Phase2-B3.6): Vditor 暗色内容区+日期控件补齐+相册上传接线+预览泄漏/加载竞态修复`
+
+## Phase2-B4 交付报告 — Mizuki 真实主题规格对齐审计（裁决呈报批次）
+
+- 日期：2026-08-28
+- 阶段：二期 B4（R2-17：对齐审计 + 无风险落地 + 裁决呈报；本批不实施任何裁决项）
+- 结论：**B4 完成。** 三连全绿（test 254/254、build 含 web、lint 0/0）。审计总表 27 行 + 裁决呈报 8+1 项已呈报，**立即停止，等待人工裁决会议结论，不开启 B2**。
+
+### 1. 审计总表（条目数与处置分布）
+
+- 全表：`docs/SPEC-ALIGNMENT-B4.md`（T2 章节，逐行三列：官方规格含摘录引用 / Server 现状含代码文件:行号 / 处置四分类）；摘录证据基座：`docs/audits/b4-doc-excerpts.md`（15 个快照页规格原文，逐条标注 `快照文件名 §小节`）。
+- 处置分布（合计 27）：【本批已修】4（a1 friends desc 必填 / a2 friends tags≥1 / c1 tiff 格式 / g timeline education 映射）｜✅ 已对齐 4（h1/h2 diary、i 仓库结构、j P5 偏差 1 语义闭环）｜【维持现状】4（a4 siteurl 协议、e1 frontmatter passthrough 已覆盖、i2 anime 无规格依据、k slug 最小拒绝面，均附理由）｜【B2 落地（待裁决）】8（b1/b2/b3 相册 info.json 模型、g2 timeline 枚举、h3/h4/h5/h6 五类集合字段面）｜【需裁决】7（a3→追加裁决项 9；c2/c3/c4→T4-3；d→T4-2；e2→T4-8；f→T4-1）。
+
+### 2. 裁决呈报（8+1 项，本批一律未实施）
+
+- 八项既定：T4-1 相对路径图片预览通道 / T4-2 非 JPG 强转 JPG 去留 / T4-3 上传白名单终集与 svg/bmp/avif 处置 / T4-4 运行期变更 mode 端点 / T4-5 改密端点与 token 失效子裁决 / T4-6 生产 Swagger 开关 / T4-7 manage 模式隐藏范围 / T4-8 posts description 必填策略——每项均含背景/候选（≥2）/利弊/建议（标注「建议，待人工裁决」）。
+- 追加裁决项 9（审计产生）：六类集合 id 类型（官方 friends/diary `id: number`、timeline/projects/skills 名称串 vs Server nanoid string）——Server 写出的 friends.ts/diary.ts 若 id 为字符串，真实主题按 TS interface 编译会类型报错。
+
+### 3. 偏差清单
+
+1. **bmp 不进上传白名单（与批次提示词 T3-1 原计划不符）**：计划为「补 bmp/tiff 魔数」，实证 sharp 0.35 预编译版无法解码 BMP（probe 报 `Input buffer contains unsupported image format`），放行即「必 400 死入口」→ 仅落地 tiff，bmp 转 T4-3 裁决（magic-sniff.spec 留 `[B4 审计]` 反例用例固化该事实）。
+2. **ADR-004 修订范围收窄**：官方文档仅 education 类给出示例值（`material-symbols:school`/`#059669`）且证实图标集为 Iconify 非 Lucide；certificate/project/other 三类无官方示例 → 仅 education 按官方值修订，其余维持暂定并逐行注记（ADR-004 §B4 修订）。
+3. **a3 friends id 类型差异超出校验面**：官方 `id: number` vs Server nanoid string 涉及 collections 服务 id 生成/定位行为与存量数据，不属「纯校验强度」可落地项 → 追加裁决项 9（未改）。
+4. **五类集合 schema 收紧全部转 B2**：projects/skills/devices/timeline 的必填面与枚举收紧会拒存量 fixture 数据（如 p-002 `status:'active'` 非官方值），且 timeline/projects/skills 缺失字段受幽灵字段禁令约束（ADR-013 §决策 3）→ 均标记【B2 落地（待裁决）】，本批零 schema 字段新增。
+5. **avif 未随本批补嗅探**：官方支持 avif，魔数为 ISO-BMFF ftyp 盒，嗅探实现复杂度显著高于现有格式，且与白名单终集强耦合（T4-3 一并定）→ 转裁决。
+
+### 4. 疑问清单
+
+1. 官方 timeline type 枚举为 `education|work|project|achievement`（special-timeline §2），Server 为 `education|certificate|project|other`——`work/achievement` 与 `certificate/other` 的映射语义需人工确认（g2 转 B2 时一并定）。
+2. avif 若裁决进入白名单，是否要求与 tiff 同批补齐上传面单测（建议同批）。
+3. e2e 对新增 fixture 资产（外链相册、relative-images 文章）的扫描断言已核实为 `some`/`toContain` 容语义不受影响；后续 B2 落地 R2-14 时须把这两项纳入靶点断言。
+4. `/site-assets` 白名单含 svg/avif（ADR-012，针对既有文件通道）与上传面排除 svg（本批维持）并存——两口径属不同安全边界，若有异议请在 T4-3 裁决时一并表态。
+
+### 5. fixture 变更清单（唯一数据源，README 已同步记载）
+
+| 文件 | 变更 | 依据 |
+|---|---|---|
+| `test/fixtures/mizuki/src/data/friends.ts` | f-002 补 `desc` 与 `tags:['语言']`（对齐官方 FriendItem 必填面） | special-friends §2 |
+| `test/fixtures/mizuki/src/data/timeline.ts` | t-001 icon/color 改官方示例值 `material-symbols:school`/`#059669` | special-timeline §2 |
+| `test/fixtures/mizuki/public/images/albums/external-demo/info.json` | 新增官方外链模式相册样例（`mode:"external"` + cover + photos[] 富元数据）——B2 R2-14 裁决落地测试靶 | special-gallery §外链模式详解 |
+| `test/fixtures/mizuki/src/content/posts/relative-images/`（index.md + figure.png） | 新增文件夹方案相对路径图片文章样例（`![](./figure.png)` + 同目录真实图片）——T4-1 预览通道裁决测试靶 | press-folder §管理图片 |
+
+### 6. 测试增量说明
+
+- 基线：B3.6 尾数 **250**（26 文件）→ 本批 **254**（26 文件），+4 只增不减。
+- 增量来源：`magic-sniff.spec.ts`（tiff 双端序正例、tiff 近似魔数反例、bmp/svg 不进白名单审计用例共 +3）与 `schemas.spec.ts`（friends 官方必填面：缺 desc / 空 tags 均拒，+1）；既有用例同步修订（magic-sniff 扩展名映射覆盖 .tif/.tiff、p4 e2e friends 创建体含 desc/tags）。
+
+### 7. B2 输入增量（裁决项落地清单，供 B2 提示词直接引用）
+
+1. **T4-1~T4-8 + 追加项 9**（`docs/SPEC-ALIGNMENT-B4.md` 裁决章节）：人工裁决会议后按结论落地；
+2. **【B2 落地（待裁决）】8 项**（审计总表）：b1/b2/b3 相册 info.json 官方模型（mode/hidden/layout 枚举/columns/cover.jpg 校验/photos[] 富元数据）、g2 timeline type 枚举、h3/h4/h5/h6 projects/timeline/skills/devices 字段面——字段、服务、表单三者同批可见（ADR-013 幽灵字段禁令）；
+3. **R2-14 形状强制修订**：R2-14 原文 `source:"external" + urls[]` 与官方 `mode:"external" + cover + photos[]` 不符，B2 必须以官方快照为准（fixture `external-demo` 即靶）；
+4. **白名单联动**：T4-2/T4-3 裁决结论决定 albums/posts 转码策略与最终格式集，媒体库/相册两处白名单常量与错误文案须同步；
+5. **a3/裁决项 9**：若裁决对齐 number id，连带 collections.service id 生成/定位、P10 表单只读展示与存量数据迁移设计。
+
+### 8. 手动走查清单
+
+| # | 项目 | 操作 | 预期 |
+|---|---|---|---|
+| 1 | friends 表单必填提示 | 集合管理 → friends 新建，留空 desc、tags 不填提交 | 表单报校验错误（desc 必填；「至少包含一个标签」），不发请求 |
+| 2 | tiff 上传 | 媒体库上传 .tif/.tiff 真实文件 | 成功入库，产物后缀 .tiff，预览可用（浏览器原生支持 tiff 有限，以下载/信息为准） |
+| 3 | bmp/svg 拒绝 | 上传 .bmp / .svg | 400，提示白名单（jpg/jpeg/png/webp/gif/tif/tiff） |
+| 4 | timeline 教育默认值 | timeline 新建 type=education，icon/color 留空 | 默认 icon=`material-symbols:school`、color=`#059669` |
+| 5 | 外链相册/相对路径文章靶点 | 打开相册列表与文章列表 | external-demo 与 relative-images 均可见可编辑（预览通道缺失为 T4-1 已呈报缺口，非本批缺陷） |
+
+说明：本批无可全自动验收的视觉项（1/4 依赖表单渲染，2/3 依赖真实图片文件），按批次提示词 §6 列出如上供人工走查。
+
+### 9. commit 记录
+
+- `test(Phase2-B4): 上传格式白名单扩展（tiff）与魔数用例`
+- `feat(Phase2-B4): friends 必填面对齐官方、timeline 映射修订与 fixture 官方化（含必填面用例）`
+- `docs(Phase2-B4): ADR-013、SPEC-ALIGNMENT-B4 与台账更新`

@@ -139,7 +139,14 @@ SchemaForm 对必填字段渲染问号图标 el-tooltip，悬停显示解释、�
 - 验收见 B2 修订。
 - 注：ADR 编号顺延使用，010 已用于 WebP 决策。
 
+## R2-17 规格对齐审计（B4，已完成）
+- 以官方文档快照（`docs/refs/mizuki-docs/`）为唯一依据，对 Server 数据规格与测试资产做系统性对齐审计（`docs/SPEC-ALIGNMENT-B4.md`，摘录证据 `docs/audits/b4-doc-excerpts.md`，基线原则记 ADR-013）；
+- 本批完成项（无风险对齐落地）：friends 必填面对齐官方（desc 必填、tags≥1）、上传白名单补 tiff 双端序魔数嗅探与重编码（bmp/svg/avif 处置转裁决 T4-3）、fixture 官方化（friends 数据、官方外链模式相册样例、文件夹方案相对路径图片文章样例）、ADR-004 timeline education 映射按官方示例修订并勾销遗留义务；
+- 八项裁决（相对路径图片预览通道、非 JPG 强转 JPG 去留、上传白名单终集与 svg 处置、运行期 mode 端点、改密端点、生产 Swagger 开关、manage 模式隐藏范围、posts description 必填策略）+ 审计追加裁决项（六类 id 类型）已呈报待人工裁决，未实施。
+
+
 ## 二期依赖总账（入 ADR-001）
+
 vue-cropper、v-viewer(viewerjs)、vditor —— 均为前端；后端零新增依赖。
 
 ## 与一期的冲突调和规则
