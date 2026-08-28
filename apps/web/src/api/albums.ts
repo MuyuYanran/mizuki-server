@@ -17,15 +17,37 @@
 import { request } from './http';
 import { extractMediaReferences, type MediaReference } from './media';
 
-/** info.json 字段（REQUIREMENTS §6.9 逐字） */
+/** info.json 字段（REQUIREMENTS §6.9 + [Phase3-C2a] 官方 special-gallery 对齐） */
 export interface AlbumInfo {
   title: string;
   description?: string;
   date?: string;
   location?: string;
   tags?: string[];
-  layout?: string;
+  layout?: 'grid' | 'masonry';
   columns?: number;
+  hidden?: boolean;
+  mode?: 'local' | 'external';
+  cover?: string;
+  photos?: ExternalPhoto[];
+}
+
+/** [Phase3-C2a] 外链照片（官方 14 字段；settings 四子键） */
+export interface ExternalPhoto {
+  id?: string;
+  src: string;
+  thumbnail?: string;
+  alt?: string;
+  title?: string;
+  description?: string;
+  tags?: string[];
+  date?: string;
+  location?: string;
+  width?: number;
+  height?: number;
+  camera?: string;
+  lens?: string;
+  settings?: { aperture?: string; shutter?: string; iso?: string; focal?: string };
 }
 
 /** 相册视图（与后端 AlbumView 对齐） */
@@ -78,6 +100,28 @@ export const albumsApi = {
     return request<{ deleted: true }>(
       'DELETE',
       `/admin/albums/${encodeURIComponent(name)}/images/${encodeURIComponent(imageName)}`,
+    );
+  },
+
+  /** [Phase3-C2a] 追加外链照片（仅外链模式相册） */
+  addExternalPhoto(name: string, photo: ExternalPhoto): Promise<AlbumView> {
+    return request<AlbumView>('POST', `/admin/albums/${encodeURIComponent(name)}/external-photos`, photo);
+  },
+
+  /** [Phase3-C2a] 修改外链照片字段（:index 数组下标，增量合并） */
+  updateExternalPhoto(name: string, index: number, patch: Partial<ExternalPhoto>): Promise<AlbumView> {
+    return request<AlbumView>(
+      'PATCH',
+      `/admin/albums/${encodeURIComponent(name)}/external-photos/${index}`,
+      patch,
+    );
+  },
+
+  /** [Phase3-C2a] 删除外链照片（:index 数组下标） */
+  deleteExternalPhoto(name: string, index: number): Promise<AlbumView> {
+    return request<AlbumView>(
+      'DELETE',
+      `/admin/albums/${encodeURIComponent(name)}/external-photos/${index}`,
     );
   },
 };

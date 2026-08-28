@@ -24,7 +24,10 @@ interface CreateForm {
   date: string;
   location: string;
   layout: string;
-  columns: string;
+  /** [Phase3-C2a] 列数（el-input-number 1-6；null=继承默认 3） */
+  columns: number | null;
+  /** [Phase3-C2a] hidden:true 隐藏（不出现在公开列表，非访问控制） */
+  hidden: boolean;
 }
 
 const createVisible = ref(false);
@@ -36,7 +39,8 @@ const createForm = ref<CreateForm>({
   date: todayString(),
   location: '',
   layout: '',
-  columns: '',
+  columns: null,
+  hidden: false,
 });
 
 async function fetchList(): Promise<void> {
@@ -58,7 +62,8 @@ function openCreate(): void {
     date: todayString(),
     location: '',
     layout: '',
-    columns: '',
+    columns: null,
+    hidden: false,
   };
   createVisible.value = true;
 }
@@ -68,8 +73,9 @@ function buildInfo(form: CreateForm): AlbumInfo {
   if (form.description !== '') info.description = form.description;
   if (form.date !== '') info.date = form.date;
   if (form.location !== '') info.location = form.location;
-  if (form.layout !== '') info.layout = form.layout;
-  if (form.columns !== '') info.columns = Number(form.columns);
+  if (form.layout !== '') info.layout = form.layout as AlbumInfo['layout'];
+  if (form.columns !== null) info.columns = form.columns;
+  if (form.hidden) info.hidden = true;
   return info;
 }
 
@@ -128,7 +134,11 @@ onMounted(() => {
     <el-row :gutter="12">
       <el-col v-for="album in list" :key="album.name" :span="6">
         <el-card class="album-card" @click="openDetail(album.name)">
-          <div class="album-title">{{ album.info.title }}</div>
+          <div class="album-title">
+            {{ album.info.title }}
+            <!-- [Phase3-C2a] hidden 徽标：管理端可见、公开列表隐藏 -->
+            <el-tag v-if="album.info.hidden === true" type="warning" size="small">已隐藏</el-tag>
+          </div>
           <div class="album-desc">{{ album.info.description ?? '无描述' }}</div>
           <div class="album-meta">{{ album.images.length }} 张图片</div>
         </el-card>
@@ -164,11 +174,19 @@ onMounted(() => {
         <el-form-item label="位置">
           <el-input v-model="createForm.location" />
         </el-form-item>
+        <!-- [Phase3-C2a] 布局/列数收紧：el-select 枚举 + el-input-number 1-6（可空=继承默认） -->
         <el-form-item label="布局">
-          <el-input v-model="createForm.layout" placeholder="如 grid" />
+          <el-select v-model="createForm.layout" clearable placeholder="grid / masonry" class="full-width">
+            <el-option label="grid" value="grid" />
+            <el-option label="masonry" value="masonry" />
+          </el-select>
         </el-form-item>
         <el-form-item label="列数">
-          <el-input v-model="createForm.columns" type="number" placeholder="如 3" />
+          <el-input-number v-model="createForm.columns" :min="1" :max="6" :controls="true" class="full-width" />
+        </el-form-item>
+        <el-form-item label="隐藏">
+          <el-switch v-model="createForm.hidden" />
+          <span class="field-hint">隐藏后不出现在公开相册列表（文件仍保留）</span>
         </el-form-item>
       </el-form>
       <template #footer>
@@ -187,6 +205,14 @@ onMounted(() => {
 }
 .date-input {
   width: 100%;
+}
+.full-width {
+  width: 100%;
+}
+.field-hint {
+  margin-left: 8px;
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
 }
 .album-card {
   cursor: pointer;

@@ -58,39 +58,54 @@ export const AlbumNameSchema = z
 /** 相册内图片文件名（同相册名规则；实际产物恒为 .jpg） */
 export const AlbumImageNameSchema = AlbumNameSchema;
 
-/** info.json 公共字段（本地/外链两模式共用；本地字段面保持 REQUIREMENTS §6.9 现状） */
+/**
+ * info.json 公共字段（本地/外链两模式共用）。
+ * [Phase3-C2a/ADR-017 对齐] 官方 special-gallery §通用字段说明（裁决级供料）：
+ *   hidden/layout/columns 收紧入共享面；columns 默认 3 的语义由消费方处理（schema 不填充默认值）。
+ */
 const AlbumInfoBaseFields = {
   title: z.string().min(1),
   description: z.string().optional(),
   date: z.string().optional(),
   location: z.string().optional(),
   tags: z.array(z.string()).optional(),
-  layout: z.string().optional(),
-  columns: z.number().int().positive().optional(),
+  layout: z.enum(['grid', 'masonry']).optional(),
+  columns: z.number().int().min(1).max(6).optional(),
+  hidden: z.boolean().optional(),
 } as const;
 
 /**
- * [R2-14] 外链照片：src 必填，其余全可选。
- * 字段面以官方 special-gallery §外链模式详解样例（B4 fixture external-demo）为准，
- * 在提示词基线（src/thumbnail/alt/width/height/camera/lens/settings）之上补充
- * 官方样例实际携带的 id/title/description/tags/date/location。
+ * [R2-14 + Phase3-C2a 收紧] 外链照片：官方 special-gallery §外链模式详解照片字段表
+ * 逐字 14 字段（src 必填，其余可选）。settings 从 B2 自由 record 收紧为官方
+ * settings 示例四子键（aperture/shutter/iso/focal 均为 string）。
+ * .strict()：photos 为收紧面——未知子字段拒绝（不依赖 stripUnknown 剥离）。
  */
-export const ExternalPhotoSchema = z.object({
-  id: z.string().optional(),
-  src: z.string().min(1),
-  thumbnail: z.string().optional(),
-  alt: z.string().optional(),
-  title: z.string().optional(),
-  description: z.string().optional(),
-  tags: z.array(z.string()).optional(),
-  date: z.string().optional(),
-  location: z.string().optional(),
-  width: z.number().int().positive().optional(),
-  height: z.number().int().positive().optional(),
-  camera: z.string().optional(),
-  lens: z.string().optional(),
-  settings: z.record(z.string(), z.string()).optional(),
-});
+export const ExternalPhotoSchema = z
+  .object({
+    id: z.string().optional(),
+    src: z.string().min(1),
+    thumbnail: z.string().optional(),
+    alt: z.string().optional(),
+    title: z.string().optional(),
+    description: z.string().optional(),
+    tags: z.array(z.string()).optional(),
+    date: z.string().optional(),
+    location: z.string().optional(),
+    width: z.number().int().positive().optional(),
+    height: z.number().int().positive().optional(),
+    camera: z.string().optional(),
+    lens: z.string().optional(),
+    settings: z
+      .object({
+        aperture: z.string().optional(),
+        shutter: z.string().optional(),
+        iso: z.string().optional(),
+        focal: z.string().optional(),
+      })
+      .strict()
+      .optional(),
+  })
+  .strict();
 export type ExternalPhoto = z.infer<typeof ExternalPhotoSchema>;
 
 /** 本地模式 info.json（mode 缺省或 "local"，其余与现状逐字一致） */
@@ -106,7 +121,6 @@ export const AlbumInfoExternalSchema = z.object({
   mode: z.literal('external'),
   cover: z.string().min(1),
   photos: z.array(ExternalPhotoSchema),
-  hidden: z.boolean().optional(),
 });
 export type AlbumInfoExternal = z.infer<typeof AlbumInfoExternalSchema>;
 
@@ -192,6 +206,15 @@ export class AlbumsService implements MediaReferenceContributor {
       albums.push({ name: entry.name, info, images: this.listImages(entry.name) });
     }
     return albums.sort((a, b) => a.name.localeCompare(b.name));
+  }
+
+  /**
+   * [Phase3-C2a] 公开相册列表：隐藏过滤（官方 hidden 语义——true 为隐藏，
+   * 不出现在列表页；文件仍保留、知道直接链接仍可访问，非访问控制）。
+   * 管理端列表不过滤（albums.controller 仍走 list()，管理员可见全部）。
+   */
+  listPublic(): AlbumView[] {
+    return this.list().filter((album) => album.info.hidden !== true);
   }
 
   /** 创建相册：目录已存在 → 409；写 info.json 后发射 content.changed（info 可为本地或外链模式） */
@@ -351,10 +374,11 @@ export class AlbumsService implements MediaReferenceContributor {
     }
 
     // §3.1 校验复用：扩展名白名单 → 魔数嗅探 → 大小上限
+    // [Phase3-C2a/ADR-017] 白名单 +bmp+tiff/tif（svg 维持排除）
     const ext = path.extname(file.originalname).toLowerCase();
     const expectedFormat = EXTENSION_FORMAT[ext];
     if (!expectedFormat) {
-      throw new BadRequestException(`扩展名不在白名单：${ext || '(空)'}（允许 jpg/jpeg/png/gif/webp/avif）`);
+      throw new BadRequestException(`扩展名不在白名单：${ext || '(空)'}（允许 jpg/jpeg/png/gif/webp/avif/bmp/tiff）`);
     }
     if (sniffImageFormat(file.buffer) !== expectedFormat) {
       throw new BadRequestException('文件内容与扩展名不符（魔数校验失败）');
@@ -364,11 +388,16 @@ export class AlbumsService implements MediaReferenceContributor {
       throw new PayloadTooLargeException(`文件超出上传上限 ${getAppConfig().uploadLimitMb}MB`);
     }
 
-    // 解码兜底（仅校验，不转码）：嗅探通过但内容损坏在此拒绝
-    try {
-      await sharp(file.buffer).metadata();
-    } catch {
-      throw new BadRequestException('图片解码失败，已拒绝');
+    // 解码兜底（仅校验，不转码）：嗅探通过但内容损坏在此拒绝。
+    // [Phase3-C2a/ADR-017] bmp 跳过 sharp probe——sharp 0.35 预编译版无法解码 bmp
+    // （能力层不支持），bmp 原格式直落盘；非图像伪造已由魔数嗅探在上一步拒绝。
+    // tiff 维持可 probe（B4 已证支持）。
+    if (expectedFormat !== 'bmp') {
+      try {
+        await sharp(file.buffer).metadata();
+      } catch {
+        throw new BadRequestException('图片解码失败，已拒绝');
+      }
     }
 
     // 文件名：`<原名><原扩展名>`（原格式落盘）；同名冲突追加随机后缀

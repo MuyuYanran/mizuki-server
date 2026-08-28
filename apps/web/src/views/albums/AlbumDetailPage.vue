@@ -17,7 +17,7 @@ import { useRoute } from 'vue-router';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import { api as viewerApi } from 'v-viewer';
 import 'viewerjs/dist/viewer.css';
-import { albumsApi, type AlbumView, type AlbumInfo } from '../../api/albums';
+import { albumsApi, type AlbumView, type AlbumInfo, type ExternalPhoto } from '../../api/albums';
 import { ApiError } from '../../api/http';
 import { imageSrc } from '../../lib/image-src';
 
@@ -56,7 +56,10 @@ interface EditForm {
   date: string;
   location: string;
   layout: string;
-  columns: string;
+  /** [Phase3-C2a] 列数（el-input-number 1-6；null=继承默认 3） */
+  columns: number | null;
+  /** [Phase3-C2a] hidden:true 隐藏（不出现在公开列表，非访问控制） */
+  hidden: boolean;
 }
 
 const editVisible = ref(false);
@@ -67,7 +70,8 @@ const editForm = ref<EditForm>({
   date: '',
   location: '',
   layout: '',
-  columns: '',
+  columns: null,
+  hidden: false,
 });
 
 async function fetchDetail(): Promise<void> {
@@ -164,6 +168,170 @@ async function onDeleteImage(imageName: string): Promise<void> {
   }
 }
 
+// ── [Phase3-C2a] 外链照片管理（仅 mode === 'external'） ──
+
+/** 外链照片编辑表单（settings 四子键平铺为独立输入框） */
+interface PhotoForm {
+  id: string;
+  src: string;
+  thumbnail: string;
+  alt: string;
+  title: string;
+  description: string;
+  tags: string;
+  date: string;
+  location: string;
+  width: string;
+  height: string;
+  camera: string;
+  lens: string;
+  aperture: string;
+  shutter: string;
+  iso: string;
+  focal: string;
+}
+
+const externalPhotos = computed(() => album.value?.info.photos ?? []);
+
+const photoDialogVisible = ref(false);
+const photoEditingIndex = ref<number | null>(null);
+const photoSaving = ref(false);
+const photoForm = ref<PhotoForm>(emptyPhotoForm());
+
+function emptyPhotoForm(): PhotoForm {
+  return {
+    id: '',
+    src: '',
+    thumbnail: '',
+    alt: '',
+    title: '',
+    description: '',
+    tags: '',
+    date: '',
+    location: '',
+    width: '',
+    height: '',
+    camera: '',
+    lens: '',
+    aperture: '',
+    shutter: '',
+    iso: '',
+    focal: '',
+  };
+}
+
+function openPhotoAdd(): void {
+  photoEditingIndex.value = null;
+  photoForm.value = emptyPhotoForm();
+  photoDialogVisible.value = true;
+}
+
+function openPhotoEdit(index: number): void {
+  const photo = externalPhotos.value[index];
+  if (photo === undefined) {
+    return;
+  }
+  photoEditingIndex.value = index;
+  photoForm.value = {
+    id: photo.id ?? '',
+    src: photo.src,
+    thumbnail: photo.thumbnail ?? '',
+    alt: photo.alt ?? '',
+    title: photo.title ?? '',
+    description: photo.description ?? '',
+    tags: (photo.tags ?? []).join(', '),
+    date: photo.date ?? '',
+    location: photo.location ?? '',
+    width: photo.width !== undefined ? String(photo.width) : '',
+    height: photo.height !== undefined ? String(photo.height) : '',
+    camera: photo.camera ?? '',
+    lens: photo.lens ?? '',
+    aperture: photo.settings?.aperture ?? '',
+    shutter: photo.settings?.shutter ?? '',
+    iso: photo.settings?.iso ?? '',
+    focal: photo.settings?.focal ?? '',
+  };
+  photoDialogVisible.value = true;
+}
+
+/** 表单 → ExternalPhoto（空串/NaN 字段跳过，settings 有键才写入） */
+function buildPhoto(form: PhotoForm): ExternalPhoto {
+  const photo: ExternalPhoto = { src: form.src.trim() };
+  if (form.id !== '') photo.id = form.id.trim();
+  if (form.thumbnail !== '') photo.thumbnail = form.thumbnail.trim();
+  if (form.alt !== '') photo.alt = form.alt.trim();
+  if (form.title !== '') photo.title = form.title.trim();
+  if (form.description !== '') photo.description = form.description.trim();
+  if (form.tags.trim() !== '') {
+    photo.tags = form.tags
+      .split(/[,，]/)
+      .map((t) => t.trim())
+      .filter((t) => t !== '');
+  }
+  if (form.date !== '') photo.date = form.date.trim();
+  if (form.location !== '') photo.location = form.location.trim();
+  if (form.width !== '') {
+    const w = Number(form.width);
+    if (Number.isFinite(w) && w > 0) photo.width = Math.floor(w);
+  }
+  if (form.height !== '') {
+    const h = Number(form.height);
+    if (Number.isFinite(h) && h > 0) photo.height = Math.floor(h);
+  }
+  if (form.camera !== '') photo.camera = form.camera.trim();
+  if (form.lens !== '') photo.lens = form.lens.trim();
+  const settings: NonNullable<ExternalPhoto['settings']> = {};
+  if (form.aperture !== '') settings.aperture = form.aperture.trim();
+  if (form.shutter !== '') settings.shutter = form.shutter.trim();
+  if (form.iso !== '') settings.iso = form.iso.trim();
+  if (form.focal !== '') settings.focal = form.focal.trim();
+  if (Object.keys(settings).length > 0) photo.settings = settings;
+  return photo;
+}
+
+async function onPhotoSave(): Promise<void> {
+  if (photoForm.value.src.trim() === '') {
+    ElMessage.warning('请输入图片链接（src）');
+    return;
+  }
+  photoSaving.value = true;
+  try {
+    const photo = buildPhoto(photoForm.value);
+    if (photoEditingIndex.value === null) {
+      await albumsApi.addExternalPhoto(albumName.value, photo);
+    } else {
+      await albumsApi.updateExternalPhoto(albumName.value, photoEditingIndex.value, photo);
+    }
+    ElMessage.success('已保存');
+    photoDialogVisible.value = false;
+    await fetchDetail();
+  } catch (e) {
+    handleError(e, '保存照片失败');
+  } finally {
+    photoSaving.value = false;
+  }
+}
+
+async function onPhotoDelete(index: number): Promise<void> {
+  const photo = externalPhotos.value[index];
+  try {
+    await ElMessageBox.confirm(
+      `确定删除照片「${photo?.title ?? photo?.src ?? index}」？`,
+      '删除确认',
+      { type: 'warning' },
+    );
+  } catch {
+    return;
+  }
+  try {
+    await albumsApi.deleteExternalPhoto(albumName.value, index);
+    ElMessage.success('已删除');
+    await fetchDetail();
+  } catch (e) {
+    handleError(e, '删除照片失败');
+  }
+}
+
 function openEdit(): void {
   if (album.value === null) {
     return;
@@ -175,7 +343,8 @@ function openEdit(): void {
     date: info.date ?? '',
     location: info.location ?? '',
     layout: info.layout ?? '',
-    columns: info.columns !== undefined ? String(info.columns) : '',
+    columns: info.columns ?? null,
+    hidden: info.hidden === true,
   };
   editVisible.value = true;
 }
@@ -192,8 +361,9 @@ async function onSaveEdit(): Promise<void> {
       description: editForm.value.description || undefined,
       date: editForm.value.date || undefined,
       location: editForm.value.location || undefined,
-      layout: editForm.value.layout || undefined,
-      columns: editForm.value.columns ? Number(editForm.value.columns) : undefined,
+      layout: (editForm.value.layout || undefined) as AlbumInfo['layout'],
+      columns: editForm.value.columns ?? undefined,
+      hidden: editForm.value.hidden ? true : undefined,
     };
     await albumsApi.update(albumName.value, patch);
     ElMessage.success('已保存');
@@ -285,6 +455,35 @@ onMounted(() => {
       />
     </div>
 
+    <!-- [Phase3-C2a] 外链相册照片管理（仅 mode === 'external'） -->
+    <template v-if="album !== null && album.info.mode === 'external'">
+      <el-divider content-position="left">外链照片</el-divider>
+      <el-row :gutter="12">
+        <el-col v-for="(photo, index) in album.info.photos ?? []" :key="index" :span="6">
+          <el-card class="photo-card" shadow="hover">
+            <img
+              :src="photo.src"
+              :alt="photo.alt ?? photo.title ?? photo.src"
+              loading="lazy"
+              class="photo-thumb"
+            />
+            <div class="photo-title">{{ photo.title ?? '(无标题)' }}</div>
+            <div class="photo-src">{{ photo.src }}</div>
+            <div class="photo-actions">
+              <el-button size="small" @click="openPhotoEdit(index)">编辑</el-button>
+              <el-button size="small" type="danger" @click="onPhotoDelete(index)">删除</el-button>
+            </div>
+          </el-card>
+        </el-col>
+        <el-col v-if="(album.info.photos ?? []).length === 0" :span="24">
+          <el-empty description="暂无外链照片" />
+        </el-col>
+        <el-col :span="24" class="photo-add-row">
+          <el-button type="primary" plain @click="openPhotoAdd">新增外链照片</el-button>
+        </el-col>
+      </el-row>
+    </template>
+
     <el-dialog v-model="editVisible" title="编辑相册信息" width="500px">
       <el-form label-width="80px">
         <el-form-item label="标题" required>
@@ -309,15 +508,79 @@ onMounted(() => {
           <el-input v-model="editForm.location" />
         </el-form-item>
         <el-form-item label="布局">
-          <el-input v-model="editForm.layout" />
+          <el-select v-model="editForm.layout" clearable placeholder="grid / masonry" class="full-width">
+            <el-option label="grid" value="grid" />
+            <el-option label="masonry" value="masonry" />
+          </el-select>
         </el-form-item>
         <el-form-item label="列数">
-          <el-input v-model="editForm.columns" type="number" />
+          <el-input-number v-model="editForm.columns" :min="1" :max="6" :controls="true" class="full-width" />
+        </el-form-item>
+        <el-form-item label="隐藏">
+          <el-switch v-model="editForm.hidden" />
+          <span class="field-hint">隐藏后不出现在公开相册列表（文件仍保留）</span>
         </el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="editVisible = false">取消</el-button>
         <el-button type="primary" :loading="saving" @click="onSaveEdit">保存</el-button>
+      </template>
+    </el-dialog>
+
+    <!-- [Phase3-C2a] 外链照片编辑对话框（官方 14 字段；settings 四子键独立输入框） -->
+    <el-dialog
+      v-model="photoDialogVisible"
+      :title="photoEditingIndex === null ? '新增外链照片' : '编辑外链照片'"
+      width="640px"
+    >
+      <el-form label-width="90px">
+        <el-form-item label="链接(src)" required>
+          <el-input v-model="photoForm.src" placeholder="https://..." />
+        </el-form-item>
+        <el-form-item label="ID">
+          <el-input v-model="photoForm.id" />
+        </el-form-item>
+        <el-form-item label="缩略图">
+          <el-input v-model="photoForm.thumbnail" placeholder="https://..." />
+        </el-form-item>
+        <el-form-item label="替代文本">
+          <el-input v-model="photoForm.alt" />
+        </el-form-item>
+        <el-form-item label="标题">
+          <el-input v-model="photoForm.title" />
+        </el-form-item>
+        <el-form-item label="描述">
+          <el-input v-model="photoForm.description" type="textarea" :rows="2" />
+        </el-form-item>
+        <el-form-item label="标签">
+          <el-input v-model="photoForm.tags" placeholder="逗号分隔" />
+        </el-form-item>
+        <el-form-item label="拍摄日期">
+          <el-input v-model="photoForm.date" placeholder="YYYY-MM-DD" />
+        </el-form-item>
+        <el-form-item label="拍摄地点">
+          <el-input v-model="photoForm.location" />
+        </el-form-item>
+        <el-form-item label="宽 / 高">
+          <el-input v-model="photoForm.width" placeholder="宽度" class="wh-input" />
+          <el-input v-model="photoForm.height" placeholder="高度" class="wh-input" />
+        </el-form-item>
+        <el-form-item label="相机">
+          <el-input v-model="photoForm.camera" />
+        </el-form-item>
+        <el-form-item label="镜头">
+          <el-input v-model="photoForm.lens" />
+        </el-form-item>
+        <el-form-item label="拍摄参数">
+          <el-input v-model="photoForm.aperture" placeholder="光圈 f/8" class="wh-input" />
+          <el-input v-model="photoForm.shutter" placeholder="快门 1/125" class="wh-input" />
+          <el-input v-model="photoForm.iso" placeholder="ISO 200" class="wh-input" />
+          <el-input v-model="photoForm.focal" placeholder="焦距 35mm" class="wh-input" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="photoDialogVisible = false">取消</el-button>
+        <el-button type="primary" :loading="photoSaving" @click="onPhotoSave">保存</el-button>
       </template>
     </el-dialog>
   </el-card>
@@ -335,6 +598,49 @@ onMounted(() => {
 }
 .date-input {
   width: 100%;
+}
+.full-width {
+  width: 100%;
+}
+.field-hint {
+  margin-left: 8px;
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
+}
+.photo-card {
+  margin-bottom: 12px;
+  text-align: center;
+}
+.photo-thumb {
+  width: 100%;
+  height: 120px;
+  object-fit: cover;
+  border-radius: 6px;
+  background: var(--el-fill-color-light);
+}
+.photo-title {
+  font-weight: 600;
+  font-size: 13px;
+  margin: 8px 0 4px;
+  word-break: break-all;
+}
+.photo-src {
+  font-size: 11px;
+  color: var(--el-text-color-secondary);
+  word-break: break-all;
+  margin-bottom: 8px;
+}
+.photo-actions {
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+}
+.photo-add-row {
+  margin-top: 4px;
+}
+.wh-input {
+  width: 120px;
+  margin-right: 8px;
 }
 .hint {
   margin-bottom: 12px;
