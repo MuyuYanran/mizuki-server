@@ -8,8 +8,8 @@ export const timelineData: TimelineItem[] = [
     description: `计算机科学与技术专业毕业，
 获得工学学士学位。`,
     type: 'education',
-    icon: 'graduation-cap',
-    color: '#3b82f6',
+    icon: 'material-symbols:school',
+    color: '#059669',
     startDate: '2024-06-30',
     location: '济南',
     organization: '某某大学',

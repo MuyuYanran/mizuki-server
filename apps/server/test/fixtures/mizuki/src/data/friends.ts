@@ -14,8 +14,9 @@ export const friendsData: Friend[] = [
     id: 'f-002',
     title: 'TypeScript',
     imgurl: 'https://www.typescriptlang.org/icons/icon-48x48.png',
+    desc: 'TypeScript is JavaScript with syntax for types',
     siteurl: 'https://www.typescriptlang.org',
-    tags: [],
+    tags: ['语言'],
   },
 ] as const;
 

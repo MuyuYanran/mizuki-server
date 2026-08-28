@@ -1,0 +1,39 @@
+{
+  "mode": "external",
+  "title": "外链相册示例（官方规格样例）",
+  "description": "B4 审计新增：官方外链模式 info.json 样例（special-gallery.md §外链模式详解），作为 B2 裁决落地的测试靶",
+  "date": "2026-08-28",
+  "location": "全球",
+  "tags": ["外链", "官方样例"],
+  "layout": "masonry",
+  "columns": 3,
+  "hidden": false,
+  "cover": "https://cdn.example.com/albums/landscape/cover.jpg",
+  "photos": [
+    {
+      "id": "mountain-sunset",
+      "src": "https://cdn.example.com/photos/mountain-sunset.jpg",
+      "thumbnail": "https://cdn.example.com/thumbs/mountain-sunset.jpg",
+      "alt": "山顶日落",
+      "title": "阿尔卑斯山日落",
+      "description": "在阿尔卑斯山顶拍摄的壮丽日落景象",
+      "tags": ["山脉", "日落"],
+      "date": "2024-07-15",
+      "location": "瑞士阿尔卑斯山",
+      "width": 1920,
+      "height": 1080,
+      "camera": "Canon EOS R5",
+      "lens": "RF 24-70mm f/2.8L IS USM",
+      "settings": { "aperture": "f/8", "shutter": "1/125", "iso": "200", "focal": "35mm" }
+    },
+    {
+      "id": "ocean-waves",
+      "src": "https://cdn.example.com/photos/ocean-waves.jpg",
+      "alt": "海浪",
+      "title": "太平洋海浪",
+      "tags": ["海洋", "海浪"],
+      "width": 1920,
+      "height": 1280
+    }
+  ]
+}

@@ -114,7 +114,8 @@ describe('P4 六类集合 CRUD e2e', () => {
   it('§6.1 friends：全循环', async () => {
     await crudCycle(
       'friends',
-      { title: 'e2e 友链', imgurl: 'https://a.com/i.png', siteurl: 'https://a.com' },
+      // [B4] 官方必填面：desc 必填、tags 至少一个（special-friends.md §2）
+      { title: 'e2e 友链', imgurl: 'https://a.com/i.png', desc: 'e2e 描述', siteurl: 'https://a.com', tags: ['e2e'] },
       { desc: '描述更新' },
       (item) => {
         expect(item['desc']).toBe('描述更新');

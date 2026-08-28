@@ -24,12 +24,21 @@ import type { CollectionDef } from './registry';
 type Item = Record<string, unknown>;
 type GroupedData = Record<string, Item[]>;
 
-/** timeline 按 type 的默认 icon/color（暂定映射，ADR-004） */
+/**
+ * timeline 按 type 的默认 icon/color。
+ * [B4 修订] 官方文档（docs/refs/mizuki-docs/special-timeline.md §2/§3）使用
+ *   Iconify 图标集；education 与 work 两类有文档示例可核对：
+ *   education = material-symbols:school / #059669（§2 示例逐字）。
+ *   官方 type 枚举为 education|work|project|achievement（§2），与当前
+ *   TimelineTypeSchema（education|certificate|project|other）不一致——枚举
+ *   与本表整体对齐属集合服务行为变更，转 B4 审计裁决（T2-g/T2-h）；
+ *   certificate/project/other 三类无官方示例，暂定值保留并注记。
+ */
 const TIMELINE_DEFAULTS: Record<string, { icon: string; color: string }> = {
-  education: { icon: 'graduation-cap', color: '#3b82f6' },
-  certificate: { icon: 'award', color: '#f59e0b' },
-  project: { icon: 'rocket', color: '#10b981' },
-  other: { icon: 'star', color: '#8b5cf6' },
+  education: { icon: 'material-symbols:school', color: '#059669' },
+  certificate: { icon: 'award', color: '#f59e0b' }, // 暂定：无官方示例（ADR-004 注记）
+  project: { icon: 'rocket', color: '#10b981' }, // 暂定：无官方示例（ADR-004 注记）
+  other: { icon: 'star', color: '#8b5cf6' }, // 暂定：无官方示例（ADR-004 注记）
 };
 
 @Injectable()
