@@ -347,12 +347,21 @@ export class ArticlesService {
         throw new NotFoundException(`文章源文件缺失：${slug}`);
       }
       const parsed = parseMarkdown(fs.readFileSync(fileAbs, 'utf8'));
+      // [Phase3-C1/REQUIREMENTS-PHASE3 §1.2] 公开 API 双泄漏点修复（存量安全缺陷，
+      // 公开 API 冻结语义内优先级最高的安全例外：路径与响应形状不变）：
+      // - 泄漏点 B（无条件剥离）：password 永不出公开面——无论 encrypted 与否，
+      //   frontmatter 浅拷贝后删除 password 键（禁止原地修改 parse 产物，防共享引用污染）；
+      // - 泄漏点 A（条件清空）：encrypted === true 时 html 固定为 ''（正文由主题构建期
+      //   客户端加密接管，公开面只保证不泄露明文）；非加密文章 html 行为逐字节不变。
+      const publicFrontmatter = { ...parsed.frontmatter };
+      delete publicFrontmatter['password'];
+      const encrypted = parsed.frontmatter['encrypted'] === true;
       return {
         slug: row.slug,
         title: row.title,
         sourceType: 'markdown',
-        frontmatter: parsed.frontmatter,
-        html: renderMarkdownToSafeHtml(parsed.content),
+        frontmatter: publicFrontmatter,
+        html: encrypted ? '' : renderMarkdownToSafeHtml(parsed.content),
       };
     }
     const contents = await this.db
