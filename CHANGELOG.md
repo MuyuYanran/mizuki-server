@@ -1,5 +1,14 @@
 # 变更日志
 
+## Phase3-C0 — 三期规划对齐（纯文档批）
+
+- **T1 官方文档快照三件**（`docs/audits/phase3/`，每件头部注明来源 URL 与「快照内容由架构师 2026-08-28 抓取，执行会话无网，以本文件为准」）：`press-key.md`（文章客户端加密：bcryptjs 哈希比对 + crypto-js 对称加密，全流程访客浏览器内完成，加密发生于构建期，Server 无参与义务；frontmatter `encrypted`/`password` 用法 verbatim）、`twikoo.md`（主题 `src/config.ts` `commentConfig` 结构 verbatim、envId/持久化/审核语义、文章级 `comment: false` 开关）、`giscus.md`（giscus 键语义、Announcements 建议、前置三条件）
+- **T2 三期规格起草**：`docs/REQUIREMENTS-PHASE3.md` —— §1 决议登记 8 条（人工裁决 2026-08-28：评论经主题、文章密码锁 C1、C3 四层解析链、C4 /preview+缩略图、C6 撤销、B2.1 疑问两裁决、流程规则、批次序列 C0→C1→C2→C3→C4→C5→C7→收官）；§2 批次范围一句话表；§3 遗留入册（B4 审计 8 项、R2-16、description 存量体检、p9 隔离、外链 photos 子规格、工程债清单）
+- **T3 ADR-016**（`docs/decisions/ADR-016-comment-via-theme.md`）：评论采用主题自带 Twikoo/Giscus，Server 零自建；comment 表休眠；`/public/comments` 永久冻结（P8 冻结表第 5 行 ⏳→🔒）；C7 仅管理 commentConfig 配置面
+- **T4 状态注记**：REQUIREMENTS-PHASE2 新增 R2-18 评论条目（三期 C0 关闭，见 ADR-016）+ R2-16「三期 C3 认领」注记；README「API 概览」补 `/public/comments` 永久不实现注记
+- **T5 台账**：CHANGELOG 本节 + SESSIONS C0 报告
+- **纪律**：仅变更 docs/**；零代码、零测试、零依赖变更；测试基线保持 **295/295 不变**
+
 ## Phase2-B2.1 — 裁决 8 补齐 + 判卷残留消除（二期收官补丁批）
 
 - **背景**：B2（HEAD=b7cc691）判卷发现九项裁决中裁决 8「posts description：server 端创建/修改强制必填」被静默漏项（`posts.service.ts` 仍为 `description: z.string().optional()`，且 B2 任务表/偏差清单/三期输入均未记录）。本批补齐，B2 报告完整性缺陷记入台账。

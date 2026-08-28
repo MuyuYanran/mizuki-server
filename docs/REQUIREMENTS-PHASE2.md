@@ -154,6 +154,14 @@ SchemaForm 对必填字段渲染问号图标 el-tooltip，悬停显示解释、�
   于 B2 判卷确认为静默漏项，已在 B2.1 补齐批次落地：创建入口 `PostFrontmatterWriteSchema`
   必填（trim 后非空）+ PATCH 出现即校验（增量语义，存量防误伤）+ 面板字段级校验 +
   e2e `p5b-description-required`；读取/列表/sync/盘上存量不校验。其余八项裁决 B2 已落地。
+- 【状态（三期 C0 批注）】**R2-16 由三期 C3 认领**（包管理器确定性解析，四层解析链方案
+  见 REQUIREMENTS-PHASE3 §1 决议 3；C3 批先核对 ADR-011 原文，冲突以 ADR-011 为准）。
+
+## R2-18 评论功能（三期 C0 关闭）
+- 原规划：`GET/POST /public/comments/...`（comment 表 P0b 已建，P8 冻结表 ⏳）。
+- 【状态：**三期 C0 关闭，见 ADR-016**】人工裁决（2026-08-28）：采用主题自带
+  Twikoo/Giscus，Server 零自建；comment 表休眠；`/public/comments` 永久冻结不实现；
+  commentConfig 面板化管理归三期 C7。官方评论链路快照见 `docs/audits/phase3/`。
 
 
 ## 二期依赖总账（入 ADR-001）

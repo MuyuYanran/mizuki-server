@@ -1751,3 +1751,37 @@ T0 未触发新增（avif 用例已存在）。基线修复 9 处均为 body 补
 - `feat(Phase2-B2.1): posts description 服务端必填（裁决 8 补齐）`
 - `test(Phase2-B2.1): 裁决 8 e2e 与受影响基线修复`
 - `docs(Phase2-B2.1): ADR-015 改密窗口语义与台账`
+
+## Phase3-C0 交付报告 — 三期规划对齐（纯文档批）
+
+- 日期：2026-08-28
+- 阶段：三期 C0（人工决议登记 / 官方快照三件 / REQUIREMENTS-PHASE3 起草 / ADR-016 / 台账注记）
+- 结论：**C0 完成。** 纯文档批：零代码、零测试、零依赖变更，测试基线保持 **295/295 不变**。提交后立即停止，不开启 C1。
+
+### 1. 任务完成清单
+
+| 任务 | 内容 | 载体 |
+|---|---|---|
+| T1 | 官方文档快照三件（每件头部注明来源 URL + 无网声明） | `docs/audits/phase3/press-key.md` / `twikoo.md` / `giscus.md` |
+| T2 | 三期规格起草：§1 决议登记 8 条（人工裁决 2026-08-28）+ §2 批次范围 + §3 遗留入册 | `docs/REQUIREMENTS-PHASE3.md` |
+| T3 | ADR-016：评论经主题（背景/决策/理由/影响四节，≤30 行） | `docs/decisions/ADR-016-comment-via-theme.md` |
+| T4 | 状态注记：REQUIREMENTS-PHASE2 新增 R2-18（C0 关闭）+ R2-16 C3 认领注记；README `/public/comments` 永久不实现 | REQUIREMENTS-PHASE2 / README |
+| T5 | 台账：CHANGELOG C0 节 + SESSIONS 本报告 | CHANGELOG / SESSIONS |
+
+### 2. 偏差清单
+
+1. **`apps/server/data.bak/` untracked 存留**：B2.1 §5.3 环境纪律要求的测试前备份（「跑完不恢复亦可但备份须存在」），非本批产物、不入库；本批提示词 §1.1「除 HANDOFF-ARCHITECT.md 外清洁」按其本意（无未提交的跟踪文件改动）满足。
+2. **评论条目落点调整**：REQUIREMENTS-PHASE2 原无评论独立条目（评论规划位于 MASTER-PLAN §5 与 SESSIONS P8 冻结表第 5 行）；按 T4 意图在 REQUIREMENTS-PHASE2 新增 R2-18 条目承载「三期 C0 关闭」注记，MASTER-PLAN/SESSIONS 历史行未改（ADR-016「历史报告不改」语义）。
+
+### 3. 疑问清单
+
+1. MASTER-PLAN §5 公开 API 清单仍列「（二期）GET/POST /public/comments/...」——ADR-016 已声明以其+README 为准，MASTER-PLAN 是否随 C1 或收官批统一修订，留裁决。
+
+### 4. 测试数声明
+
+**295/295 不变**（本批仅变更 docs/**，未触碰任何代码/测试/依赖；前置检查已在未改动状态跑 `pnpm test` 恰 295/295 确认）。
+
+### 5. commit 记录
+
+- `docs(Phase3-C0): 官方快照三件与 REQUIREMENTS-PHASE3`
+- `docs(Phase3-C0): ADR-016 与台账注记`

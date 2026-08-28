@@ -61,7 +61,7 @@ pnpm --filter @mizuki/web dev                   # 终端 2：面板 20155（/api
 
 ## API 概览
 
-全局前缀 `/api/v1`；管理接口（`/admin/**`、`/system/status`）需 JWT 双 Token（access 15m + refresh 7d 轮换），公开接口（`/public/**`）免认证、全局限流 60 次/分（登录独立 5 次/分）。完整清单见 MASTER-PLAN §5 与 Swagger UI（`/api/v1/docs`）。
+全局前缀 `/api/v1`；管理接口（`/admin/**`、`/system/status`）需 JWT 双 Token（access 15m + refresh 7d 轮换），公开接口（`/public/**`）免认证、全局限流 60 次/分（登录独立 5 次/分）。完整清单见 MASTER-PLAN §5 与 Swagger UI（`/api/v1/docs`）。**`/public/comments` 永久不实现**（ADR-016：评论采用主题自带 Twikoo/Giscus，Server 零自建，comment 表休眠）。
 
 此外 `/site-assets/**` 为**站点资产通道**（ADR-012）：认证托管 Mizuki `public/` 下的图片（仅图片扩展名，需 JWT——面板 `<img>` 经 `mizuki_asset_token` cookie 自动通过，程序化调用可带 Bearer 头），供媒体库缩略图/相册灯箱等场景使用；未配置 Mizuki 目录时该前缀整体 404。
 
