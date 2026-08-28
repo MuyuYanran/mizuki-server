@@ -1785,3 +1785,36 @@ T0 未触发新增（avif 用例已存在）。基线修复 9 处均为 body 补
 
 - `docs(Phase3-C0): 官方快照三件与 REQUIREMENTS-PHASE3`
 - `docs(Phase3-C0): ADR-016 与台账注记`
+
+## Phase3-C0.1 交付报告 — 官方功能面侦察入仓（纯文档批）
+
+- 日期：2026-08-28
+- 阶段：三期 C0.1（架构师功能面侦察成果入仓，供 C1/C2/C7 提示词引用）
+- 结论：**C0.1 完成。** 纯文档批：零代码、零测试、零依赖变更，测试基线保持 **295/295 不变**。提交后立即停止，不开启 C1。
+
+### 1. 任务完成清单
+
+| 任务 | 内容 | 载体 |
+|---|---|---|
+| T1 | 规划级快照 10 件 + README（每件头部统一来源 URL + 规划级声明） | `docs/audits/phase3/permalink.md` / `anime.md` / `site-config.md` / `banner.md` / `navbar.md` / `sidebar.md` / `music.md` / `sakura.md` / `article-extras.md` / `misc-config.md` / `README.md` |
+| T2 | 功能面清单与批次映射：四档转录 + 关键发现 5 条 + 工程债 + 待人工确认三项 | `docs/audits/phase3/feature-surface.md` |
+| T3 | MASTER-PLAN §5 `/api/v1/public/comments` 行尾追加「🔒 三期 C0 关闭（ADR-016），永久不实现」（只加注记，不改既有行文） | `docs/MASTER-PLAN.md` |
+| T4 | 台账：CHANGELOG C0.1 节 + SESSIONS 本报告 | CHANGELOG / SESSIONS |
+
+### 2. 偏差清单
+
+无。
+
+### 3. 疑问清单
+
+1. C0 报告疑问 1（MASTER-PLAN §5 修订时机）已部分消解：本批按 T3 加注记封口语义，整行措辞是否随 C1 或收官批统一重写，仍留裁决。
+2. feature-surface 文末「待人工确认三项」（C0.1 单独成批 / anime 进 C2 / C7 起步范围）——均待定，不阻塞本批。
+
+### 4. 测试数声明
+
+**295/295 不变**（本批仅变更 docs/**，未触碰任何代码/测试/依赖；前置检查已在未改动状态跑 `pnpm test` 恰 295/295 确认）。
+
+### 5. commit 记录
+
+- `docs(Phase3-C0.1): 官方功能面规划级快照 10 件与 feature-surface 清单`
+- `docs(Phase3-C0.1): MASTER-PLAN 注记与台账`

@@ -239,7 +239,7 @@ export const ContentChangedPayload = z.object({
 | **Media**：`POST /admin/media`（multipart）、`GET /admin/media`、`DELETE /admin/media/:id`（删除前做引用检查）。 |                                    |                                         |
 | **Backup**：`POST /admin/backups`（scope: full/data/content/db）、`GET /admin/backups`、`POST /admin/backups/:id/restore`（body 须含 `confirm: true`）、`DELETE /admin/backups/:id`。 |                                    |                                         |
 | **Process**：`POST /admin/process/tasks`（task ∈ `install/dev/build/preview` 白名单）、`GET /admin/process/tasks/:id`、`DELETE /admin/process/tasks/:id`（停止）、`GET /admin/process/tasks/:id/logs`（SSE）、`GET /admin/process/ports/:port`。 |                                    |                                         |
-| **公开 API**（`@Public()` + 限流）：`GET /public/articles`（Markdown+富文本混合分页，按 pub_date 降序）、`GET /public/articles/:slug`、`GET /public/collections/:type`、`GET /public/albums`、（二期）`GET/POST /public/comments/...`。 |                                    |                                         |
+| **公开 API**（`@Public()` + 限流）：`GET /public/articles`（Markdown+富文本混合分页，按 pub_date 降序）、`GET /public/articles/:slug`、`GET /public/collections/:type`、`GET /public/albums`、（二期）`GET/POST /public/comments/...` 🔒 三期 C0 关闭（ADR-016），永久不实现。 |                                    |                                         |
 ---
 ## 6. ts-morph 数据文件引擎（核心模块详设）
 > 位置：`modules/data-files/`。app.py 用“括号平衡 + JSON5”做文本 hack，本引擎用 AST，**从根本上解决可靠性问题**。

@@ -1,5 +1,13 @@
 # 变更日志
 
+## Phase3-C0.1 — 官方功能面侦察入仓（纯文档批）
+
+- **T1 规划级快照 10 件 + README**（`docs/audits/phase3/`，每件头部统一注明来源 URL + 「规划级快照：架构师 2026-08-28 取证的要点转述；该页面被选定落地时须重新抓取原文升级为裁决级快照」）：`permalink.md`（v7.2+ 文章固定链接，独立于 slug，影响 URL/RSS/sitemap，P5 十二字段未含 → C1 候选）、`anime.md`（数据源三选一 bangumi/bilibili/local，AnimeItem 字段面，B4 i2「无规格」判定被推翻 → 第七集合候选）、`site-config.md`、`banner.md`、`navbar.md`（含 LinkPreset 标识符引用雷点注记 → C7 专项裁决）、`sidebar.md`（Sidepanel 六子页合并）、`music.md`、`sakura.md`、`article-extras.md`（toc/share/Edit-History/copyright/codeblock 五子页合并）、`misc-config.md`（font/footer/auto-res/fullscreen/hide/umami/pio 七子页合并）；`README.md`（快照分级说明 + B4 已覆盖页面引用指引，不重建）
+- **T2 功能面清单**：`docs/audits/phase3/feature-surface.md` —— 四档转录（A 档 Server 已覆盖 / B 档字段补齐 → C1（permalink、comment、encrypted+password 含双泄漏点修复）/ C 档 config.ts 对象管理 → C7（纯字面量 9 个先行、navBarConfig 缓行、待裁决四项）/ D 档排除）；关键发现 5 条（B4 i2 被推翻、b1/b2/b3 官方证实、bmp 准入重开、内容分离互补、permalink 必须纳入）；工程债补充（→ C5）；文末「待人工确认三项」（均待定不阻塞）
+- **T3 MASTER-PLAN §5 状态注记**：`/api/v1/public/comments` 行尾追加「🔒 三期 C0 关闭（ADR-016），永久不实现」，只加注记不改既有行文
+- **T4 台账**：CHANGELOG 本节 + SESSIONS C0.1 报告
+- **纪律**：仅变更 docs/**；零代码、零测试、零依赖变更；测试基线保持 **295/295 不变**
+
 ## Phase3-C0 — 三期规划对齐（纯文档批）
 
 - **T1 官方文档快照三件**（`docs/audits/phase3/`，每件头部注明来源 URL 与「快照内容由架构师 2026-08-28 抓取，执行会话无网，以本文件为准」）：`press-key.md`（文章客户端加密：bcryptjs 哈希比对 + crypto-js 对称加密，全流程访客浏览器内完成，加密发生于构建期，Server 无参与义务；frontmatter `encrypted`/`password` 用法 verbatim）、`twikoo.md`（主题 `src/config.ts` `commentConfig` 结构 verbatim、envId/持久化/审核语义、文章级 `comment: false` 开关）、`giscus.md`（giscus 键语义、Announcements 建议、前置三条件）
