@@ -199,7 +199,7 @@ export class AlbumsService implements MediaReferenceContributor {
     const ext = path.extname(file.originalname).toLowerCase();
     const expectedFormat = EXTENSION_FORMAT[ext];
     if (!expectedFormat) {
-      throw new BadRequestException(`扩展名不在白名单：${ext || '(空)'}（允许 jpg/jpeg/png/webp/gif）`);
+      throw new BadRequestException(`扩展名不在白名单：${ext || '(空)'}（允许 jpg/jpeg/png/webp/gif/tif/tiff）`);
     }
     if (sniffImageFormat(file.buffer) !== expectedFormat) {
       throw new BadRequestException('文件内容与扩展名不符（魔数校验失败）');
