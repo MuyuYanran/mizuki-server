@@ -1,5 +1,15 @@
 # 变更日志
 
+## Phase3-C7 — override 批：commentConfig 面板化 + config 受控子集管理（ADR-020，C-Plus 连续执行）
+
+- **T1 侦查**：决议 1 原文定位（commentConfig 面板化管理归 C7）；commentConfig 字段面以主题类型定义为基线源逐字段表（CommentConfig/TwikooConfig/GiscusConfig，含官方快照没有的 `region?`）；**敏感键盘点：无真 secret 性质键**（值烘进公开 dist，Twikoo 管理凭据在其自建数据库）→ 脱敏义务不触发，e2e ④⑧条件例以判定注记替代（条件下限 367，本批以额外实测试补至 369）；两线分列：线 A config.ts 构建期静态导入无 env/alias 钩子（override 必须物化为文本）、线 B MIZUKI_CONFIG_PATH 系 Server 自身配置与本批零交集；schema-form 全字段可承载（**债堆④判定：commentConfig 无数组嵌对象形态，不触发不扩 mapper**）；面板 config 管理零起点
+- **T2 override 机制**（ADR-020）：载体 = 侧车 JSON（`MIZUKI_CONFIG_OVERRIDE_PATH` ?? `apps/server/data/config-override.json`，跟踪树外）+ **ts-morph 声明级定点置换** `<mizukiRoot>/src/config.ts` 受控声明初始化器（siteConfig.lang / commentConfig，其余声明零触碰——非受控值不变语义由构造保证）；写入 = pre_write 备份 + 原子写；侧车留档被置换原文本（首次留档语义），清除 override 时还原；基线读取走「简单常量代入」求值（`lang: SITE_LANG` 类标识符代入，P3 evaluator astToValue 常量代入变体，物化态真基线从留档探针还原）；生效链 = 保存即物化 → console build 任务（C3 解析链仅调用）；四候选评估对照预公告 a 两条硬约束择优（①直写+④基线语义融合；②env 注入侵入 astro.config 否决；③运行时 sidecar 预公告 d 排除对照保留；④整文件重生成模板漂移否决）
+- **T2/T4 admin 端点族**（§0 写死三端点）：`GET /admin/config`（整体读，override 优先 + 基线对照）、`PUT /admin/config/lang`、`PUT /admin/config/comments`（全量覆盖）；受控子集 schema 全 `.strict()` 驻 shared（越界键显式 400 禁静默剥除）；**lang 口径复用 C5 裁决**——`langCodeSchema()` 共享终行上收（posts frontmatter 与 siteConfig.lang 两处引用，引用不重写、字段面零变化，共享抽取记偏差）；四格语义表（键缺失/空串 → 归一缺省不落键；非法/越界 → 400；合法 → 物化回读）见 ADR-020
+- **T3 站点配置页**：`apps/web/src/views/settings/SiteConfigPage.vue` + 路由 `/site-config` + 菜单「站点配置」——「语言（可选）」输入（C5 面板形态同型：placeholder 'en'、空 = 站点默认不落键）+ commentConfig 表单**同页承载**（schema-form 驱动，mapper 新增可选 labels 参数页面级中文标签，默认行为零变化）；一页一查一存（GET 整体读 + PUT 分立写）；可选键空串归一为不落键（必填键空串视为显式输入）；页面注明生效链（保存后经「构建预览」执行 build）
+- **T4 e2e**：新建 `apps/server/test/p7f-config-override.e2e-spec.ts` 10 用例（①lang='en' 200 回读一致；②'e n' 400 零物化零落键；③'' 归一缺省还原原文本；④GET 全字段回读含 SITE_LANG→zh_CN 常量代入锚；⑤commentConfig 全字段往返一致；⑥非法值 400；⑦15 键零删减往返锚；⑨生效链侧车+config.ts 定点物化断言；⑩两分立写越界键 400（.strict()）；⑪留档卫生首次留档语义）——fixture 内联写入最小 config.ts（**零 fixture 变更**，侧车 mkdtemp 注入）
+- **T5/T6 台账**：ADR-020（≤80 行：载体/端点族/四格表/四候选对照/影响与已知限制）+ ADR-013 追加注记（lang 口径共享、commentConfig 基线源）；REQUIREMENTS §2 C7 行落地注记；流程候选三项（部署拓扑检查项 / §1.2 条件化规则 / 实现级终行四格语义表）维持候选等收官清点（四格规则本批已按 §0 适用）；DEPLOYMENT-CHECKLIST env 清单增 `MIZUKI_CONFIG_OVERRIDE_PATH`（10 → 11）
+- **验收**：test **359 → 369**（+10，恰达下限 ≥369，42 文件）、build 0、lint 0/0；纪律：零新增依赖、零 any/@ts-ignore、零表结构变更、零 fixture 变更；config.ts 跟踪树零 diff（主题仓非 git + 受控子集外零触碰）；公开 API 既有路径与形状零变化（admin config 三端点属授权 additive）
+
 ## Phase3-C5 — 部署 checklist 收口 + 测试数据目录隔离 + posts lang 字段（i18n 收口，C-Plus 连续执行）
 
 - **T2 部署 checklist 收口**：新建 `docs/DEPLOYMENT-CHECKLIST.md`（C6 撤销后原定载体从未产出，本文件即收口产物）——C6 残项闭环（全仓盘点无 cpolar 条目残留，无删除动作；历史「https + cpolar HttpAuth 双层」建议作废，公网口径改 https + 反向代理 + Swagger 置 false）+ 12 项逐项盘点（已具备/待具备/不适用，两处待收官裁注记）+ **env 清单全量盘点**（以 ADR-019 参数终值表为唯一事实源）：`MIZUKI_SERVER_PORT`/`MIZUKI_WEB_DIST`/`MIZUKI_CONFIG_PATH`/`MIZUKI_DB_PATH`/`MIZUKI_JWT_SECRET`/`MIZUKI_LOG_LEVEL`/`MIZUKI_PM_<NAME>_PATH`/`MIZUKI_PREVIEW_PORT`/`MIZUKI_PREVIEW_HOST`/`MIZUKI_PREVIEW_DIST_PATH` 共 10 个补入（README 部署节原仅列 2 个）；README 文档索引补 checklist 链接

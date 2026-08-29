@@ -2323,3 +2323,144 @@ ADR-012 白名单为图片类，dist 资产需 html/css/js/字体/json 超集（
   `docs(Phase3-C5): 部署 checklist 收口、env 全量盘点与台账`
 - 未跟踪合规文件：`docs/HANDOFF-ARCHITECT.md`（授权保留不动）
 - 终态三连：test **359/359**、build 0、lint 0/0（最后代码态全量验证后仅文档提交）。
+
+---
+
+# Phase3-C7 交付报告（override 批：commentConfig 面板化 + config 受控子集管理，2026-08-29）
+
+红队规则第二批实践（v1 评审 10 项全消化：🔴3 全采纳、🟡7 采纳）；「评审→裁定全权模式」在案
+（C5 先例），v2 无遗留视同红队通过直接执行。基线 HEAD = fdfd2a4（docs(Phase3-C5)）。
+
+## §1 任务清单
+
+| 任务 | 内容 | 状态 |
+|---|---|---|
+| §1 前置检查 | HEAD/工作树/在位校验（决议 1 原文、主题 config.ts+类型定义、MIZUKI_CONFIG_PATH 读取点、schema-form 三件套）/基线三连 | 5/5 ✓ |
+| T1 侦查 | 五项（决议 1+字段表+敏感键盘点 / 两线分列 / schema-form 盘点+债堆④判定 / 面板盘点 / 四候选评估表） | 5/5 ✓ |
+| T2 | override 载体 + 生效链 + siteConfig.lang 管理 + admin 三端点 | ✓ |
+| T3 | commentConfig 面板化 + 站点配置页 | ✓ |
+| T4 | p7f e2e 10 用例 | ✓ |
+| T5 | ADR-020 + ADR-013 注记 | ✓ |
+| T6 | 台账（REQUIREMENTS/流程候选/CHANGELOG/SESSIONS/checklist env 行） | ✓ |
+
+## §2 T1 侦查结论（五项）
+
+1. **决议 1 原文**（REQUIREMENTS-PHASE3 §1.1）：「评论：采用主题自带 Twikoo/Giscus，Server 零自建；
+   comment 表休眠；`/public/comments` 永久冻结（记 ADR-016）；commentConfig 面板化管理归 C7
+   （override 批）。」commentConfig 字段表（对齐基线源 = 主题 `src/types/config.ts` L279-305 +
+   twikoo.md verbatim）：`enable: boolean` 必填；`system?: 'twikoo'|'giscus'`；`twikoo?:
+   {envId 必填, region?, lang?}`；`giscus?: {repo/repoId/category/categoryId/mapping/strict/
+   reactionsEnabled/emitMetadata/inputPosition/theme/lang/loading 全 string 必填}`；嵌套深度 2。
+   **敏感键盘点：无真 secret 性质键**——全部值烘进公开 dist（giscus 键公开性质、envId 公开服务
+   地址；Twikoo 管理凭据存其自建 MongoDB/SQL 而非 config.ts）→ 脱敏义务不触发，e2e ④⑧条件例
+   以判定注记替代（条件下限 367；本批以 ④ 转实读断言 + ⑪ 补充锚补至 369）。注：主题类型含官方
+   快照没有的 `region?`，键面以主题类型定义为准（零删减零改名）。
+2. **两线分列**：线 A = config.ts 构建期静态导入（astro.config.mjs `import { siteConfig } from
+   "./src/config.ts"` + Giscus/Twikoo/PostCard 等组件直连），无 env/alias/override 钩子，值烘进
+   dist——override 注入点 = config.ts 文本本身（构建前物化）。线 B = `MIZUKI_CONFIG_PATH` 系
+   Server 自身启动配置（mizukiRoot/mode/jwtSecret 等，app-config.ts 同步读 + mergeAndPersistConfig
+   写回在案），与主题 config 管理零交集，本批仅复用 `getAppConfig().mizukiRoot` 活取值定位主题根。
+3. **schema-form 盘点**：WidgetKind 9 种；嵌套对象→group 递归、ZodEnum→select、ZodBoolean→switch
+   全覆盖 commentConfig 形态。**债堆④前置判定：commentConfig 无数组嵌对象形态 → 不触发已知缺口，
+   直接表单化，mapper 零扩展**（唯一扩展 = describeSchema 可选 labels 参数，页面级标签覆盖，默认
+   行为零变化）。主题仓非 git——「git 策略」维度空集。
+4. **面板盘点**：config 管理零起点（SettingsPage = site_setting DB 键值，页头注明「Mizuki config
+   接管属二期」即本批；全仓无 admin/config 端点）。
+5. **四候选评估表**（对照预公告 a 两条硬约束）：①直写+git 策略 → **可行（选定）**，融合④的
+   「主题基线为源」语义为键级留档；②env 注入构建 → 否决（需改 astro.config.mjs/import 链，侵入
+   主题构建配置超受控子集）；③运行时 sidecar → 预公告 d 已排除（C4 纯静态直出），对照保留；
+   ④整文件重生成 → 否决（需 Server 持有全文件模板，主题升级漂移风险大；其语义经声明级置换等价
+   达成）。override 数据载体 git 策略：apps/server/data/（gitignored）跟踪树外，侧车备份迁移归
+   部署 checklist 条目（DEPLOYMENT-CHECKLIST 已注记）。
+
+## §3 实施要点
+
+- **载体与置换**（ADR-020）：侧车 JSON `ConfigOverrideFileSchema`（version/siteConfig/commentConfig/
+  originals 全 `.strict()`）；ts-morph `loadSourceFile` 声明定位 + `setInitializer` 定点置换；
+  config.ts 写入 = `preWriteBackup` + 原子写（P5 §3.3 纪律同型）；原文本首次留档
+  `originals['siteConfig.lang']`（如 `SITE_LANG`），清除 override 时还原原文本（还原前后一致即
+  跳过写入）。commentConfig 无清除路径（覆盖写入即管理权转移，ADR 已知限制）。
+- **基线求值**：`astToValueWithConsts`——P3 evaluator astToValue 分派表同型 + Identifier 常量
+  代入（`const SITE_LANG = "zh_CN"` 顶层非导出简单常量表；字符串/无插值模板/数字）；未支持节点
+  → UnsupportedLiteralError → 基线不可得（GET 相应键 null + 面板空表单起步，warn 日志）。
+  物化态下 siteConfig.lang 真基线从留档原文本探针求值（临时声明包装）。
+- **lang 口径共享**：shared `langCodeSchema()`（LANG_CODE_PATTERN + LANG_CODE_MAX_LENGTH +
+  双 optional 终行）供 posts frontmatter 与 PutLangBodySchema 两处引用；posts.service.ts 内联
+  终行替换为共享引用（字段面与校验语义零变化）。commentConfig 内 twikoo.lang/giscus.lang 为
+  普通字符串（主题约定 'zh_CN' 下划线形），不套用 BCP-47 口径（裁决范围仅 siteConfig.lang）。
+- **admin 三端点**：GET /admin/config（整体读：siteConfig.lang override 态 + baselineLang 对照、
+  commentConfig override??基线）；PUT /admin/config/lang（PutLangBodySchema.strict：键缺失/空串
+  → 归一缺省；合法 → 物化回读）；PUT /admin/config/comments（body = CommentConfigSchema 全量
+  覆盖）。四格语义表见 ADR-020 决策 7。
+- **面板**：SiteConfigPage（views/settings/）+ 路由 /site-config + 菜单「站点配置」；语言输入
+  （placeholder 'en'、空 = 站点默认，回显 override 态，基线值仅对照展示）+ commentConfig
+  schema-form 表单（CONFIG_LABELS 页面级中文标签）同页；一页一查一存（GET 整体读 + PUT lang +
+  PUT comments 分立写）；可选键（system/region/twikoo.lang）空串归一不落键；保存成功提示经
+  「构建预览」执行 build 生效。
+
+## §4 数账
+
+- test **359 → 369**（+10，恰达下限 ≥369，42 文件）：新增 p7f-config-override.e2e-spec.ts 10 用例
+  （lang 3 + 生效链 1 + commentConfig 4（④⑤⑥⑦）+ 禁蔓延 1 + 留档卫生 1）；受影响基线修复 0
+  （posts.service.ts lang 终行上收共享后 p7e 4 用例原样全绿）。
+- build 0（shared/server/web 全过）、lint 0/0。
+- 纪律：零新增依赖（ts-morph/valueToTsLiteral 复用 data-files 既有）、零 any/@ts-ignore、
+  零表结构变更、**零 fixture 变更**（p7f 主题根 = mizuki fixture cpSync + spec 内联写入最小
+  config.ts；侧车 mkdtemp env 注入，倾向零 fixture 兑现）。
+
+## §5 ADR-020 参数终值表
+
+| 参数 | 终值 |
+|---|---|
+| 载体形态 | 侧车 JSON + ts-morph 声明级定点置换（保存即物化） |
+| 路径 | `MIZUKI_CONFIG_OVERRIDE_PATH` ?? `apps/server/data/config-override.json` |
+| git 策略 | 跟踪树外（apps/server/data/ gitignored）；主题仓非 git；备份迁移归部署 checklist |
+| 生效链 | 保存 → console build 任务（C3 解析链仅调用）→ dist |
+| 端点族 | GET /admin/config、PUT /admin/config/lang、PUT /admin/config/comments |
+| lang 口径 | C5 裁决共享终行 `langCodeSchema()`（引用不重写） |
+| commentConfig 承载 | schema-form 直接表单化（债堆④不触发）；字段面以主题类型定义为基线源 |
+| 脱敏掩码 | 无（T1.1 无真 secret 键）；commentConfig 无显式清除路径 |
+| 已知限制 | 手改漂移（重存再物化）/ 声明缺失 404 / 基线未支持节点 → null / 不发射 content.changed |
+
+## §6 偏差与疑问
+
+- 偏差 1（共享抽取）：C5 lang 终行自 posts.service.ts 上收 shared `langCodeSchema()`（posts 与
+  config 两处引用）——提示词 T2.3 授权「实现可抽共享常量……记偏差」；字段面与校验语义零变化，
+  p7e 基线原样全绿。
+- 偏差 2（e2e 编号重排）：提示词 ⑧（掩码写回）因 T1.1 判定不适用以判定注记替代；条件下限 367
+  口径下本批以 ④ 转实读断言 + ⑪ 留档卫生补充锚凑至 10 用例恰达 369——用例语义与 §0 映射表
+  一致，仅编号-内容对应关系在报告中如实登记。
+- 偏差 3（mapper 扩展）：describeSchema 新增可选 labels 参数（SchemaForm 透传）——债堆④不触发
+  前提下的面板标签质量决策；默认行为零变化（既有六类表单调用不传 labels，渲染结果逐字节一致）。
+- 疑问 1：主题 lang 约定含下划线形（`SITE_LANG = "zh_CN"`，注释示例 'en'/'zh_CN'/'ja'）——C5
+  BCP-47 连字符 regex 在面板拒绝 `zh_CN` 形；基线缺省值不受影响（值不变语义，仅 override 面
+  拒绝），是否扩展字符集（引入 `_`）属口径变更，记收官裁。
+- 疑问 2：config.ts 声明级置换使 siteConfig.lang 从标识符引用（`SITE_LANG`）物化为字面量——
+  主题侧手工改 SITE_LANG 常量不再传导至已物化的 lang 键（侧车留档可还原）；该语义已在 ADR-020
+  已知限制覆盖，是否需要在面板呈现「物化态」警示，记收官裁。
+- 疑问 3：⑦ 用例单跑通过、全序首版出现一次 500（v1 顺序下状态相关，v2 修正顺序后未再现）——
+  未定位到可复现根因，暂记观察项；若后续批次复现优先排查 preWriteBackup 保留策略并发窗。
+
+## §7 手动走查清单
+
+1. 站点配置页改「语言」= en → 保存 → 「构建预览」执行 build → `/preview` 打开站点见 i18n 生效
+   （全链一次）。
+2. commentConfig 全字段保存往返：GET 回显基线值（twikoo.lang/giscus.lang 显示 zh_CN 代入值）→
+   修改 enable/system/保存 → 重新进入页面回显 override 值。
+3. 保存 lang 后检查 `<mizukiRoot>/src/config.ts`：siteConfig.lang 已物化为字面量、commentConfig
+   及其余声明（含注释）零变化；`apps/server/data/config-override.json` 侧车 originals 留档
+   `SITE_LANG`。
+4. 非法值报错形态：语言填 `e n` → 保存 → 400 warning；commentConfig 填越界键（手改请求）→ 400
+   Unrecognized key。
+5. 非受控 config 字段 diff 为空：任一次保存后对 config.ts 非 siteConfig.lang/commentConfig 部分
+   与保存前逐字比对零差异。
+6. 语言清空保存 → config.ts 还原 `lang: SITE_LANG`、侧车 siteConfig 键消失（归一缺省不落键）。
+
+## §8 工作树终态与提交
+
+- 提交 4 个：`feat(Phase3-C7): config override 机制与 siteConfig.lang 管理（ADR-020）` /
+  `feat(Phase3-C7): 站点配置页与 commentConfig 面板化（schema-form，敏感键语义）` /
+  `test(Phase3-C7): override 与 commentConfig e2e 及基线修复` /
+  `docs(Phase3-C7): ADR-020、注记与台账`
+- 未跟踪合规文件：`docs/HANDOFF-ARCHITECT.md`（授权保留不动，归宿定收官批处置）
+- 终态三连：test **369/369**、build 0、lint 0/0（最后代码态全量验证）。

@@ -60,7 +60,11 @@
   产物 `docs/DEPLOYMENT-CHECKLIST.md`（C6 残项闭环 + env 全量盘点）+ 测试数据目录隔离
   （app/p1/p11 三裸启套件 → mkdtemp，真实 data 目录零交集）+ posts `lang` 字段（官方
   frontmatter 对齐疏漏收口，additive 授权例外）；详见 CHANGELOG Phase3-C5 节】 |
-| C7 | override 批：commentConfig 面板化管理（决议 1） |
+| C7 | override 批：commentConfig 面板化管理（决议 1）+ config 受控子集管理（siteConfig.lang，i18n 收官面）
+  【状态：**C7 已落地**（2026-08-29，ADR-020）：侧车 JSON + ts-morph 声明级定点置换
+  （硬约束两条满足：主题仓非 git 跟踪树零 diff、声明级置换构造保证非受控值不变）+
+  admin config 三端点（.strict() 禁蔓延）+ 站点配置页（schema-form 驱动，债堆④判定
+  不触发）；详见 CHANGELOG Phase3-C7 节】 |
 | 收官 | 三期收尾回归与验收 |
 
 ## §3 遗留入册（三期承接，落地时逐项销账）

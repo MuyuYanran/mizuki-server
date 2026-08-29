@@ -45,10 +45,13 @@
 | `MIZUKI_PREVIEW_PORT` | `4173`（占用 → 启动报错） | /preview 预览通道端口；端口 0 → 临时端口 | C4 / ADR-019 |
 | `MIZUKI_PREVIEW_HOST` | 镜像主服务 host（实为全接口） | /preview 绑定 host | C4 / ADR-019 |
 | `MIZUKI_PREVIEW_DIST_PATH` | `<mizukiRoot>/dist` | /preview dist 根（请求期活读，P11 坑 5 纪律） | C4 / ADR-019 |
+| `MIZUKI_CONFIG_OVERRIDE_PATH` | `apps/server/data/config-override.json` | 站点配置 override 侧车路径覆盖（跟踪树外；备份迁移归部署 checklist 条目） | C7 / ADR-020 |
 
 **盘点结论**：README 部署节原仅列举 `MIZUKI_SERVER_PORT` / `MIZUKI_WEB_DIST` 两个变量，其余 8 个
 散落于各 ADR/快照——本清单补入全量（C5 T2.3）。命名域亦含非配置消费 `PATH`（pm-resolver 层③
-定位器，ADR-011），属运行环境依赖非部署配置。
+定位器，ADR-011），属运行环境依赖非部署配置。【Phase3-C7 注记】新增 `MIZUKI_CONFIG_OVERRIDE_PATH`
+（ADR-020），全量 10 → 11 个；其缺省载体目录 apps/server/data/ 已 gitignore（跟踪树外硬约束），侧车
+备份与迁移列入部署 checklist 条目（运维侧自管）。
 
 ## 四、收口结论注记（T6.3）
 

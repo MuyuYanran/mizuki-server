@@ -45,3 +45,9 @@
 > max(16)、不 enum 化）系官方定义之上**有意识的叠加**。posts 对象新增可选 lang 字段为架构师
 > 授权 additive 非破坏性例外（公开 API 路径与形状零变化，lang 属内容面随对象自然返回）。
 > 详见 CHANGELOG Phase3-C5 与 SESSIONS C5 报告（含 i18n 全景裁决记录）。
+
+## 追加（Phase3-C7，2026-08-29）：config 管理面 lang 口径共享与 commentConfig 基线源
+
+> C7 将 C5 posts lang 裁决终行上收 shared `langCodeSchema()`（posts frontmatter 与
+> `siteConfig.lang` 两处引用，引用不重写、字段面零变化）；commentConfig 字段面对齐以
+> 主题类型定义（Mizuki `src/types/config.ts`）为基线源——零删减零改名。详见 ADR-020。
