@@ -9,6 +9,7 @@
  */
 import { z } from 'zod';
 import {
+  AnimeItemSchema,
   DeviceItemSchema,
   DiaryItemSchema,
   FriendsItemSchema,
@@ -101,6 +102,18 @@ export const REGISTRY: CollectionDef[] = [
     imageDir: 'public/images/device',
     public: true,
     itemSchema: DeviceItemSchema,
+  },
+  {
+    // [Phase3-C2b] anime 第七集合：官方 local 模式（ADR-018）。
+    // 无 id 字段——title 为定位器（idField:'title'），禁止向条目注入 id。
+    type: 'anime',
+    file: 'src/data/anime.ts',
+    varName: 'localAnimeList',
+    shape: 'array',
+    idField: 'title',
+    numericId: false,
+    public: true,
+    itemSchema: AnimeItemSchema,
   },
 ];
 

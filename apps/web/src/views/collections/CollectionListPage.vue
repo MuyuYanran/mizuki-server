@@ -14,6 +14,7 @@ import { useRoute, useRouter } from 'vue-router';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import { z, type ZodObject, type ZodType } from 'zod';
 import {
+  AnimeItemSchema,
   DeviceItemSchema,
   DiaryItemSchema,
   FriendsItemSchema,
@@ -51,7 +52,8 @@ const CONFIGS: CollectionConfig[] = [
   { type: 'projects', title: '项目', schema: ProjectsItemSchema, idField: 'id', shape: 'array' },
   { type: 'timeline', title: '时间线', schema: TimelineItemSchema, idField: 'id', shape: 'array' },
   { type: 'skills', title: '技能', schema: SkillsItemSchema, idField: 'id', shape: 'array' },
-  { type: 'devices', title: '设备', schema: DeviceItemSchema, idField: 'name', shape: 'grouped' },
+  // [Phase3-C2b] anime 第七集合：无 id 字段，title 为定位键
+  { type: 'anime', title: '番剧', schema: AnimeItemSchema, idField: 'title', shape: 'array' },
 ];
 
 const CONFIG_BY_TYPE = new Map<CollectionType, CollectionConfig>(

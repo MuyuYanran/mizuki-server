@@ -21,7 +21,8 @@ export type CollectionType =
   | 'projects'
   | 'timeline'
   | 'skills'
-  | 'devices';
+  | 'devices'
+  | 'anime';
 
 /** 后端校验失败时 detail.issues 的条目形状 */
 export interface FieldIssue {

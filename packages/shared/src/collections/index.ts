@@ -13,3 +13,4 @@ export * from './projects';
 export * from './timeline';
 export * from './skills';
 export * from './devices';
+export * from './anime';

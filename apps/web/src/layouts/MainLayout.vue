@@ -38,6 +38,7 @@ const MENU: MenuItem[] = [
   { path: '/collections/timeline', title: '时间线' },
   { path: '/collections/skills', title: '技能' },
   { path: '/collections/devices', title: '设备' },
+  { path: '/collections/anime', title: '番剧' },
   { path: '/albums', title: '相册' },
   { path: '/media', title: '媒体库' },
   { path: '/backups', title: '备份' },

@@ -83,3 +83,21 @@ export interface Device {
   link: string;
 }
 
+
+// [Phase3-C2b] anime 第七集合（官方 local 模式 AnimeItem，无 id 字段）
+export interface AnimeItem {
+  title: string;
+  status: 'watching' | 'completed' | 'planned';
+  rating: number;
+  cover: string;
+  description: string;
+  episodes: string;
+  year: string;
+  genre: string[];
+  studio: string;
+  link: string;
+  progress: number;
+  totalEpisodes: number;
+  startDate: string;
+  endDate?: string;
+}
