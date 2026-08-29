@@ -16,6 +16,7 @@ import { ArticlesModule } from './modules/articles/articles.module';
 import { AlbumsModule } from './modules/albums/albums.module';
 import { MediaModule } from './modules/media/media.module';
 import { ProcessModule } from './modules/process/process.module';
+import { PreviewModule } from './modules/preview/preview.module';
 import { BackupModule } from './modules/backup/backup.module';
 import { SettingsModule } from './modules/settings/settings.module';
 
@@ -54,6 +55,8 @@ import { SettingsModule } from './modules/settings/settings.module';
     MediaModule,
     // [P9] 白名单子进程任务 + SSE 日志
     ProcessModule,
+    // [Phase3-C4] /preview 站点预览通道（独立监听随主服务启停，ADR-019）
+    PreviewModule,
     // [P2] 备份 REST API
     BackupModule,
     // [P8] 站点设置与 Mizuki config 接管

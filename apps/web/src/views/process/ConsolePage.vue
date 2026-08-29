@@ -1,10 +1,14 @@
 <script setup lang="ts">
 /**
  * [P10d] 构建预览控制台
- * [职责] 四任务按钮（install/dev/build/preview）→ POST /admin/process/tasks；
+ * [职责] 任务按钮（install/dev/build）→ POST /admin/process/tasks；
  *   SSE 日志终端 LogTerminal（taskId 驱动，实时滚动，纯文本禁 v-html）；
  *   停止 DELETE /admin/process/tasks/:id；任务状态徽标（running/exited/killed）；
  *   端口检测 GET /admin/process/ports/:port。
+ * [Phase3-C4/ADR-019] 「站点预览」入口：POST preview-ticket（Set-Cookie
+ *   mizuki_preview_jwt + 端口下发）→ 新窗口打开 `${protocol}//${hostname}:${port}/`
+ *   ——hostname 一律 window.location.hostname 派生（禁硬编码 127.0.0.1），
+ *   port 来自票据响应（禁前端硬编码）。白名单 'preview' 任务本体未动。
  * [状态] ACTIVE
  *
  * SSE 经 fetch 流携带 Bearer token（process.ts）；LogTerminal 在 exit 事件后
@@ -13,6 +17,7 @@
 import { ref } from 'vue';
 import { ElMessage } from 'element-plus';
 import { processApi, type ProcessTaskName, type TaskView, type PortProbeResult } from '../../api/process';
+import { previewApi } from '../../api/preview';
 import { ApiError } from '../../api/http';
 import LogTerminal from '../../components/LogTerminal.vue';
 
@@ -20,7 +25,6 @@ const TASK_OPTIONS: { value: ProcessTaskName; label: string }[] = [
   { value: 'install', label: '安装依赖' },
   { value: 'dev', label: '开发预览' },
   { value: 'build', label: '构建' },
-  { value: 'preview', label: '站点预览' },
 ];
 
 const STATUS_LABELS: Record<string, string> = {
@@ -41,6 +45,24 @@ const starting = ref(false);
 const portInput = ref('');
 const portResult = ref<PortProbeResult | null>(null);
 const portChecking = ref(false);
+
+/** [Phase3-C4/ADR-019] 站点预览票据签发 → 新窗口打开预览通道 */
+const previewOpening = ref(false);
+
+async function openPreview(): Promise<void> {
+  previewOpening.value = true;
+  try {
+    const ticket = await previewApi.issueTicket();
+    window.open(
+      `${window.location.protocol}//${window.location.hostname}:${ticket.port}/`,
+      '_blank',
+    );
+  } catch (e) {
+    handleError(e, '获取站点预览票据失败');
+  } finally {
+    previewOpening.value = false;
+  }
+}
 
 async function startTask(task: ProcessTaskName): Promise<void> {
   starting.value = true;
@@ -132,6 +154,7 @@ function handleError(e: unknown, fallback: string): void {
         :disabled="currentTask?.status === 'running' && currentTask.task !== opt.value"
         @click="startTask(opt.value)"
       >{{ opt.label }}</el-button>
+      <el-button :loading="previewOpening" @click="openPreview">站点预览</el-button>
       <el-button
         v-if="currentTask !== null"
         type="danger"
