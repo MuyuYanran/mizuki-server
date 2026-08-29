@@ -2464,3 +2464,195 @@ ADR-012 白名单为图片类，dist 资产需 html/css/js/字体/json 超集（
   `docs(Phase3-C7): ADR-020、注记与台账`
 - 未跟踪合规文件：`docs/HANDOFF-ARCHITECT.md`（授权保留不动，归宿定收官批处置）
 - 终态三连：test **369/369**、build 0、lint 0/0（最后代码态全量验证）。
+
+---
+
+# Phase3-F 收官报告（流程候选转正 + lang 拆分 + 缓存策略 + 遗留终裁 + 走查总账，2026-08-29）
+
+**流程变体记录（人工裁决 2026-08-29）**：收官批免红队，架构师自查替代。自查与评审消化表：
+
+| 来源 | 项数 | 处置 | 消化载体 |
+|---|---|---|---|
+| 架构师自查 | 7 项发现 | 全部消化 | v2 终版提示词修订 |
+| v1 评审 🔴 | 3 | 全采纳 | v2 修订 |
+| v1 评审 🟡 | 7 | 采纳 | v2 修订 |
+| v1 评审 🟢 | 7 | 采纳 | v2 修订 |
+
+逐项明细存架构师侧评审记录（未随提示词下发执行侧），库内以 v2 终版文本为消化结果载体——如实
+登记，不做超出可见信息的补写。判卷抽查密度加倍（本次自查复核：基线链数字账、五提交消息逐字
+比对、载体状态复核）；架构师终签权保留。基线 HEAD = c229936（docs(Phase3-C7)）。
+
+## §1 任务清单（映射表 7/7）
+
+| 任务 | 落点 | 终态 |
+|---|---|---|
+| T1 侦查五项 | 本报告 §2 | 完成 |
+| T2 流程候选四项转正 | PROCESS-RULES.md（新建）+ REQUIREMENTS §1.7 终态 | 完成 |
+| T3 siteConfig lang 拆分 | shared lang-code.ts / site-config.ts + 站点配置页 | 完成 |
+| T4 preview 缓存三档分派 | preview.service.ts + ADR-019 追加节 | 完成 |
+| T5 遗留终裁四项 | REQUIREMENTS §3.7 / checklist 7·13 行 / HANDOFF 入库 / C7 疑问③关闭 | 完成 |
+| T6 真实 DB 只读核查 | 本报告 §4 专节 | 完成（零残留） |
+| T7 走查总账 + 收官文书 | 本报告 §6 + REQUIREMENTS §4 + CHANGELOG | 完成 |
+
+## §2 T1 侦查结论（五项）
+
+1. **流程规则持久载体盘点**：MASTER-PLAN §9 系一期锁定技术总纲的扁平编码守则（非流程规则
+   载体，且一期文档不宜追加）；REQUIREMENTS-PHASE3 系三期批内文档（收官后失去活性）；
+   SESSIONS 系交付报告流（查证载体非规则载体）。**结论：新建 docs/PROCESS-RULES.md**（跨期
+   活性 + 可发现性；STRUCTURE.md 系 P0a 目录骨架不逐 doc 登记的既有惯例，未纳入索引）。
+2. **lang 现状锚**：shared/lang-code.ts L17-33（LANG_CODE_PATTERN / langCodeSchema，posts +
+   config 共用现状）；site-config.ts L61（PutLangBodySchema）+ L70（载体 siteConfig.lang 内联
+   regex）；真实主题 config.ts L24 `const SITE_LANG = "zh_CN"`（注释示例 'en'/'zh_CN'/'ja'——
+   下划线形在库实证）；物化链 putLang → spliceSiteConfigLang → persistConfigTs（C7 机制）；
+   **override 载体现状核查：apps/server/data/config-override.json 不存在**（C7 后未走查未使用，
+   还原态 = 缺省缺文件）；git 策略形态：.gitignore L53-56 `apps/server/data/*` 忽略（跟踪树外
+   硬约束成立，README/backups 除外）。
+3. **preview 静态响应链现状**：preview.service.ts 原两档缓存头（html no-cache / `_astro/`
+   immutable），**第三档（public 直拷）缺位**（响应头缺失）；守卫链顺序 405→401→dist 根/引导页→
+   路径监狱→扩展名白名单→sendFile。**Astro dist 产物形态实测**（真实 mizukiRoot/dist）：376 文件
+   = `_astro/` 227（全部含内容指纹段，js/css/woff/webp/png 混合）+ html 33（根级页面 + posts/
+   子路径页）+ public 直拷 116（assets/**、api/*.json、favicon/、js/、_headers 等，全部稳定命名）
+   ——三档分派事实基础成立。p9d 现有断言覆盖面：档①（②）档②（⑦）已锚，档③与错误路径
+   零缓存头未锚（本批 ⑧⑨ 补齐）。
+4. **操作日志表结构盘点**：`operation_log`（schema.ts L113-124：id / user_id 可空 / method /
+   path / action / target / detail 脱敏 JSON / ip / created_at 秒级 timestamp）。只读采样：26 行、
+   admin_user 仅实名管理员 MuyuYanran、10 行 user_id NULL 全部为 auth 预认证路由（login/refresh，
+   认证前落日志无法归属用户——结构性质非残留）、操作间隔分钟级人类节奏、路径全为
+   /admin/auth|media|process 真实运维面。**测试特征判据（依采样定，禁拍脑袋）**：J1 悬空非空
+   user_id；J2 秒级突发时间簇；J3 测试特征路径/目标（fixture slug、tmp 形态）；J4 非在册用户
+   操作。
+5. **七批走查清单在库形态**：C1（§5，4 项）、C2a（§6，6 项）、C2b（§8，6 项）、C3（§8，6 项，
+   含条件性 POSIX 真机项）、C4（§8，6 项）、C5（§7，6 项）、C7（§7，6 项）——全部在库，
+   均无勾选状态列。**疑问归口核对**：C7 疑问①（zh_CN 形）→ 本批 T3 关闭；疑问③（全序 500
+   观察项）→ 本批全量全序 373/373 绿关闭（T5.4）；疑问②（物化态警示）→ T5 四项不覆盖，
+   **未清**，列入走查总账未清项交架构师窗口。
+
+## §3 T3 四格语义表（siteLangSchema / PUT /api/v1/admin/config/lang）
+
+| 格 | 输入 | 语义与处置 |
+|---|---|---|
+| 键缺失 | `{}` | 归一缺省 → 清除 override（restore originals 原文本）、侧车不落 siteConfig 键 |
+| 空串 | `{"lang":""}` | trim 归一未设置 → 同键缺失（清除、不落键） |
+| 非法 | `"e n"` / 17+ 字符 / 越界键 | 400（zod issues：path `lang` / `Unrecognized key`）；config.ts 与侧车零物化 |
+| 合法 | `"en"` / `"zh_CN"` / `"zh-Hans"` / `"EN"` / `" en "` | trim 剪缘后物化 config.ts（声明级定点置换）+ 侧车 |
+
+**锚例**：'en'（p7f ①）、'zh_CN'（⑫，含 baselineLang 常量代入锚）、'zh-Hans'（⑬ 连字符回归）、
+'e n'（② 400）、''（③ 归一不落键）、键缺失（服务端 putLang(undefined) 清除语义，p7f 未单列
+用例——C7 同口径，如实注记）。**宽松度注记**：纯数字段、大小写并存（'EN'/'en'）属有意宽松
+（历史值兼容优先）；分隔符 `[-_]` 双兼容系主题约定 `SITE_LANG = "zh_CN"` 下划线形收编
+（C7 疑问① 收官落地）。
+
+## §4 T6 真实 DB 历史残留只读核查专节（SELECT only，可复现）
+
+**核查 SQL 与结果**（执行时点 2026-08-29，better-sqlite3 readonly 连接）：
+
+```sql
+Q1: SELECT id, username, created_at FROM admin_user;
+Q2: SELECT COUNT(*) n, MIN(created_at) mn, MAX(created_at) mx FROM operation_log;
+Q3: SELECT COUNT(*) n FROM operation_log l LEFT JOIN admin_user u ON u.id = l.user_id
+    WHERE l.user_id IS NOT NULL AND u.id IS NULL;          -- J1 悬空非空用户
+Q4: SELECT action, target, COUNT(*) n FROM operation_log WHERE user_id IS NULL
+    GROUP BY action, target;                                -- NULL 归属结构判别
+Q5: SELECT date(created_at,'unixepoch') d, COUNT(*) n FROM operation_log GROUP BY d ORDER BY d;
+                                                            -- J2 时间簇
+```
+
+- Q1：恰 1 行——`MuyuYanran`（实名管理员，id 6PCPfvZ8hWMxwvpGlIm6m）；
+- Q2：26 行，窗口 2026-08-27 ~ 2026-08-29（1787808673 ~ 1787978852）；
+- Q3：**0 行**（悬空非空用户操作为零，J1 通过）；
+- Q4：user_id NULL 共 10 行 = login 4 + refresh 6，**全部为 auth 预认证路由**（认证前落日志
+  无法归属用户的结构性质，非残留特征）；
+- Q5：2026-08-27 25 行 + 2026-08-29 1 行，操作间隔分钟级（人类节奏，无秒级突发簇，J2 通过）；
+  全表路径仅 /admin/auth|media|process 真实运维面（J3 通过，附全表细查佐证：媒体上传/删除
+  与 build 任务创建/删除成对、间隔 2 秒~分钟）。
+
+**结论：零残留，一条记录关闭**（C5 走查⑤升级闭环；隔离改造前历史窗口含于 Q2 全量窗口，
+Q3/Q4/Q5 判据覆盖）。处置建议：无需处置；本核查全程 SELECT only，真实数据零写触碰。
+
+## §5 T2 转正条文（摘要，权威全文见 docs/PROCESS-RULES.md）
+
+- **R1 部署拓扑检查项**（C4 先例）：URL 拼装/绑定地址/cookie domain 批次，hostname 与访问形态
+  （localhost/127.0.0.1 双形态、反代/公网）匹配一致性列入检查单；实现自 location/Host 派生，
+  禁硬编码 127.0.0.1。
+- **R2 前置检查条件化规则**（C5 载体先例）：前置在位失败仅当「可证实从未存在（vs 误删）+
+  下游重释无歧义」双条件同时满足方可记偏差继续，任一不满足必须停止报告。
+- **R3 四格语义表**（C5 先例）：实现级终行一律附四格语义表（键缺失/空串/非法/合法）+ 锚例；
+  分派类规则以分派表交付（不属四格触发范畴）。
+- **R4 裁决复用域核验**（C7 zh_CN 先例，§1.7 增补行）：跨域复用先例裁决须附目标域取值实况
+  核验，禁凭记忆引用。
+- 生效时点：自三期收官后生效、对四期起适用，不追溯既往批次裁决。REQUIREMENTS §1.7 同步记
+  转正终态（R1 既有候选行关闭 + R4 增补行）。
+
+## §6 走查总账（人工确认列留白——架构师窗口回填，执行侧禁填）
+
+| 批次 | 清单在库位置 | 项数 | 在库状态 | 人工确认（架构师回填） |
+|---|---|---|---|---|
+| C1 | SESSIONS C1 报告 §5 | 4 | 在库（⏳ 人工补验） | |
+| C2a | C2a 报告 §6 | 6 | 在库 | |
+| C2b | C2b 报告 §8 | 6 | 在库 | |
+| C3 | C3 报告 §8 | 6 | 在库（项 6 为条件性 POSIX 真机项） | |
+| C4 | C4 报告 §8 | 6 | 在库 | |
+| C5 | C5 报告 §7 | 6 | 在库 | |
+| C7 | C7 报告 §7 | 6 | 在库 | |
+| F | 本报告 §9 | 8 | 在库 | |
+
+**机制注记**：人工确认列逐批回填后三期收官终态方成立；执行侧禁填。
+**未清项显式列出**：①C7 疑问②（config.ts 物化态是否需面板警示）——T5 四项不覆盖，
+留人工裁决；②C3 走查项 6（POSIX 真机抽查）——条件性项，无真机环境不闭；③C4/C5/C7 各批
+清单项均待人工逐项确认（即本表回填义务本身）。**疑问归口核对结果**：C7 疑问①已由 T3
+关闭、疑问③已由全序绿关闭（T5.4），疑问②未清如上。
+
+## §7 数账与提交
+
+- **测试数账：369 → 373（+4，恰达下限 ≥373）**：`p7f-config-override.e2e-spec.ts` +2
+  （⑫ zh_CN 下划线形物化锚 + baselineLang 常量代入锚；⑬ zh-Hans 连字符回归锚）；
+  `p9d-preview.e2e-spec.ts` +2（⑧ 档③ public 直拷 no-cache；⑨ 错误路径 401/405/白名单 404/
+  监狱 404 零缓存头）。零基线修复（p7e/p9d 既有断言原样全绿）。
+- **提交 5 个**（Conventional Commits，消息按提示词写死）：`fix(Phase3-F): siteLang schema
+  拆分（zh_CN 形态兼容，C7 疑问①）` / `feat(Phase3-F): preview 静态资产缓存策略（ADR-019
+  追加）` / `test(Phase3-F): lang 拆分与缓存头 e2e 及基线修复` / `chore(Phase3-F):
+  HANDOFF-ARCHITECT 入库与时效注记` / `docs(Phase3-F): 收官台账（流程候选转正、遗留终裁、
+  T6 核查记录、三期收官文书）`。
+- 纪律核验：零新增依赖、零 any/@ts-ignore、零表结构变更、fixture 零变更、posts 字段面零触碰
+  （langCodeSchema 引用原样）、override 物化链机制冻结（仅 lang 校验口径切换）、守卫链语义
+  冻结（缓存头仅注入 2xx）。
+
+## §8 偏差与疑问
+
+- **偏差 1（checklist 条目修订）**：DEPLOYMENT-CHECKLIST 第二节第 8 行缓存条目原描述
+  （「`_astro/` 外走默认头」）与 T4 三档策略不一致 → 按提示词预案修订条目，修订内容记
+  ADR-019 追加节（第 7 行 HOST 绑定同批终裁关闭）。
+- **决策注记 1（缓存兜底规则）**：dist 缺失引导页（2xx HTML）注入 no-cache——提示词未明示的
+  实现级决策点，按兜底规则入 ADR-019 追加节（取舍：引导页语义随 dist 出现即失效）。
+- **决策注记 2（T2 落点）**：流程规则载体选新建 PROCESS-RULES.md 而非 MASTER-PLAN §9 或
+  REQUIREMENTS 系（T1.1 结论：跨期活性 + 可发现性 + 一期锁定文档不宜追加），非提示词枚举项
+  的唯一解，如实登记理由。
+- **决策注记 3（ADR-020 追加注记）**：T3 改动 lang 口径使 ADR-020「复用 C5 口径」表述过时
+  → 追加注记对齐（台账一致性维护，非范围外扩权）。
+- **疑问**：无新增。**未清承转**：C7 疑问②（见 §6 未清项）。
+
+## §9 手动走查清单（F 批，人工核验项）
+
+1. **zh_CN 全链**：面板站点配置页「语言」填 `zh_CN` → 保存 → 「构建预览」执行 build →
+   `/preview` 打开站点目视 i18n 生效（override → 物化 → build → dist 全链一次）。
+2. **dist 根 HTML lang 属性形态目视**：查看站点 index.html 的 `lang` 属性终值（`zh_CN` 原样
+   传递 vs 归一——如实记录；如需归一属新发现，记疑问清单随收官报告终裁，禁临场扩权）。
+3. **档② 目视**：devtools 网络面板任一 `_astro/*` 资产 → `Cache-Control: public,
+   max-age=31536000, immutable`。
+4. **档① 目视**：站点任一 html 入口 → `Cache-Control: no-cache`。
+5. **档③ 目视**：public 直拷资产（如 `assets/logo.svg`）→ `Cache-Control: no-cache`。
+6. **守卫顺序回归**：e2e 已机械化（p9d ①a~⑨ 全绿）；人工抽查可复验 405/401/404 响应形态。
+7. **走查后 override 载体还原**：走查项 1 会创建侧车（`apps/server/data/config-override.json`）
+   并物化 config.ts——走查后将侧车 siteConfig 键清除（或删除文件恢复缺省态），config.ts 经
+   originals 留档自动还原，并记处置。本批执行态核查基线：载体当前**不存在**（还原态 = 缺省
+   缺文件，路径形态依 ADR-020 defaultOverridePath）。
+8. **HANDOFF 入库后 git status 净态**：执行侧已核验（提交后 `git status --porcelain` 零输出，
+   见 §10）。
+
+## §10 工作树终态
+
+- 终态三连：test **373/373**（42 文件，全量全序，C7 疑问③观察项就此关闭）、build 0、lint 0/0。
+- 工作树完全净态：跟踪树零改动、零 untracked（HANDOFF-ARCHITECT.md 已入库）。
+- override 载体：跟踪树外缺省态（当前不存在；如手动走查项 1 产生，按 §9 项 7 还原）。
+- 三期收官终态：批次总表与基线链见 REQUIREMENTS-PHASE3 §4；流程规则权威载体
+  docs/PROCESS-RULES.md；本表人工确认列回填后收官终态成立。

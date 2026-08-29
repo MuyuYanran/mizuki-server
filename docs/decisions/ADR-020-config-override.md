@@ -69,3 +69,13 @@ config.ts 为构建期静态导入（astro.config.mjs + 组件直连），无 en
   2 空格 JSON 美化序列化（valueToTsLiteral），与主题缩进风格差异不影响构建。
 - **债堆④处置结果**：commentConfig 无数组嵌对象形态 → 本批不触发、不扩 mapper（JSON 文本域
   兜底能力保留给既有数组场景）。
+
+## 追加（Phase3-F，2026-08-29）：siteConfig.lang 口径拆分
+
+C7 疑问① 收官落地：语言代码口径拆分双 schema——`langCodeSchema`（posts 域，
+BCP-47 连字符口径冻结）与 `siteLangSchema`（config 域，分隔符 `[-_]` 双兼容，
+主题约定 `SITE_LANG = "zh_CN"` 下划线形；纯数字段与大小写并存属有意宽松）。
+`PUT /admin/config/lang` 请求体与 override 载体 `siteConfig.lang` 切至
+`siteLangSchema`，站点配置页本地预检同步切换；posts 引用零变化。**仅校验口径
+切换**——载体形态 / 合并 / 持久化机制冻结；本 ADR 其余裁决（侧车 + 声明级定点
+置换、敏感键无、留档还原语义）不变。四格语义表见 SESSIONS 收官报告。

@@ -80,3 +80,32 @@ ADR-012 同构四边界）+ 上传缩略图变体（同目录 `-thumb.webp`）�
 - 变体同步生成占用上传延迟（数百 ms 量级，480px webp 编码）；缓存头按上表。
 - 测试环境 vitest setup 缺省 `MIZUKI_PREVIEW_PORT=0`（并行 worker 不抢 4173）。
   证据链：`test/p9d-preview.e2e-spec.ts`（8 例）+ `test/p7d-thumbnails.e2e-spec.ts`（5 例）。
+
+## 追加（Phase3-F，2026-08-29）：静态资产缓存三档分派
+
+**缘起**：C4 疑问 1 候选（部署 checklist 第二节第 8 行「无 hash 静态资产缓存策略 ·
+待裁决」），F 收官批终裁落地（html no-cache / `_astro/` immutable 两档已于 C4 裁定，
+本节补第三档并成文分派规则）。
+
+**分派规则**（注入点：preview 静态服务响应链，仅随 sendFile 成功 2xx 响应注入；
+守卫顺序 405→401→路径监狱→白名单 404 语义零变化，错误路径零缓存头）：
+
+| 档 | 判定 | Cache-Control | 依据（F T1.3 真实 dist 实测） |
+|---|---|---|---|
+| ① HTML 入口 | html/htm（含目录自动补 index.html） | `no-cache` | 每次构建内容可变 |
+| ② 内容指纹资产 | 路径前缀 `_astro/` | `public, max-age=31536000, immutable` | 文件名含 Astro 内容指纹段 |
+| ③ 其余无指纹资产 | 其余全部（public 直拷） | `no-cache` | 实测 376 文件 = `_astro/` 227（全带指纹段）+ html 33 + 稳定命名直拷 116 |
+
+**取舍说明**：③ 一律 no-cache（正确性优先，效率次之）——public 直拷资产
+（assets/**、api/*.json、favicon/ 等）文件名无内容指纹，浏览器无法判别新旧，
+激进缓存有陈旧风险，revalidate 一跳的成本不抵之。实现级决策点（提示词未明示，
+按兜底规则记本节）：dist 缺失引导页（2xx HTML）同按档①注入 `no-cache`
+（引导页语义随 dist 出现即失效）。
+
+**checklist 条目修订记录**：DEPLOYMENT-CHECKLIST 第二节第 8 行原描述「`_astro/` 外走
+默认头」与本策略不一致 → 修订为三档分派终值（本节即修订依据，偏差记 SESSIONS 收官
+报告）；第 7 行 C4 疑问 2（缺省绑定收紧候选）同批终裁维持镜像语义，
+`MIZUKI_PREVIEW_HOST` 收窄条目在册（env 表）。
+
+**e2e 锚**：p9d ⑧（档③ no-cache）+ ⑨（401/405/白名单 404/监狱 404 零缓存头）；
+既有 ②（档①）⑦（档②）不动。

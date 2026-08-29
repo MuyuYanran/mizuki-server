@@ -1,5 +1,45 @@
 # 变更日志
 
+## Phase3-F — 收官批：流程候选转正 + lang 拆分 + 缓存策略 + 遗留终裁 + 走查总账（C-Plus 连续执行）
+
+- **流程变体**：收官批免红队，架构师自查替代（人工裁决 2026-08-29）——自查七项 + v1 评审 17 项
+  （🔴3 全采纳、🟡7 采纳、🟢7 采纳）全部消化入 v2 终版提示词；判卷抽查密度加倍；架构师终签权保留
+  （消化记录见 SESSIONS 收官报告）。
+- **T2 流程候选四项转正**：新建 `docs/PROCESS-RULES.md` 权威载体（T1.1 定案：MASTER-PLAN §9 系一期
+  锁定技术守则、REQUIREMENTS 系批内文档，均非跨期流程载体）——R1 部署拓扑检查项（C4 先例）/ R2
+  前置检查条件化规则（C5 载体先例）/ R3 四格语义表（C5 先例）/ R4 裁决复用域核验（C7 zh_CN 先例），
+  各含「规则条文 + 缘起批次 + 先例链接」三要素；REQUIREMENTS-PHASE3 §1.7 记转正终态（R4 系增补行）；
+  自三期收官后生效、对四期起适用，不追溯既往。
+- **T3 siteConfig lang 拆分**（C7 疑问① 关闭）：shared 拆双 schema——`langCodeSchema`（posts 域，
+  BCP-47 连字符口径冻结，引用零变化）+ `siteLangSchema`（config 域，分隔符 `[-_]` 双兼容：
+  `/^[A-Za-z0-9]+([-_][A-Za-z0-9]+)*$/`，trim/max(16)/不 enum 化/外层 optional 五要素与 C5 终行全
+  同构）；`PutLangBodySchema`、override 载体 `siteConfig.lang`、站点配置页本地预检三处切换；
+  宽松度注记：纯数字段、大小写并存（'EN'/'en'）属有意宽松（历史值兼容优先）；四格语义表随
+  SESSIONS 交付（'en'/'zh_CN'/'zh-Hans' 合法，'e n' 非法，' en ' trim 归一，'' 归一不落键，键缺失
+  缺省）。载体形态/合并/持久化机制冻结，ADR-020 追加注记。
+- **T4 preview 缓存三档分派**（C4 疑问 1 收官裁，ADR-019 追加节）：①HTML 入口 no-cache /
+  ②`_astro/` 内容指纹资产 `public, max-age=31536000, immutable` / ③其余无指纹资产（public 直拷）
+  no-cache（正确性优先，效率次之）；注入点 preview 静态服务响应链，仅 2xx 成功响应，守卫链
+  （405→401→监狱→白名单 404）语义零变化、错误路径零缓存头；dist 缺失引导页同档① no-cache
+  （实现级决策点记 ADR-019 追加节）；部署 checklist 第 8 行修订（原「`_astro/` 外走默认头」作废）；
+  真实 dist 实测三档事实基础（376 文件 = _astro 227 全带指纹段 + html 33 + 稳定命名直拷 116）。
+- **T5 遗留终裁四项**：①articles lang 终裁「不补」（REQUIREMENTS §3.7 标终裁——DB 富文本域无
+  frontmatter 概念）；②preview 公网绑定维持镜像语义（checklist 第 7 行关闭，`MIZUKI_PREVIEW_HOST`
+  收窄条目在册）；③`docs/HANDOFF-ARCHITECT.md` 入库 + 头部时效注记（历史交接快照；cpolar HttpAuth
+  建议段作废指向 DEPLOYMENT-CHECKLIST）；④checklist 第 13 行增补主题仓非 git 备份建议（config.ts
+  物化态 + override 侧车随 data/ 迁移）+ C7 疑问③（全序 500 观察项）全量全序绿关闭。
+- **T6 真实 DB 历史残留只读核查**（SELECT only）：operation_log 26 行 / admin_user 仅实名管理员 /
+  悬空非空用户 0 / user_id NULL 10 行全为 auth 预认证路由结构性质 / 分钟级人类节奏无测试突发簇 /
+  零测试特征路径——**零残留，一条记录关闭**；核查 SQL 与结果采样入 SESSIONS 专节（可复现）。
+- **T7 走查总账与收官文书**：SESSIONS 收官报告含走查总账表（七批 + F，人工确认列留白待架构师
+  窗口回填，执行侧禁填）；REQUIREMENTS-PHASE3 新增 §4 收官节（批次总表 C0~C7+F 终态、基线链
+  295→301→312→333→342→355→359→369→373、遗留清单终态、流程演进注记）。
+- **T4/T3 e2e**：p7f +2（⑫ `zh_CN` 下划线形物化锚含 baselineLang 常量代入、⑬ `zh-Hans` 连字符
+  回归锚）；p9d +2（⑧档③ public 直拷 no-cache、⑨错误路径 401/405/404 零缓存头）——**下限 +4 恰达**
+- **验收**：test **369 → 373**（+4，恰达下限 ≥373）、build 0、lint 0/0；纪律：零新增依赖、零
+  any/@ts-ignore、零表结构变更、fixture 零变更；提交 5 个（fix/feat/test/chore/docs，Conventional
+  Commits）；工作树终态完全净态（零 untracked；override 载体跟踪树外缺省态——当前不存在）。
+
 ## Phase3-C7 — override 批：commentConfig 面板化 + config 受控子集管理（ADR-020，C-Plus 连续执行）
 
 - **T1 侦查**：决议 1 原文定位（commentConfig 面板化管理归 C7）；commentConfig 字段面以主题类型定义为基线源逐字段表（CommentConfig/TwikooConfig/GiscusConfig，含官方快照没有的 `region?`）；**敏感键盘点：无真 secret 性质键**（值烘进公开 dist，Twikoo 管理凭据在其自建数据库）→ 脱敏义务不触发，e2e ④⑧条件例以判定注记替代（条件下限 367，本批以额外实测试补至 369）；两线分列：线 A config.ts 构建期静态导入无 env/alias 钩子（override 必须物化为文本）、线 B MIZUKI_CONFIG_PATH 系 Server 自身配置与本批零交集；schema-form 全字段可承载（**债堆④判定：commentConfig 无数组嵌对象形态，不触发不扩 mapper**）；面板 config 管理零起点
