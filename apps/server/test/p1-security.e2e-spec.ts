@@ -1,4 +1,7 @@
 import 'reflect-metadata';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import request from 'supertest';
 import { Body, Controller, INestApplication, Post, UsePipes } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
@@ -7,6 +10,13 @@ import { AppModule } from '../src/app.module';
 import { configureApp } from '../src/app.setup';
 import { Public } from '../src/common/decorators/public.decorator';
 import { ZodValidationPipe } from '../src/common/pipes/zod-validation.pipe';
+
+// [Phase3-C5] 测试数据目录隔离（REQUIREMENTS-PHASE3 §3.4）： AppModule 裸启原会以
+// 默认路径打开仓库真实 apps/server/data/mizuki.db——现注入 mkdtemp 临时域，与本地
+// 实例数据零交集；断言语义零变化（仅落盘点迁移）。
+const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'mizuki-p1-e2e-'));
+process.env['MIZUKI_DB_PATH'] = path.join(tmp, 'mizuki.db');
+process.env['MIZUKI_CONFIG_PATH'] = path.join(tmp, 'config.json');
 
 /**
  * P1 §6.3 / §6.4 / §6.5 验收依据：
@@ -132,5 +142,17 @@ describe('P1 安全基建 e2e', () => {
         await app.close();
       }
     }, 30_000);
+  });
+
+  afterAll(async () => {
+    // Windows 文件句柄释放延迟：重试清理，最终失败不阻塞套件（.tmpvitest 已 gitignore）
+    for (let attempt = 0; attempt < 6; attempt++) {
+      try {
+        fs.rmSync(tmp, { recursive: true, force: true });
+        break;
+      } catch {
+        await new Promise((resolve) => setTimeout(resolve, 500));
+      }
+    }
   });
 });

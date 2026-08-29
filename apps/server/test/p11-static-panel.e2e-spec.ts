@@ -35,6 +35,13 @@ const FIXTURE_HTML = [
   '</html>',
 ].join('\n');
 
+// [Phase3-C5] 测试数据目录隔离（REQUIREMENTS-PHASE3 §3.4）：本套件三处 AppModule
+// 裸启原会以默认路径打开仓库真实 apps/server/data/mizuki.db——现注入 mkdtemp 临时域，
+// 与本地实例数据零交集；断言语义零变化（仅落盘点迁移）。
+const dataTmp = fs.mkdtempSync(path.join(os.tmpdir(), 'mizuki-p11-data-'));
+process.env['MIZUKI_DB_PATH'] = path.join(dataTmp, 'mizuki.db');
+process.env['MIZUKI_CONFIG_PATH'] = path.join(dataTmp, 'config.json');
+
 describe('P11 静态面板服务 + Swagger 三分组（ADR-009）', () => {
   let appWithDist: NestExpressApplication;
   let appNoDist: NestExpressApplication;
@@ -68,6 +75,15 @@ describe('P11 静态面板服务 + Swagger 三分组（ADR-009）', () => {
     await appNoDist.close();
     fs.rmSync(fixtureDist, { recursive: true, force: true });
     fs.rmSync(emptyDir, { recursive: true, force: true });
+    // [Phase3-C5] 隔离数据域清理：Windows 句柄释放延迟，重试后放弃（.tmpvitest 已 gitignore）
+    for (let attempt = 0; attempt < 6; attempt++) {
+      try {
+        fs.rmSync(dataTmp, { recursive: true, force: true });
+        break;
+      } catch {
+        await new Promise((resolve) => setTimeout(resolve, 500));
+      }
+    }
   });
 
   describe('有 dist：同源托管 + SPA 回退（裁决验收 1–3）', () => {
