@@ -26,3 +26,5 @@ B4 审计曾裁定 bmp 为「白名单放行即必 400 的死入口」（sharp 0
 - 放行层（albums/media 共用常量）：+tiff+bmp；albums 管线 bmp 跳过 sharp probe；media 管线 bmp 重编码不可达（防御拒绝）；
 - 错误文案同步（albums/media 白名单提示含 bmp/tiff）；
 - 证据链：`apps/server/test/p7c-album-fields.e2e-spec.ts` b3 三用例 + 基线 `p7-media-albums` tiff 用例修订 + `magic-sniff.spec.ts` 修订/新增。
+
+> C2a 判卷定案：媒体库面 bmp 防御拒绝（sharp 无法解码、无法满足 media_file 尺寸契约），相册面准入（原格式落盘）——两口径并存依据见 SESSIONS C2a 判卷。

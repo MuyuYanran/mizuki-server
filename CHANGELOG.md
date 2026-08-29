@@ -1,5 +1,16 @@
 # 变更日志
 
+## Phase3-C2b — 集合字段面对齐官方 + id 类型修正 + anime 第七集合（C-Plus 连续执行）
+
+- **T1/T2 字段面与 id 修正（ADR-018）**：projects/skills/timeline/devices 四 schema 按官方五页 verbatim 逐字对齐——id 修正为字符串名称串（registry `numericId:false`，修正 B2 裁决 9 的 number id 过度覆盖）、必填面收紧、category/status/level/type 枚举化、YYYY-MM-DD 日期正则、`.strict()` 未知字段拒绝（devices 收敛恰 5 必填）；载入触发的值域迁移（`migrateLegacyValues`，ADR-014 机器扩展）：zod parse 之前原始值层、幂等（官方值直通）、文件锁+temp+rename+pre_write 原子写回、磁盘字节仅变迁移目标；非法枚举值不迁移（交由校验拒绝，禁自创映射）；skills.projects[] 引用与 projects id 同批 String 化
+- **T2 服务层**：`:id` 校验 registry 化（diary/friends 维持数字校验非数字 400；projects/skills/timeline/anime 接受字符串定位）；POST 留空 slugify 自动生成（来源 title/name，小写/空白下划线转连字符/剔除非法字符，空结果回落 `item-<nanoid(6)>`；冲突 409 既有语义）；定位键只读守卫（PATCH 改 id/title → 400，diary/friends number id 与 devices name 分支语义不变）
+- **T3 anime 第七集合**：shared `AnimeItemSchema`（官方 local 模式全表；startDate/endDate `^\d{4}-\d{2}$` 注意非 YYYY-MM-DD；无 id 字段——幽灵字段禁令）；registry 注册 `idField:'title'`、`numericId:false`、`public:true`（`/public/collections/:type` 白名单自动含 anime，路径与形状不变）；服务层复用 array 形引擎管线（title 定位 CRUD/重名 409/value-cache 照旧）；fixture 新建 `src/data/anime.ts` canonical 形状（localAnimeList 在前、getAnimeList 后缀区，改数组不动函数；3 条目覆盖三 status 与可选 endDate）；anime.mode/bangumi/bilibili 属 config.ts 域 → C7 不碰
+- **T4 面板**：MainLayout 新增「番剧」菜单 + CollectionListPage 第七配置（array 形复用）；mapper/SchemaForm——id 字段统一只读（创建留空「留空自动生成」提示、编辑禁用）、timeline links 对象数组 JSON 文本框兜底（草稿文本保留+解析失败字段级提示，mapper 扩展取舍见 SESSIONS C2b）、anime 月份精度日期控件（YYYY-MM，schema 正则探针判定）与字段标签
+- **T5 e2e**：新建 `p4c-collection-alignment.e2e-spec.ts` 13 用例 + `p4d-anime.e2e-spec.ts` 7 用例（清单见 SESSIONS C2b）
+- **T6/T7**：ADR-018（迁移总表 + anime canonical 形状 + slug 规则）、ADR-004 追加 C2b 修订节（work 官方值 material-symbols:work/#DC2626）、ADR-017 追加 C2a 判卷注记、REQUIREMENTS-PHASE3 B4 遗留注记、台账
+- **受影响基线修复**（逐条）：p4 §6.1/§6.2 create/patch body 对齐官方必填面、crudCycle id 类型断言分支化、§6.4 数据文件数 6→7、§6.8 补 description、timeline/skills patch 值改官方枚举；p4b ③ 幂等载体 timeline→projects；golden projects/skills id 断言 string 化、skills 负数覆盖点移除（level:-3 随迁移退场）；schemas.spec skills.level 枚举语义 + 新增四 schema .strict() 用例
+- **验收**：test 312 → **333**（+21，≥325 下限达成）、build 0、lint 0/0；纪律：零新增依赖、零 any/as any/@ts-ignore、零表结构变更、albums/posts/articles 字段面与公开 API 路径形状零变化
+
 ## Phase3-C2a — 相册字段面对齐官方 + 白名单重裁决 + 体检清尾（C-Plus 连续执行）
 
 - **T1 相册 info schema 字段面对齐官方**（special-gallery 裁决级供料）：共享面（本地/外链 union）补齐 `hidden: z.boolean().optional()` / `layout: z.enum(['grid','masonry']).optional()` / `columns: z.number().int().min(1).max(6).optional()`（默认 3 语义由消费方处理，schema 不填充默认值）；外链 photos 收紧为官方 14 字段（src 必填，其余可选），**settings 从 B2 自由 record 收紧为官方四子键 `{aperture/shutter/iso/focal 均 string}` 的 `.strict()` 对象**，photos 整体 `.strict()` 未知子字段拒绝（B2 疑问 4「官方补规格后二次收紧」条件达成）；字段名与 B2 逐字一致零改名（仅 hidden 从外链 schema 移入共享面、layout/columns 校验收紧）

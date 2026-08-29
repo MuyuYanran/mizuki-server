@@ -43,3 +43,16 @@ icon 取 Lucide 风格图标名（与 Mizuki/Astro 生态常用图标库一致�
 
 - 拿到真实 Mizuki 主题源码后须核对映射并修订本 ADR 与 `TIMELINE_DEFAULTS`（一次常量表变更，无结构性改动）；
 - 默认值仅作用于「新增时未提供」的场景，用户显式提供的 icon/color 不受影响。
+
+## C2b 修订（2026-08-29，官方枚举落地）
+
+Phase3-C2b（ADR-018）将 `TimelineTypeSchema` 对齐官方枚举 `education|work|project|achievement`（certificate/other 经载入迁移分别映射为 work/achievement），`TIMELINE_DEFAULTS` 随之换键：
+
+| type | icon | color | 依据 |
+|---|---|---|---|
+| education | material-symbols:school | #059669 | 官方 §2 示例逐字（B4 修订已定） |
+| **work** | **material-symbols:work** | **#DC2626** | 官方 §3 示例逐字（本修订新增，B4 修订节遗留义务兑现） |
+| project | rocket | #10b981 | 暂定：无官方示例（注记保留） |
+| achievement | star | #8b5cf6 | 暂定：无官方示例（注记保留；承接原 other 键的暂定值） |
+
+certificate/other 键随枚举迁移一并移除（默认填充仅作用于 POST 新增，存量条目 icon/color 不回填——迁移只动 §2 迁移表列明的字段）。

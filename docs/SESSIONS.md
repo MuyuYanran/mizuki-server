@@ -1956,3 +1956,104 @@ T0 未触发新增（avif 用例已存在）。基线修复 9 处均为 body 补
 - `feat(Phase3-C2a): 上传白名单重裁决（+bmp+tiff，ADR-017）与魔数扩展`
 - `test(Phase3-C2a): p7c 相册字段面 e2e 与受影响基线修复`
 - `docs(Phase3-C2a): ADR-017、体检清尾与台账`
+
+---
+
+## Phase3-C2b 交付报告 — 集合字段面对齐官方 + id 类型修正 + anime 第七集合
+
+- 日期：2026-08-29
+- 阶段：Phase3-C2b（C-Plus 连续执行；三期最大功能批）
+- 结论：**C2b 功能完成，§1 前置检查与基线三连全绿。** `pnpm test` 312 → **333**（+21，≥325 下限达成）、`pnpm build` 0 error、`pnpm lint` 0/0。
+
+### 1. 任务清单 T1–T7（n/n）
+
+| # | 任务 | 结果 |
+|---|---|---|
+| T1 | shared collections schema 字段面对齐 | ✅ projects/skills/timeline/devices 按官方逐字对齐（必填面、枚举、YYYY-MM-DD、`.strict()`）；diary/friends 不动 |
+| T2 | id 类型修正与值域迁移 | ✅ registry numericId:false ×3 + anime 注册；`migrateLegacyValues`（ADR-014 机器扩展）；:id 校验 registry 化；slug 自动生成 + 定位键只读 |
+| T3 | anime 第七集合 | ✅ AnimeItemSchema + registry（idField:'title'）+ 服务层复用 array 管线 + fixture canonical 形状 + 公开 API 白名单自动含 anime |
+| T4 | 面板 | ✅ 番剧菜单/路由；SchemaForm id 只读两态；timeline links JSON 文本框兜底；anime 月份精度日期控件；ADR-004 修订（work 官方值） |
+| T5 | e2e | ✅ p4c 13 用例 + p4d 7 用例；基线修复 5 文件（见 §4） |
+| T6 | ADR | ✅ ADR-018 新建（≤40 行）；ADR-004 追加 C2b 修订节 |
+| T7 | 台账 | ✅ CHANGELOG/REQUIREMENTS/SESSIONS/ADR-017 注记 + 本报告 |
+
+### 2. §2 迁移规则执行对照表（迁移函数 `migrateLegacyItem`，逐条死规则）
+
+| 规则 | 实现 | 验证 |
+|---|---|---|
+| projects id: number→String(n) | `migrateLegacyItem` 通用 id 分支 | p4c ②（响应 ['1','2'] + 磁盘 `id: "1"`） |
+| projects status: 'active'→'in-progress'、'done'→'completed' | 同函数 projects 分支；其他值不动 | p4c ② |
+| skills id: number→String(n) | 通用 id 分支 | p4c ③ |
+| skills level: 1/2/3/≥4→四枚举 | 同函数 skills 分支；非 number 不动 | p4c ③（1→beginner、3→advanced） |
+| skills.projects[] 各项 String 化 | 同函数数组映射 | p4c ③（[1,2]→['1','2']，与 projects 同批一致） |
+| timeline id: number→String(n) | 通用 id 分支 | p4c ① |
+| timeline type: 'certificate'→'work'、'other'→'achievement' | 同函数 timeline 分支 | p4c ① |
+| 幂等（官方值直通） | `needsLegacyMigration` 判据前置 | p4c ①b 二跑字节不变；p4b ③ |
+| 非法值停止报告（禁自创映射） | 不迁移 → zod parse 拒绝 400 | p4c ⑤（category 'game'/level 'master'/links.type 'blog'） |
+| 原始值层 + 原子写回 | mutateCollection 不传 schema（防死锁，ADR-014 同款） | 迁移在 zod parse 之前完成（p4c ① 死锁同构证明） |
+| diary/friends 分支语义不变 | `ensureNumericIds` 原样保留 | p4c ④（number id 回归） |
+
+### 3. e2e 数账（312 → 333，+21，逐文件）
+
+| 文件 | 增量 | 内容 |
+|---|---|---|
+| `p4c-collection-alignment.e2e-spec.ts` | +13（新增） | ① timeline type 迁移+id String 化；①b 幂等二跑；② projects status+id；③ skills level+id+引用；④ diary/friends number 回归；⑤ 三非法枚举 400；⑥ devices 第 6 字段 400 且零落盘；⑦ slug 生成（kebab/下划线/全剔除回落 item-nanoid）；⑧ 显式与 slug 撞 id 409；⑨ :id registry 化（friends 400 / projects 字符串 404/200）；⑩ 定位键只读 400；⑪ 备份 round-trip 字符串保真；⑫ links 合法数组过/对象内未知键拒 |
+| `p4d-anime.e2e-spec.ts` | +7（新增） | ① title 定位 CRUD 全循环；② 重名 409；③ /public/collections/anime 200；④ 读回+磁盘零 id 键（幽灵字段禁令）；⑤ status 'binge-watching' 400；⑥ startDate YYYY-MM-DD 拒/YYYY-MM 过；⑦ canonical 形状（getAnimeList 后缀字节保持） |
+| `schemas.spec.ts` | +1 | 四 schema `.strict()` 未知字段拒绝新用例（枚举语义修订并入既有用例） |
+| 合计 | **+21** | 312 → 333（≥325 下限达成） |
+
+### 4. 受影响基线修复清单（逐条，禁静默）
+
+| 文件 | 修复 |
+|---|---|
+| `p4-collections.e2e-spec.ts` | §6.1 projects/timeline/skills create/patch body 对齐官方必填面与枚举（status 'done'→'completed'、level 7→'advanced'、type 'other'→'achievement'、补 description/image/startDate/icon 等）；crudCycle id 类型断言分支化（diary/friends number，其余 string）；§6.2 devices create 补齐恰 5 字段；§6.4 数据文件数 6→7（anime.ts 入列）；§6.8 create 补 description |
+| `p4b-id-migration.e2e-spec.ts` | ③ 幂等载体 timeline→projects（timeline id 已官方 string 化，number 幂等语义由 projects 承接） |
+| `golden.spec.ts` | projects id 断言 string 化（1/2→'1'/'2'）；skills 用例标题与断言随负数覆盖点移除修订（id '3'/level 'beginner'） |
+| `schemas.spec.ts` | skills.level「非数字」语义改「非枚举」；新增 `.strict()` 用例 |
+
+### 5. fixture 变更清单（§4.3 边界内逐条）
+
+| 文件 | 变更 | 依据 |
+|---|---|---|
+| `src/data/projects.ts` | id number→string、status 'done'→'completed'/'active'→'in-progress'、category 中文→官方枚举（网站→web、工具→other）、item2 补 image/startDate | §4.3 数据值迁移 |
+| `src/data/skills.ts` | id number→string、level number→枚举、三条目补齐官方必填面（description/icon/category/experience）；**前缀负号覆盖点 level:-3 移除**（官方字段面无合法负值位） | §4.3 数据值迁移 |
+| `src/data/timeline.ts` | id number→string（type 本就合法，描述零变更） | §4.3 数据值迁移 |
+| `src/data/devices.ts` | HHKB 补 image/link、MX Master 补 image/specs/link（官方恰 5 必填核对修正） | §4.3 devices 字段核对修正 |
+| `src/data/anime.ts` | 新建（canonical 形状：localAnimeList + getAnimeList 后缀；3 条目覆盖 watching/completed/planned + 可选 endDate 样例） | §4.3 anime.ts 新建 |
+| `src/types.ts` | Project/Skill/TimelineItem/Device 接口随官方字段面同步（id string、枚举、必填）+ 补 AnimeItem 接口 | §4.3 types.ts 补 AnimeItem；接口同步为「数据值迁移」的 tsc 编译必要伴随（§6.4 写后可编译断言依赖），记此说明 |
+
+### 6. mapper links 取舍（T4.2）
+
+timeline links（ZodArray<ZodObject>）**采用 JSON 文本框兜底**（记报告）：完整 mapper 扩展需引入「对象数组子表单」控件族（动态行编辑 + 嵌套枚举 select），工程量与收益比失衡。实现：`WidgetKind + 'json'`、SchemaForm JSON textarea（草稿文本保留防打断输入、解析失败字段级提示、非数组拒绝），e2e 覆盖合法/非法两面。后续若 P11 收尾期愿意投入，可升级为子表单控件。
+
+### 7. 偏差与疑问
+
+1. **anime.md 快照（规划级）status 枚举 `wish|doing|done` 与本批供料 `watching|completed|planned` 不一致**：以提示词 §2 裁决级供料（架构师 2026-08-29 抓取 verbatim）为准，落地 watching|completed|planned；建议规划级快照届期升级为裁决级时一并勘误。
+2. **p4c ⑧ slug 冲突构造**：slugify 剔除非 [a-z0-9-] 字符，中文标题 slug 为空 → 回落 item-<nanoid>（不冲突），slug 撞既有条目需标题 slugify 后恰为存量 id（用例以标题 "1" 撞迁移后 id "1" 构造）。
+3. **migrateLegacyItem 对「id 为 number 且其他字段合法」的条目**会触发整文件写回（幂等判据文件级），多写一次 pre_write 备份属预期副作用（ADR-014 同款语义）。
+4. **anime cover 未纳入媒体引用贡献者**（collections/media-reference.ts 无 anime 分支）：本批未授权改动 media-reference 面，且 anime cover 官方场景以外链/本地静态路径为主；若需删除保护（删媒体前检查 anime cover 引用），记为后续批次候选（范围外，仅记疑问）。
+5. **golden 负数覆盖点损失**：skills level:-3 随值域迁移退场，序列化层负数覆盖降级为已接受损失（负号序列化由 JSON.stringify 语义保证；engine.spec 无负数依赖用例），已记 §4/§5。
+6. 范围外发现：无（albums/posts/articles、/site-assets、Vditor/TipTap、公开 API 路径形状零触碰）。
+
+### 8. 手动走查清单（人工核验项）
+
+| # | 项目 | 操作 | 预期 |
+|---|---|---|---|
+| 1 | 番剧页 | 侧边栏「番剧」→ 列表/新增/编辑/删除 | array 形表格；新增表单 status/startDate（月份选择器）等控件正常；编辑态 title 只读 |
+| 2 | id 只读两态 | projects 新增抽屉 vs 编辑抽屉 | 新增 id 禁用空态占位「留空自动生成」；编辑 id 禁用显示现值 |
+| 3 | slug 自动生成 | projects 新增标题 "My Cool Server" 提交 | 列表出现 id "my-cool-server" |
+| 4 | timeline links JSON | timeline 新增 links 填入非法 JSON → 合法 JSON | 非法时字段级红字「JSON 数组解析失败」且不提交；合法后正常落盘 |
+| 5 | 值域迁移 | 用旧版数据文件（number id + status 'active'）启动后访问任一集合端点 | 响应与盘上文件均已迁移；pino warn 留痕「官方值域迁移（ADR-018）」 |
+| 6 | 迁移幂等 | 迁移后再刷新列表多次 | 磁盘字节不再变化 |
+
+### 9. 工作树终态
+
+- 未跟踪合规文件：`docs/HANDOFF-ARCHITECT.md`（授权保留不动）；`.tmpvitest/` 已入 .gitignore。
+- 提交 4 个（见 §10）；提交后停止，不开启 C3。
+
+### 10. commit 记录
+
+- `feat(Phase3-C2b): 集合字段面对齐官方与 id 类型修正（值域迁移，ADR-018）`
+- `feat(Phase3-C2b): anime 第七集合（title 定位、canonical 文件形状）`
+- `test(Phase3-C2b): p4c/p4d 对齐 e2e 与受影响基线修复`
+- `docs(Phase3-C2b): ADR-018、ADR-004 修订与台账`

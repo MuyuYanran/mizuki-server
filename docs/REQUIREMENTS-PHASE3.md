@@ -45,6 +45,10 @@
    字段面——落地时遵守 **ADR-013 幽灵字段禁令**（字段、服务、表单同批可见）。
    **b1/b2/b3 已由 C2a 落地**（hidden/layout/columns 对齐共享面、外链 photos 收紧官方 14
    字段 + settings 四子键；白名单重裁决见 ADR-017；详情见 CHANGELOG Phase3-C2a）。
+   **g2/h3~h6 已由 C2b 落地**（字段面逐字对齐、id 修正为官方字符串名称串 + 载入触发值域
+   迁移、timeline type 迁移 certificate→work/other→achievement；见 **ADR-018** 与
+   CHANGELOG Phase3-C2b）。**anime 第七集合决议登记**（C0.1 快照推翻 B4 i2「无规格」判定，
+   C2b 以 local 模式落地，title 定位、无 id 字段；mode/bangumi/bilibili 配置归 C7）。
 2. **R2-16 包管理器确定性解析**：→ C3 认领（ADR-011 设计基线在位）。
 3. **description 存量体检**：真实主题构建是否因存量 md 缺 description 报错 → C2 核对。
    **C2a 已核对**：fixture 两 post 与官方示例 frontmatter（press-file/press-folder/
