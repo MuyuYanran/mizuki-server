@@ -35,3 +35,13 @@
 1. **上传白名单终集（裁决 3）**：`jpg/jpeg/png/gif/webp/avif` 六格式；`bmp`（sharp 0.35 预编译版无法解码，放行即必 400 死入口）、`svg`（XSS 面）、`tiff`（裁决排除）排除。tiff 魔数签名与单测保留。**【Phase3-C2a 修订见 ADR-017】**（bmp/tiff/tif 已准入，svg 维持排除）。
 2. **转码拆分（裁决 2）**：相册上传管线移除「非 JPG 强转 JPG」，png/webp/gif/avif 原格式落盘；posts 封面（cover.jpg 硬约定）维持转码；媒体库直传维持现状（media 模块各自裁断，不再全局统一转码策略）。
 3. **tiff 两层注记**：能力层（`magic-sniff.ts` 双端序魔数 `II*\0`/`MM\0*` 识别 + 单测）保留；放行层（上传白名单）排除。即：服务端能**认出** tiff 但不**收** tiff；用户手动放置到 Mizuki 目录的 tiff 文件不受影响，仍可经既有渲染通道正常展示——仅管理面上传不支持。
+
+## 追加（Phase3-C5，2026-08-29）：posts lang 字段补齐（C1 对齐疏漏收口）
+
+> C1 对齐 ADR 文章字段对齐节追记：官方 frontmatter 可选字段 `lang`（`other-structure.md`
+> 快照「内容编写指南」示例 `lang: zh-CN`，官方未给类型/约束表）未列入 C0.1 feature-surface
+> B 档清单，系对齐疏漏非有意裁决（架构师 2026-08-29 核对确认）——C5 补齐：`PostFrontmatterSchema`
+> 终行 + 面板「语言（可选）」输入；服务端收紧（trim、空串归一未设置、BCP-47 简码 regex、
+> max(16)、不 enum 化）系官方定义之上**有意识的叠加**。posts 对象新增可选 lang 字段为架构师
+> 授权 additive 非破坏性例外（公开 API 路径与形状零变化，lang 属内容面随对象自然返回）。
+> 详见 CHANGELOG Phase3-C5 与 SESSIONS C5 报告（含 i18n 全景裁决记录）。

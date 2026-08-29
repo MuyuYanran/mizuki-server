@@ -27,12 +27,20 @@
    【候选追加（2026-08-29，C3 评审先例）】「批次提示词执行前红队评审」——批次提示词
    下发前先行评审修订（C3 v2 即先例：评审发现层①快速失败语义、.cmd 策略冲突、测试
    PATH 口径等 14 项并出 v2），待人工确认转正式流程规则。
+   【转正（2026-08-29，架构师裁决，C5 为首批实践）】「批次提示词执行前红队评审」升为
+   正式流程规则（C5 v1 评审 14 项全消化：11 采纳/2 修正后采纳/1 采纳并纠偏）。
+   【流程先例（2026-08-29，C5）】「评审→裁定全权模式」：人工授权「检验完成后直接通过」
+   ——v2 无遗留即视同红队通过，免二轮往返；随本台账注记生效。
    【候选追加（2026-08-29，C4 先例）】红队清单增补「部署拓扑检查项」——T4.1 实证
    hostname 硬编码 127.0.0.1 会在 localhost/127.0.0.1 双访问形态下破坏 cookie host 匹配
    （C4 v2 已先例修正为 window.location.hostname 派生），后续批次提示词涉 URL 拼装/
    绑定地址时须列入红队检查单；待人工确认并入。
    【处置记录（2026-08-29，C4 执行时）】「红队评审转正」候选项：检查工作树与 SESSIONS
-   均无人工裁决落笔 → 维持候选不转正（无悬空等待）。
+   均无人工裁决落笔 → 维持候选不转正（无悬空等待）。（追记：同日 C5 时点该候选已由
+   架构师裁决转正，见上行，本处置记录仅存档 C4 时点状态。）
+   【处置记录（2026-08-29，C5 执行时）】「部署拓扑检查项」候选项：复查工作树与 SESSIONS
+   无人工裁决落笔 → 维持候选不转正（C4 处置模式复用；红队评审既已转正，本项按其检查单
+   惯例先行实践，转正仍待人工确认）。
 8. **序列**：C0→C1→C2→C3→C4→C5→C7→收官。
 
 ## §2 批次范围（每批一句话）
@@ -47,7 +55,11 @@
   【状态：**C4 已落地**（2026-08-29，ADR-019）：自有静态通道不托管 astro preview 进程 +
   preview-ticket 签发（cookie 参数终值表）+ 缩略图变体相册面管线（fail-open 仅限变体、
   删除耦合）；详见 CHANGELOG Phase3-C4 节】 |
-| C5 | 部署 checklist 收口（并入 C6 残项）+ p9 测试数据目录隔离 |
+| C5 | 部署 checklist 收口（并入 C6 残项）+ p9 测试数据目录隔离
+  【状态：**C5 已落地**（2026-08-29，含架构师裁决 i18n 收口并入）：部署 checklist 收口
+  产物 `docs/DEPLOYMENT-CHECKLIST.md`（C6 残项闭环 + env 全量盘点）+ 测试数据目录隔离
+  （app/p1/p11 三裸启套件 → mkdtemp，真实 data 目录零交集）+ posts `lang` 字段（官方
+  frontmatter 对齐疏漏收口，additive 授权例外）；详见 CHANGELOG Phase3-C5 节】 |
 | C7 | override 批：commentConfig 面板化管理（决议 1） |
 | 收官 | 三期收尾回归与验收 |
 
@@ -69,10 +81,15 @@
    other-structure）均含 description，官方 press 文档明确 description 为必需字段——
    存量无缺项；若真实构建对缺字段报错，三期补「缺失字段体检」工具（本批仅清点）。
 4. **p9 测试数据目录隔离**：p9-process 等基线套件使用仓库真实 data 目录 → C5 统一 mkdtemp 隔离。
+   **C5 已销账**：实际裸启者为 app / p1-security / p11-static-panel 三套件（p9 系本就 mkdtemp），
+   均已注入 mkdtemp 临时域；真实 `apps/server/data/` 系本地实例数据（非测试污染），未做清理。
 5. **外链 photos 富元数据子规格**：camera/lens/settings 待官方文档补齐后收紧。
    **C2a 已收紧**：官方 14 字段逐字对齐（src 必填其余可选），settings 从自由 record 收紧
    为 `{aperture/shutter/iso/focal 均 string}` 四子键 `.strict()` 对象，photos 整体
    `.strict()` 未知子字段拒绝（B2 疑问 4 二次收紧条件达成）。
 6. **工程债清单**：前端路由级代码分割（chunk 2.5MB）、eslint-plugin-vue 引入评估、
    Vditor 代码高亮暗色配色（B3.6 已知限制 2）、RichArticleEditPage pubDate 裸 el-input
-   （TipTap 冻结唯一残留）、UploadedFileLike 类型收敛、富文本软删恢复入口、部署 checklist 残项。
+   （TipTap 冻结唯一残留）、UploadedFileLike 类型收敛、富文本软删恢复入口、部署 checklist 残项
+   （已由 C5 收口，见 `docs/DEPLOYMENT-CHECKLIST.md`）。
+7. **articles lang 是否补**（C5 i18n 全景裁决豁免项，有意遗留）：posts frontmatter lang 系
+   posts 专属机制，articles 为 DB 富文本域官方无 frontmatter lang——是否补由收官批裁。

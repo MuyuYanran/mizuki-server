@@ -75,5 +75,6 @@ pnpm --filter @mizuki/web dev                   # 终端 2：面板 20155（/api
 - [REQUIREMENTS.md](./docs/REQUIREMENTS.md) — 需求规格：字段级数据规格、安全需求、硬性约束
 - [STRUCTURE.md](./docs/STRUCTURE.md) — 目录结构说明
 - [SECURITY-REVIEW.md](./docs/SECURITY-REVIEW.md) — 安全复查报告（9 条安全条款 + 16 条硬性约束逐项核对）
+- [DEPLOYMENT-CHECKLIST.md](./docs/DEPLOYMENT-CHECKLIST.md) — 部署 checklist 与环境变量全量清单（Phase3-C5 收口）
 - [docs/decisions/](./docs/decisions/) — ADR 决策记录（依赖基线、SQLite 记账、备份范围、JWT 管理、静态面板托管、站点资产通道等）
 - [CHANGELOG.md](./CHANGELOG.md) — 各阶段交付记录

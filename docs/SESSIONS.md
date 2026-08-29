@@ -2221,3 +2221,105 @@ ADR-012 白名单为图片类，dist 资产需 html/css/js/字体/json 超集（
 - 提交 4 个：`feat(Phase3-C4): /preview 预览通道（JWT cookie GET-only，ADR-012 同构四边界，ADR-019）` / `feat(Phase3-C4): 上传缩略图变体（-thumb.webp，EXIF auto-orient，删除耦合，fail-open）` / `test(Phase3-C4): preview 与缩略图 e2e（夹具 preview-dist）及基线修复` / `docs(Phase3-C4): ADR-019、注记与台账`
 - 未跟踪合规文件：`docs/HANDOFF-ARCHITECT.md`（授权保留不动）
 - 终态三连：test **355/355**、build 0、lint 0/0（全部 commit 前最后代码态全量验证）。
+
+## Phase3-C5 交付报告（部署 checklist 收口 + 测试数据隔离 + posts lang，2026-08-29）
+
+> 批次提示词 v2 终版（红队评审正式规则首批实践；「评审→裁定全权模式」先例：人工授权
+> 「检验完成后直接通过」，v2 无遗留即视同红队通过）。C-Plus 连续执行，基线 HEAD=a636b9c。
+
+### §1 任务表（映射 n/n：checklist→T2 ✓；p9 隔离→T3 ✓；lang→T4 ✓；测试→T5 ✓ 4/4；注记→T6 ✓；台账→T7 ✓）
+
+| 任务 | 结果 |
+|---|---|
+| T1 侦查 | 4 项结论见 §2 |
+| T2 部署 checklist 收口 | 新建 `docs/DEPLOYMENT-CHECKLIST.md`：C6 残项闭环（无残留条目，零删除动作）+ 12 项盘点 + env 全量 10 个补入 |
+| T3 测试数据目录隔离 | app / p1-security / p11-static-panel 三裸启套件 → mkdtemp（污染源非 p9 系，见 §2.2/偏差 3） |
+| T4 posts lang | `PostFrontmatterSchema` 终行 + 面板「语言（可选）」输入（见 §3） |
+| T5 e2e | `p7e-posts-lang` 4 用例恰达下限；隔离回归三套件全绿 |
+| T6/T7 台账 | ADR-013 追加节；REQUIREMENTS-PHASE3 §1.7 转正+先例+处置、§2 C5 注记、§3 销账/新遗留；CHANGELOG C5 节；本报告 |
+
+### §2 T1 侦查结果
+
+1. **部署 checklist 载体**：全仓跟踪文件无独立部署 checklist 文档（grep cpolar/内网穿透/checklist
+   仅命中 REQUIREMENTS-PHASE3 撤销记录与候选注记、未跟踪 HANDOFF-ARCHITECT 历史注记、SESSIONS
+   C4 疑问）——C6 于执行前撤销，原定载体从未产出。git 历史核验：C0 落盘的 REQUIREMENTS-PHASE3
+   即如此。处置：宽松口径判定 §1.2 通过（记录链可定位），T2 新建收口产物（偏差 2 显式记录）。
+2. **p9 测试数据现状**：p9-process / p9b-pm-resolver 均已 `mkdtempSync(os.tmpdir())` 隔离；
+   实际裸启 AppModule 且未注入 `MIZUKI_DB_PATH` 的是 `app` / `p1-security` / `p11-static-panel`
+   三套件（db.module.ts L24 缺省 `apps/server/data/mizuki.db`，迁移跑进真实 DB）。只读核查真实
+   data 目录：admin_user=MuyuYanran（实名）、mizukiRoot 指向真实博客目录、操作日志 26 条直至
+   2026-08-29——**本地实例数据非测试污染，禁删未清**；测试侧仅幂等迁移写入，零数据残留。
+3. **posts schema 与 lang 疏漏确认**：schema 在 `posts.service.ts`（P5 十五字段 + C1 三可删键）；
+   C1 对齐记录 = feature-surface.md B 档（仅 permalink/comment/encrypted+password），无 lang 且
+   无任何有意裁决落笔 → **对齐疏漏**。官方 lang 定义摘录（T4 对照基线）：`other-structure.md`
+   「文章前言（Frontmatter）」示例块 `lang: zh-CN`（全快照唯一出现，无类型/约束表）——server 侧
+   收紧（trim/空串归一/BCP-47 regex/max(16)）系官方定义之上**有意识的叠加**，与裁决一致。
+4. **面板表单**：`apps/web/src/views/posts/PostEditPage.vue`——fm ref 已知字段锚、populateForm
+   回填、buildFrontmatter 合并（未知键经 fullFm 原样保留）、KNOWN_FM_KEYS 额外字段排除锚。
+
+### §3 实施要点
+
+- **lang schema 终值**（`posts.service.ts`）：
+  `z.string().trim().transform(v => v === '' ? undefined : v)
+   .pipe(z.string().regex(/^[A-Za-z0-9]+(-[A-Za-z0-9]+)*$/).max(16).optional()).optional()`
+  ——内层 optional 承接空串归一出出的 undefined；外层 optional 使缺键可选（提示词终行缺外层，
+  见偏差 1）。不 enum 化（C2b 过度收窄教训）；max(16) 容 'zh-Hant-TW' 等，更长系有意取舍。
+- **校验生效面**：仅写入口——创建（PostFrontmatterWriteSchema）、PATCH 合并整体校验（L230）、
+  uploadCover（L328）；读取/列表/sync/公开 API 直走 `parseMarkdown` 零影响（公开 API 路径与形状
+  零变化，lang 属内容面随对象自然返回）。
+- **面板**：作者栏后「语言（可选）」el-input（placeholder 'en'，与既有 frontmatter 输入形态一致）；
+  空 = 站点默认 → buildFrontmatter 提交 undefined（不落键）；存量不回填（缺省语义天然成立）。
+- **隔离**：三套件模块顶部 mkdtemp + `MIZUKI_DB_PATH`/`MIZUKI_CONFIG_PATH` 注入 + afterAll 重试
+  清理（Windows 句柄延迟先例）；app 套件 11 表断言改用注入路径（语义不变仅落盘点迁移）。
+
+### §4 数账
+
+- test **355 → 359**（+4 = p7e 4 用例，恰达下限 ≥359）；build 0；lint 0/0。
+- 受影响基线修复 **0**（T3 仅落盘点迁移，断言语义零变化，按提示词不计入新增数）。
+
+### §5 i18n 全景裁决记录（T6.2，供收官批引用）
+
+1. **主题三层内置**：UI 翻译文件 / 客户端 translate.js / `siteConfig.lang`（后者归 C7）——Server 侧均无参与面。
+2. **Server 侧唯一参与面 = posts frontmatter `lang`**（本批落地，写入口校验 + 面板输入）。
+3. **不启用 Astro 原生 i18n 路由**（非 Mizuki 模型）。
+4. **collections 各集合官方字段表均无 lang**（B4/C2b 对齐证据链佐证，无需处置）。
+5. **articles 豁免有意**：DB 富文本域，frontmatter lang 系 posts 专属机制；是否补 → 遗留清单
+   REQUIREMENTS-PHASE3 §3.7「articles lang 是否补」供收官裁。
+
+### §6 偏差与疑问
+
+- **偏差 1（技术，提示词终行修正）**：T4.1 给定 lang 终行原样落地时**缺键即 400**（zod 对象键
+  可选性由整链是否接受 undefined 决定，左支 `z.string()` 不容 undefined）——e2e ④ 捕获；管道外
+  补一层 `.optional()`（内层 optional 语义保留），与裁决意图（optional 锚 + 空串归一）一致。
+- **偏差 2（前置检查口径）**：§1.2 首项「部署 checklist 载体存在」按宽松口径判定通过——无独立
+  载体（C6 执行前撤销未产出），以 REQUIREMENTS-PHASE3 记录链 + README 部署节（散落 env 注记与
+  公网建议）为现存载体定位；T2 新建 `docs/DEPLOYMENT-CHECKLIST.md` 为收口产物（与「收口」任务
+  性质自洽：载体已存在则无可收口）。显式记录非静默，提请裁决追认；若按严格口径本应为停止报告。
+- **偏差 3（T3 范围修正）**：「p9 测试数据目录隔离」依 T1.2 侦查实证，污染源非 p9 系（p9 本就
+  mkdtemp）而是 app/p1-security/p11 三裸启套件；按任务意图（与仓库真实 data 目录零交集）迁移
+  该三者。
+- **偏差 4（T6.1 落点）**：C1 无独立「文章字段对齐 ADR 节」，对齐追记落 **ADR-013**（规格对齐
+  基线 ADR）追加节。
+- **疑问 1**：C4 疑问 1/2（`_astro/` 外无 hash 资产缓存策略、preview 缺省绑定面）已记 checklist
+  第 7/8 项「待收官裁」——C4 报告原预期「C5 一并裁决」，C5 提示词未含裁决授权，移交收官（口径差记录）。
+- **疑问 2**：app 套件隔离后，`resolveDbPath` 缺省分支（无 env 时写 `../data`）失去测试覆盖——
+  是否补显式单测提请收官裁。
+- **疑问 3**：README 部署节 env 注记是否就地展开全量清单（本批仅以 checklist 链接入文档索引，
+  未动用户面正文）——提请裁。
+
+### §7 手动走查清单
+
+1. 面板文章编辑 → 「语言」输入 `en` 保存 → md frontmatter 出现 `lang: en`；清空再保存 → 键消失。
+2. 「语言」输入非法值（如 `zh CN`）保存 → 服务端 400、表单报错不崩；输入 `zh-Hant-TW` 保存成功。
+3. 全量 `pnpm test` 前后比对 `apps/server/data/mizuki.db` 修改时间不变（隔离生效）。
+4. 部署形态逐项过一遍 `docs/DEPLOYMENT-CHECKLIST.md` 第二节，env 按第三节核对。
+5. 编辑一篇**存量**文章（无 lang）→ 语言框为空、保存后 frontmatter 无 lang 键（不回填不误伤）。
+6. 公开文章详情 JSON 含 `frontmatter.lang`（设置过 lang 的文章），路径与既有字段面零变化。
+
+### §8 工作树终态与提交
+
+- 提交 3 个：`feat(Phase3-C5): posts lang 字段与面板语言输入（对齐疏漏收口，additive 例外）` /
+  `test(Phase3-C5): p7e posts-lang e2e 与测试数据目录隔离（app/p1/p11 → mkdtemp）` /
+  `docs(Phase3-C5): 部署 checklist 收口、env 全量盘点与台账`
+- 未跟踪合规文件：`docs/HANDOFF-ARCHITECT.md`（授权保留不动）
+- 终态三连：test **359/359**、build 0、lint 0/0（最后代码态全量验证后仅文档提交）。

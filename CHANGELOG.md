@@ -1,5 +1,14 @@
 # 变更日志
 
+## Phase3-C5 — 部署 checklist 收口 + 测试数据目录隔离 + posts lang 字段（i18n 收口，C-Plus 连续执行）
+
+- **T2 部署 checklist 收口**：新建 `docs/DEPLOYMENT-CHECKLIST.md`（C6 撤销后原定载体从未产出，本文件即收口产物）——C6 残项闭环（全仓盘点无 cpolar 条目残留，无删除动作；历史「https + cpolar HttpAuth 双层」建议作废，公网口径改 https + 反向代理 + Swagger 置 false）+ 12 项逐项盘点（已具备/待具备/不适用，两处待收官裁注记）+ **env 清单全量盘点**（以 ADR-019 参数终值表为唯一事实源）：`MIZUKI_SERVER_PORT`/`MIZUKI_WEB_DIST`/`MIZUKI_CONFIG_PATH`/`MIZUKI_DB_PATH`/`MIZUKI_JWT_SECRET`/`MIZUKI_LOG_LEVEL`/`MIZUKI_PM_<NAME>_PATH`/`MIZUKI_PREVIEW_PORT`/`MIZUKI_PREVIEW_HOST`/`MIZUKI_PREVIEW_DIST_PATH` 共 10 个补入（README 部署节原仅列 2 个）；README 文档索引补 checklist 链接
+- **T3 测试数据目录隔离**（§3.4 销账）：裸启 AppModule 而未注入 `MIZUKI_DB_PATH` 的是 `app` / `p1-security` / `p11-static-panel` 三套件（非 p9 系——p9 系本就 mkdtemp），迁移曾落到仓库真实 `apps/server/data/mizuki.db`；三套件统一注入 mkdtemp 临时域 + afterAll 重试清理；断言语义零变化（仅落盘点迁移；app 套件 11 表断言改为注入路径）。真实 data 目录经只读核查系**本地实例数据**（实名管理员/真实 mizukiRoot/操作日志），非测试污染，未做清理
+- **T4 posts lang 字段**（架构师 2026-08-29 裁决并入，i18n Server 侧收口）：`PostFrontmatterSchema` 终行补 `lang`（trim 剪缘空白、空串归一未设置=站点默认、BCP-47 简码 regex、max(16) 有意取舍、不 enum 化）；写入口校验（PATCH 合并整体校验/uploadCover），读取与公开 API 直走 parseMarkdown 零影响；公开对象随返回 lang 系架构师授权 **additive 非破坏性例外**（记 ADR-013 追加节与 SESSIONS）；面板 PostEditPage 作者栏后新增「语言（可选）」输入（placeholder 'en'，空=不提交该键；存量不回填）；KNOWN_FM_KEYS 16 锚
+- **T5 e2e**：新建 `apps/server/test/p7e-posts-lang.e2e-spec.ts` 4 用例（①lang='en' 201 且回读一致含公开详情自然返回；②'e n' 内嵌空白 400 且目录零落盘；③21 字符超长 400；④缺 lang 201 且字段缺省 optional 锚）——**下限 +4 恰达**
+- **T6/T7 台账**：ADR-013 追加 C5 节（lang 对齐疏漏收口 + additive 例外）；REQUIREMENTS-PHASE3 §1.7「红队评审」候选**转正**（架构师裁决，本批 v1→v2 为首批实践）+ 流程先例「评审→裁定全权模式」注记 + 「部署拓扑检查项」候选复查后维持（C4 处置模式复用）；§2 C5 行落地注记；§3.4 销账 + 新增遗留「articles lang 是否补」（豁免有意，收官裁）+ 工程债 checklist 残项标注已收口；SESSIONS C5 报告含 i18n 全景裁决记录
+- **验收**：test **355 → 359**（+4，恰达下限）、build 0、lint 0/0；纪律：零新增依赖、零 any/@ts-ignore、零表结构变更、fixture 零变更；偏差：提示词 lang 终行缺外层 `.optional()`（缺键即 400，e2e ④ 捕获后补齐，见 SESSIONS 偏差 1）
+
 ## Phase3-C4 — /preview 预览通道 + 上传缩略图变体（ADR-019，C-Plus 连续执行）
 
 - **T2 /preview 通道**：`modules/preview/` 三件套（service/controller/module，注册 AppModule）——Server 自有静态通道直接服务 Astro dist（不托管 astro preview 进程，架构定案）；独立 http 监听随主服务生命周期同启停，绑定 host 镜像主服务（`MIZUKI_PREVIEW_HOST` 可覆盖）、端口 `MIZUKI_PREVIEW_PORT` 缺省 4173（占用 → 启动报错含指引）、dist 根 `MIZUKI_PREVIEW_DIST_PATH` 活读缺省 `<mizukiRoot>/dist`；守卫链同构 ADR-012 四边界：GET-only（405 先于认证，从严）→ 仅认 `mizuki_preview_jwt` cookie（外来 cookie 零行为差异，ACCESS_TOKEN_VERIFIER 校验，401 先于 dist 存在性与引导页）→ 逐段解码走私拒绝 + safeRealJoin 路径监狱 + 隐藏文件禁 + 目录自动补 index.html/尾斜杠归一 → dist 资产扩展名白名单（图片超集，对照缺口记 ADR-019），非白名单/隐藏统一 404 存在性隐藏；dist 缺失 → 200 引导页（非 500）；缓存头 html no-cache / `_astro/**` immutable
