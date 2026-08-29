@@ -1,13 +1,14 @@
 /**
  * [阶段 P9] process/process-manager.service — 白名单子进程管理
  * [职责] 任务白名单（install/dev/build/preview 硬编码，禁止命令拼接）→
- *   cross-spawn `shell:false` 子进程（env 仅透传 PATH/HOME/APPDATA；
- *   POSIX detached 进程组）→ 内存环形缓冲日志（2000 行，stdout/stderr 合并，
- *   stderr 标源）→ SSE 订阅分发 → tree-kill 停整组 → process.finished 事件。
+ *   确定性解析链（C3/ADR-011：pm-resolver 产出「执行计划」file+args 前缀，垫片穿透直跑，
+ *   lockfile 探测维持 P9 既有实现）→ cross-spawn `shell:false` 子进程（env 仅透传
+ *   PATH/HOME/APPDATA；POSIX detached 进程组）→ 内存环形缓冲日志（2000 行，stdout/stderr
+ *   合并，stderr 标源）→ SSE 订阅分发 → tree-kill 停整组 → process.finished 事件。
  * [状态] ACTIVE
  *
  * 安全（MASTER-PLAN §7 / REQUIREMENTS §9.4）：不接受任何用户附加参数；
- * 工作目录锁定 mizukiRoot（safeJoin）；shell 恒为 false。
+ * 工作目录锁定 mizukiRoot（safeJoin）；shell 恒为 false（解析链亦然，见 pm-resolver）。
  */
 import fs from 'node:fs';
 import net from 'node:net';
@@ -29,6 +30,7 @@ import { EVENTS, ProcessFinishedPayload } from '@mizuki/shared';
 import { logger } from '../../common/logger';
 import { ForbiddenPathError, safeJoin } from '../../common/security/safe-join';
 import { type BackupOptions, BACKUP_OPTIONS } from '../../infra/backup/backup.service';
+import { PackageManagerResolver, type ResolverOptions, type SpawnPlan } from './pm-resolver';
 
 // ── zod schema（全部输入边界） ──
 
@@ -105,6 +107,7 @@ export interface PortProbeResult {
 @Injectable()
 export class ProcessManagerService implements OnApplicationShutdown {
   private readonly tasks = new Map<string, TaskInstance>();
+  private readonly pmResolver = new PackageManagerResolver();
   private shutdownRequested = false;
 
   constructor(
@@ -114,15 +117,16 @@ export class ProcessManagerService implements OnApplicationShutdown {
 
   // ── 任务生命周期 ──
 
-  /** 启动任务：白名单校验已在路由层（zod）完成，此处按映射表固定参数执行 */
-  startTask(task: ProcessTaskName): TaskView {
+  /** 启动任务：白名单校验已在路由层（zod）完成，此处先解析链取执行计划再按映射表固定参数执行 */
+  async startTask(task: ProcessTaskName): Promise<TaskView> {
     if (this.shutdownRequested) {
       throw new BadRequestException('服务正在停机，拒绝启动新任务');
     }
     const cwd = this.requireMizukiRoot();
     const packageManager = detectPackageManager(cwd);
+    const plan = await this.pmResolver.resolve(packageManager, { projectRoot: cwd });
     const args = taskArgs(task, packageManager);
-    const child = spawn(packageManager, args, buildSpawnOptions(cwd));
+    const child = spawn(plan.file, [...plan.argsPrefix, ...args], buildSpawnOptions(cwd));
     if (child.pid === undefined) {
       throw new BadRequestException(`任务启动失败：${task}（无法获得子进程 pid）`);
     }
@@ -151,7 +155,18 @@ export class ProcessManagerService implements OnApplicationShutdown {
       this.finalize(instance, code, signal);
     });
 
-    logger.info({ id: instance.id, task, pid: instance.pid, packageManager }, '任务已启动');
+    logger.info(
+      {
+        id: instance.id,
+        task,
+        pid: instance.pid,
+        packageManager,
+        planFile: plan.file,
+        planArgsPrefix: plan.argsPrefix,
+        planSource: plan.source,
+      },
+      '任务已启动（解析产物见 plan* 字段，ADR-011 command_snapshot 语义的内存日志承载）',
+    );
     return this.toView(instance);
   }
 
@@ -370,6 +385,19 @@ export function detectPackageManager(cwd: string): 'pnpm' | 'yarn' | 'npm' {
     return 'yarn';
   }
   return 'npm';
+}
+
+/**
+ * 层②编排（C3/ADR-011）：lockfile 探测（上方 P9 既有实现，不重写）→ 解析链执行计划。
+ * 独立导出供单测（层②集成断言）与 startTask 复用；resolver 置于本侧避免循环导入。
+ */
+export async function resolveProjectSpawnPlan(
+  cwd: string,
+  resolver: PackageManagerResolver,
+  options: Omit<ResolverOptions, 'projectRoot'> = {},
+): Promise<SpawnPlan> {
+  const packageManager = detectPackageManager(cwd);
+  return resolver.resolve(packageManager, { ...options, projectRoot: cwd });
 }
 
 /** 任务 → 参数映射（逐字固定，不接受用户附加参数；yarn install 无参，取舍记报告） */
