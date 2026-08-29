@@ -38,6 +38,9 @@ const currentPage = ref(1);
 /** 缩略图加载失败标记（文件名 → true；显示占位而非破图） */
 const failedThumbs = ref<Record<string, boolean>>({});
 
+/** [Phase3-C4/ADR-019] 网格缩略图分流标记：-thumb.webp 加载失败 → 回退原图 */
+const thumbFallback = ref<Record<string, boolean>>({});
+
 /** 当前页图片（分页窗口） */
 const pagedImages = computed<string[]>(() => {
   const images = album.value?.images ?? [];
@@ -48,6 +51,21 @@ const pagedImages = computed<string[]>(() => {
 /** 本地图片 URL（相册目录 /images/albums/<名>/，经 ADR-012 站点资产通道） */
 function imageUrl(image: string): string {
   return imageSrc(`/images/albums/${albumName.value}/${image}`);
+}
+
+/**
+ * [Phase3-C4/ADR-019] 网格缩略图 URL：同名 <去扩展名>-thumb.webp（服务端上传
+ * 管线派生产物，经既有 /site-assets 路径直达）；灯箱/编辑一律用原图。
+ */
+function thumbUrl(image: string): string {
+  const dot = image.lastIndexOf('.');
+  const base = dot > 0 ? image.slice(0, dot) : image;
+  return imageSrc(`/images/albums/${albumName.value}/${base}-thumb.webp`);
+}
+
+/** 网格实际加载 URL：变体缺失（如 bmp 不生成/存量未回填）回退原图，不报错 */
+function gridUrl(image: string): string {
+  return thumbFallback.value[image] === true ? imageUrl(image) : thumbUrl(image);
 }
 
 interface EditForm {
@@ -84,6 +102,7 @@ async function fetchDetail(): Promise<void> {
     }
     currentPage.value = 1;
     failedThumbs.value = {};
+    thumbFallback.value = {};
   } catch (e) {
     handleError(e, '加载相册详情失败');
   } finally {
@@ -151,6 +170,15 @@ function openLightbox(image: string): void {
 /** 缩略图加载失败 → 占位（不破图） */
 function onThumbError(image: string): void {
   failedThumbs.value = { ...failedThumbs.value, [image]: true };
+}
+
+/** [Phase3-C4/ADR-019] 网格变体加载失败 → 回退原图（两级：原图再失败才占位） */
+function onGridImageError(image: string): void {
+  if (thumbFallback.value[image] !== true) {
+    thumbFallback.value = { ...thumbFallback.value, [image]: true };
+  } else {
+    onThumbError(image);
+  }
 }
 
 async function onDeleteImage(imageName: string): Promise<void> {
@@ -425,11 +453,11 @@ onMounted(() => {
           >
             <img
               v-if="!failedThumbs[img]"
-              :src="imageUrl(img)"
+              :src="gridUrl(img)"
               :alt="img"
               loading="lazy"
               class="thumb"
-              @error="onThumbError(img)"
+              @error="onGridImageError(img)"
             />
             <div v-else class="thumb-placeholder">
               <span>{{ img }}</span>

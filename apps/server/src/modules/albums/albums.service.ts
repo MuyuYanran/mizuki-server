@@ -58,6 +58,10 @@ export const AlbumNameSchema = z
 /** 相册内图片文件名（同相册名规则；实际产物恒为 .jpg） */
 export const AlbumImageNameSchema = AlbumNameSchema;
 
+/** [Phase3-C4/ADR-019] 缩略图变体后缀与短边上限（同目录 <去扩展名>-thumb.webp） */
+const THUMB_SUFFIX = '-thumb.webp';
+const THUMB_SHORT_EDGE = 480;
+
 /**
  * info.json 公共字段（本地/外链两模式共用）。
  * [Phase3-C2a/ADR-017 对齐] 官方 special-gallery §通用字段说明（裁决级供料）：
@@ -411,6 +415,9 @@ export class AlbumsService implements MediaReferenceContributor {
     const absPath = this.joinWithinRoot(relPath);
     await this.backup.preWriteBackup(absPath, `album image: ${validatedName}/${fileName}`); // 新文件 → 跳过
     this.atomicWrite(absPath, file.buffer);
+    // [Phase3-C4/ADR-019] 原图成功落盘后同步生成缩略图变体（fail-open 仅限变体：
+    // 任何 sharp 异常仅记日志，原图照常返回，上传响应形状零变化）
+    await this.generateThumbnail(validatedName, fileName, expectedFormat);
     this.emitImageChanged(relPath, 'save');
     logger.info({ album: validatedName, fileName, format: expectedFormat }, '相册图片保存完成（原格式落盘）');
     return { name: fileName, path: relPath };
@@ -442,6 +449,15 @@ export class AlbumsService implements MediaReferenceContributor {
     }
     await this.backup.preWriteBackup(absPath, `album image delete: ${relPath}`);
     fs.rmSync(absPath);
+    // [Phase3-C4/ADR-019] 删除耦合：原图删除路径同步删除同名 -thumb.webp（在则删；
+    // 孤儿变体缺失幂等容忍不报错）
+    const thumbAbs = path.join(
+      path.dirname(absPath),
+      `${path.basename(validatedImage, path.extname(validatedImage))}${THUMB_SUFFIX}`,
+    );
+    if (fs.existsSync(thumbAbs)) {
+      fs.rmSync(thumbAbs);
+    }
     this.emitImageChanged(relPath, 'delete');
     logger.info({ album: validatedName, image: validatedImage }, '相册图片删除完成（已备份）');
     return { deleted: true };
@@ -542,7 +558,12 @@ export class AlbumsService implements MediaReferenceContributor {
     return { name, info: this.readInfoOrThrow(name), images: this.listImages(name) };
   }
 
-  /** 相册内图片文件名列表（排除 info.json，升序） */
+  /**
+   * 相册内图片文件名列表（排除 info.json 与派生缩略图变体，升序）。
+   * [Phase3-C4/ADR-019] -thumb.webp 为上传管线派生产物（非照片本体），从
+   * images 列表排除——面板按「同名 -thumb.webp 存在则网格用之」约定消费，
+   * 公开/管理 API 响应形状不变（内容面偏差记 ADR-019 与 SESSIONS）。
+   */
   private listImages(name: string): string[] {
     const dirAbs = this.albumDirAbs(name);
     if (!fs.existsSync(dirAbs)) {
@@ -550,9 +571,59 @@ export class AlbumsService implements MediaReferenceContributor {
     }
     return fs
       .readdirSync(dirAbs, { withFileTypes: true })
-      .filter((entry) => entry.isFile() && entry.name !== 'info.json')
+      .filter(
+        (entry) =>
+          entry.isFile() && entry.name !== 'info.json' && !entry.name.endsWith(THUMB_SUFFIX),
+      )
       .map((entry) => entry.name)
       .sort((a, b) => a.localeCompare(b));
+  }
+
+  /**
+   * [Phase3-C4/ADR-019] 缩略图变体生成（fail-open 仅限变体）：
+   * sharp(<原图>).rotate()（无参 = EXIF auto-orient，竖拍图缩略图不横躺）→
+   * 短边 ≤480 等比缩放（fit 语义：竖/方图限宽、横图限高，withoutEnlargement
+   * 不放大——小图保持原尺寸）→ webp → 同目录 temp+rename 原子化。
+   * 格式面：bmp 跳过（ADR-017 双口径延伸：sharp 0.35 无法解码 bmp）；
+   * gif 变体 = 首帧静态 webp（sharp 默认行为）。同步生成的延迟记 ADR-019。
+   */
+  private async generateThumbnail(album: string, fileName: string, format: string): Promise<void> {
+    if (format === 'bmp') {
+      return;
+    }
+    const dirAbs = this.albumDirAbs(album);
+    const base = path.basename(fileName, path.extname(fileName));
+    const thumbAbs = path.join(dirAbs, `${base}${THUMB_SUFFIX}`);
+    const tmp = path.join(dirAbs, `.tmp-${nanoid(8)}`);
+    try {
+      const image = sharp(path.join(dirAbs, fileName)).rotate();
+      const meta = await image.metadata();
+      if (meta.width === undefined || meta.height === undefined) {
+        throw new Error('缺少尺寸元数据');
+      }
+      // 短边 ≤480：竖图/方图（短边=宽）限宽，横图（短边=高）限高；
+      // withoutEnlargement:true 保证不放大（短边本就 ≤480 时零变化）
+      if (meta.width <= meta.height) {
+        image.resize({ width: THUMB_SHORT_EDGE, withoutEnlargement: true });
+      } else {
+        image.resize({ height: THUMB_SHORT_EDGE, withoutEnlargement: true });
+      }
+      await image.webp().toFile(tmp);
+      fs.renameSync(tmp, thumbAbs);
+      logger.info({ album, fileName, thumb: path.basename(thumbAbs) }, '缩略图变体生成完成');
+    } catch (error) {
+      try {
+        if (fs.existsSync(tmp)) {
+          fs.rmSync(tmp);
+        }
+      } catch {
+        // 清理尽力而为
+      }
+      logger.warn(
+        { album, fileName, error: error instanceof Error ? error.message : String(error) },
+        '缩略图变体生成失败（fail-open：原图不受影响，上传响应形状不变）',
+      );
+    }
   }
 
   /** 原子写：同目录临时文件 → rename（统一写管线第 7 步模式） */
