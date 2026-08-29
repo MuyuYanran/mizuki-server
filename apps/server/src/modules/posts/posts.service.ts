@@ -48,7 +48,7 @@ export const PostSlugSchema = z
   .refine((value) => !value.includes('..') && value !== '.', 'slug 非法');
 
 /**
- * frontmatter 字段（P5 §3.2 逐字 + Phase3-C1 扩展）：15 个已知字段 + 未知字段原样保留。
+ * frontmatter 字段（P5 §3.2 逐字 + Phase3-C1 扩展 + [Phase3-C5] lang）：16 个已知字段 + 未知字段原样保留。
  * published ⚠ 类型以 Mizuki 为准（可能为日期），故放宽为 boolean | string | Date；
  * date/pubDate 允许 string 或 YAML 解析出的 Date。
  */
@@ -78,6 +78,18 @@ export const PostFrontmatterSchema = z
     encrypted: z.boolean().nullable().optional(),
     password: z.string().nullable().optional(),
     comment: z.boolean().nullable().optional(),
+    // [Phase3-C5] lang：官方 frontmatter 可选字段（other-structure.md 快照示例 zh-CN，
+    // C1 对齐疏漏收口，架构师 2026-08-29 裁决并入 C5）。语义：trim 剪缘空白；空串归一为
+    // 未设置（= 站点默认）；BCP-47 简码字符集（字母数字 + 连字符分段）；max(16) 为有意
+    // 取舍（'zh-Hant-TW' 等长组合可容，更长拒绝）；不做 enum 化（C2b 过度收窄教训）。
+    // 写入口校验（合并整体校验/uploadCover）；读取/公开 API 直走 parseMarkdown 不受影响。
+    // 注记：内层 .optional() 承接空串归一出的 undefined；外层 .optional() 使缺键可选
+    // （提示词终行缺外层，缺键即 400——e2e ④ 捕获后补齐，语义与裁决意图一致）。
+    lang: z.string()
+      .trim()
+      .transform((v) => (v === '' ? undefined : v))
+      .pipe(z.string().regex(/^[A-Za-z0-9]+(-[A-Za-z0-9]+)*$/).max(16).optional())
+      .optional(),
   })
   .passthrough();
 

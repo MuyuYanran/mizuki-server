@@ -3,7 +3,7 @@
  * [P10c] Markdown 文章编辑页（CodeMirror 6 + frontmatter 表单 + 封面）
  * [职责] 新建/编辑 Markdown 文章：
  *   - CodeMirror 6 编辑正文（语法高亮）；
- *   - 侧栏 frontmatter 表单（§6.10 的 12 个已知字段 + [Phase3-C1] 加密与发布区块）；
+ *   - 侧栏 frontmatter 表单（§6.10 的 12 个已知字段 + [Phase3-C1] 加密与发布区块 + [Phase3-C5] lang）；
  *   - 未知 frontmatter 键原样保留（提交时以读取时的完整 frontmatter 为基础合并）；
  *   - 封面上传（POST /admin/posts/:slug/cover）；
  *   - 上传 Markdown 文件入口（读文本填入编辑器）。
@@ -51,7 +51,7 @@ function onEngineChange(next: Engine): void {
   localStorage.setItem(ENGINE_KEY, next);
 }
 
-/** 表单编辑的 15 个已知字段（12 既有 + [Phase3-C1] 加密与发布三字段） */
+/** 表单编辑的 16 个已知字段（12 既有 + [Phase3-C1] 加密与发布三字段 + [Phase3-C5] lang） */
 const fm = ref({
   title: '',
   published: true as boolean,
@@ -66,6 +66,8 @@ const fm = ref({
   /** [B3.6] 默认当天（与 B1 SchemaForm 一致）；编辑时 populateForm 覆盖 */
   date: todayString(),
   pubDate: todayString(),
+  /** [Phase3-C5] 语言（可选）：空 = 站点默认（Server 端空串归一为未设置） */
+  lang: '',
   /** [Phase3-C1/决议 2] 加密与发布区块：加密开关 / 密码 / 评论禁用（继承全局 = 取消勾选） */
   encrypted: false,
   password: '',
@@ -119,6 +121,8 @@ function populateForm(fmData: Record<string, unknown>): void {
   fm.value.image = typeof fmData['image'] === 'string' ? fmData['image'] : '';
   fm.value.date = dateToString(fmData['date']);
   fm.value.pubDate = dateToString(fmData['pubDate']);
+  // [Phase3-C5] 语言：缺省/非字符串 = 空（站点默认）；存量文章不回填（缺省语义天然成立）
+  fm.value.lang = typeof fmData['lang'] === 'string' ? fmData['lang'] : '';
   // [Phase3-C1] 加密与发布：comment 仅显式 false 视为禁用（缺失 = 继承全局）
   fm.value.encrypted = fmData['encrypted'] === true;
   fm.value.password = typeof fmData['password'] === 'string' ? fmData['password'] : '';
@@ -154,6 +158,8 @@ function buildFrontmatter(): Record<string, unknown> {
     image: fm.value.image || undefined,
     date: fm.value.date || undefined,
     pubDate: fm.value.pubDate || undefined,
+    // [Phase3-C5] 语言：空 = 站点默认 → 不提交该键（未设置语义）
+    lang: fm.value.lang.trim() || undefined,
     encrypted: fm.value.encrypted || null,
     password: fm.value.password || null,
     comment: fm.value.commentDisabled ? false : null,
@@ -297,11 +303,11 @@ function goBack(): void {
   router.push('/posts');
 }
 
-/** 未知 frontmatter 键（非 15 个已知字段） */
+/** 未知 frontmatter 键（非 16 个已知字段） */
 const KNOWN_FM_KEYS = new Set([
   'title', 'published', 'description', 'tags', 'category', 'author',
   'permalink', 'pinned', 'draft', 'image', 'date', 'pubDate',
-  'encrypted', 'password', 'comment',
+  'encrypted', 'password', 'comment', 'lang',
 ]);
 const unknownKeys = computed<string[]>(() =>
   Object.keys(fullFm.value).filter((k) => !KNOWN_FM_KEYS.has(k)),
@@ -405,6 +411,10 @@ function formatValue(value: unknown): string {
           </el-form-item>
           <el-form-item label="作者">
             <el-input v-model="fm.author" />
+          </el-form-item>
+          <!-- [Phase3-C5] 语言（可选）：空 = 站点默认；BCP-47 简码由服务端校验 -->
+          <el-form-item label="语言">
+            <el-input v-model="fm.lang" placeholder="en" />
           </el-form-item>
           <el-form-item label="封面">
             <el-input v-model="fm.image" placeholder="cover.jpg 或路径" />
