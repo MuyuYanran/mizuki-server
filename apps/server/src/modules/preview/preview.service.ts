@@ -203,8 +203,9 @@ export class PreviewService implements OnApplicationBootstrap, OnApplicationShut
       // ── dist 根解析（env 活读，P11 坑 5 纪律） ──
       const distRoot = this.resolveDistRoot();
       if (distRoot === undefined || !existsSync(distRoot)) {
-        // dist 不存在 → 200 引导页（非 500；同样在 cookie 校验之后）
-        res.status(200).type('html').send(GUIDE_HTML);
+        // dist 不存在 → 200 引导页（非 500；同样在 cookie 校验之后）。
+        // 引导页随 dist 出现即失效，按档① HTML 同值 no-cache（[Phase3-F] ADR-019 追加节）。
+        res.status(200).set('Cache-Control', 'no-cache').type('html').send(GUIDE_HTML);
         return;
       }
 
@@ -244,12 +245,17 @@ export class PreviewService implements OnApplicationBootstrap, OnApplicationShut
         return;
       }
 
-      // ── 缓存头：hash 资产 immutable / html no-cache（终值 ADR-019） ──
+      // ── 缓存头三档分派（[Phase3-F] ADR-019 追加节；C4 遗留收官落地） ──
+      // 档① HTML 入口 → no-cache；档② _astro/ 内容指纹资产 → immutable；
+      // 档③ 其余无指纹资产（public 直拷）→ no-cache（正确性优先，效率次之）。
+      // 仅随 sendFile 成功响应（2xx）注入；守卫链 405/401/404 错误路径零影响。
       const headers: Record<string, string> = {};
-      if (rel === 'index.html' || rel.endsWith('/index.html') || ext === 'html' || ext === 'htm') {
-        headers['Cache-Control'] = 'no-cache';
-      } else if (rel.startsWith('_astro/')) {
+      if (rel.startsWith('_astro/')) {
         headers['Cache-Control'] = 'public, max-age=31536000, immutable';
+      } else {
+        // 档①③ 同值 no-cache：HTML 每次构建内容可变，public 直拷无内容指纹
+        // （Astro 产物实测：_astro 外资产全部稳定命名）——一律可再验证直取。
+        headers['Cache-Control'] = 'no-cache';
       }
 
       // 静态直出（sendFile 以 root 收口相对路径；错误收敛 404；无 SSR/代理/rewrite）
