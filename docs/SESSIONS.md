@@ -2147,3 +2147,77 @@ timeline links（ZodArray<ZodObject>）**采用 JSON 文本框兜底**（记报�
 - `test(Phase3-C3): 解析链单测与 e2e（夹具 pm-resolver）`
 - `docs(Phase3-C3): ADR-011 落地注记、快照更正与台账`
 - 终态三连：test **342/342**、build 0、lint 0/0（全部 commit 前最后代码态全量验证）。
+
+## Phase3-C4 交付报告（/preview 通道 + 上传缩略图变体，2026-08-29）
+
+### §1 任务清单（n/n）
+
+| 任务 | 状态 |
+|---|---|
+| T1 ADR-012 对齐映射 + 现状侦查（a-e） | 完成 |
+| T2 /preview 通道（含 T2.1 绑定/端口/T2.2 dist 活读/T2.5 ticket） | 完成 |
+| T3 缩略图变体（含 T3.5 删除耦合；T3.3 服务面判定 = 零新路径） | 完成 |
+| T4 面板（T4.1 预览入口 + T4.2 网格/灯箱分流） | 完成 |
+| T5 e2e p9d 8 例 + p7d 5 例 + 夹具 | 完成 |
+| T6 ADR-019 + ADR-012/017 注记 | 完成 |
+| T7 台账 | 完成 |
+
+### §2 T1 同构边界映射 + 侦查结果表
+
+四边界映射表见 ADR-019（认证先于内容/路径监狱/MIME 白名单/公开 API 冻结）；**对照缺口**：
+ADR-012 白名单为图片类，dist 资产需 html/css/js/字体/json 超集（性质差异非边界弱化，记 ADR-019）。
+
+| 侦查项 | 结论 |
+|---|---|
+| a) 相册图公开服务 | `/site-assets/<public/ 剥离>/images/albums/<相册>/<文件>`，白名单依据 = ADR-012 扩展名静态集（盘上列举式，非 DB 注册）；webp 已在白名单 → `-thumb.webp` 经既有路径可达，**零新路径成立** |
+| b) 上传管线 | 扩展名白名单 → 魔数嗅探 → 大小上限 → sharp probe（bmp 跳过）→ 备份 → atomicWrite → 事件；变体插入点 = atomicWrite 之后、emit 之前（await 同步生成） |
+| c) JWT 复用点 | `ACCESS_TOKEN_VERIFIER`（AuthModule 导出，useExisting AuthService）；ACCESS_TTL=15m → cookie Max-Age=900 同步 |
+| d) 生命周期挂载点 | PreviewService onApplicationBootstrap/onApplicationShutdown（enableShutdownHooks 既有） |
+| e) 主服务 host | `app.listen(port)` **未传 host** → 全接口；面板访问 hostname 由浏览器决定（localhost/127.0.0.1 均可）→ preview 缺省镜像（undefined=全接口），T4.1 hostname 一律 window.location.hostname 派生 |
+
+### §3 实现要点
+
+- preview 守卫链顺序：405（先于认证，从严）→ 401 → dist 根（活读）→ 路径安全 → 白名单 → sendFile；readCookie 仅认 `mizuki_preview_jwt`（外来 cookie 零行为差异锚）。
+- ticket 复用调用方 access token（不铸造新 token）；端口 0 注入时 `{port}` 返回实际临时端口（`server.address().port`）。
+- 缩略图短边 ≤480 实现：竖/方图 `resize({width:480, withoutEnlargement:true})`、横图限高——等比无失真、不放大语义由 sharp 原生保证；EXIF orientation ≥5 时元数据宽高互换已由 `.rotate()` auto-orient 覆盖。
+- 覆盖上传说明：相册面上传同名冲突即随机后缀改名（无覆盖替换路径），变体随新文件名再生（提示词「覆盖上传变体再生」在相册面天然成立，记 ADR-019）。
+- 测试环境纪律：vitest setupFiles `test/setup-env.ts` 缺省 `MIZUKI_PREVIEW_PORT=0`（worker 环境副本互不干扰），p9d 显式注入 127.0.0.1 + 端口 0，禁占真实 4173。
+- Windows 清理适配：afterAll rmSync 有限重试后放弃（新写 webp 偶发瞬时 EPERM，.tmpvitest 已 gitignore）。
+
+### §4 数账（342 → 355，+13，逐文件）
+
+- `p9d-preview.e2e-spec.ts` 新建 +8（①a①b②③④⑤⑥⑦）
+- `p7d-thumbnails.e2e-spec.ts` 新建 +5（⑦⑧⑨⑩⑪）
+- 受影响基线修复：0 条（`AlbumView.images` 变体排除仅影响新建变体文件，存量夹具无 -thumb.webp，零既有断言受扰）；afterAll 清理加固为本批新文件内部事务
+- 全量：40 文件 / 355 用例全过（≥354 下限达成）
+
+### §5 夹具清单（test/fixtures/preview-dist/，T5 授权新建）
+
+`index.html`（直出锚）/ `sub/index.html`（子目录页 + 尾斜杠归一锚）/ `assets/logo.svg`（静态资产 MIME）/ `_astro/app-42a1.css`（immutable 缓存头）/ `.hidden`（隐藏文件 404）/ `note.md`（白名单外 404）。零既有夹具变更。
+
+### §6 ADR-019 参数终值与关键取舍
+
+绑定/端口/cookie 六参数/缓存头/404 口径终值表见 ADR-019 正文。关键取舍：cookie 值复用调用方 access token（不铸造新长时 token，TTL 与 ACCESS_TTL 同步 900s）；405 先于认证（从严，不泄露内容面）；404 统一口径（存在性隐藏，与 /site-assets 同构）；gif 变体 = 首帧静态 webp（sharp 默认）；⑨ fail-open 实测选「损坏 zlib 流」构造（合法签名 + IHDR 可解析 + IDAT 非法 zlib → probe metadata 通过、webp 解码必败）。
+
+### §7 偏差与疑问
+
+- 偏差 1（内容面）：`AlbumView.images` 排除 `-thumb.webp` 派生产物——公开/管理 API 响应**形状不变、内容面**排除变体（变体非照片本体，面板分流与网格语义所需）；记 ADR-019 影响节。
+- 偏差 2（UI 语义）：控制台「站点预览」按钮由启动白名单 `preview` 任务改为 preview-ticket 流（架构定案：不托管 astro preview 进程）；白名单与 API 语义零变化。
+- 疑问 1：`_astro/` 外的无 hash 静态资产（如手放 public 的图）走默认无缓存头，是否需要 s-maxage 类策略 → 待 C5 部署 checklist 一并裁决。
+- 疑问 2：preview 监听缺省全接口（镜像主服务），公网部署形态下 preview 暴露面 = 管理端口暴露面，是否需要缺省改绑 127.0.0.1 的部署开关 → 记 C5 部署 checklist 候选。
+- 疑问 3：dist 白名单含 `map`（ sourcemap）——生产 dist 是否发布 sourcemap 属主题构建配置，Server 侧仅白名单放行，不作二次过滤。
+
+### §8 手动走查清单
+
+1. 面板经 `localhost:20154` 与 `127.0.0.1:20154` 各访问一次 → 控制台「站点预览」→ 新窗口预览均应成立（cookie host 匹配随访问形态）。
+2. cookie 过期（15 分钟）后刷新预览页 → 401 → 回面板重取票据恢复。
+3. dist 缺失时打开预览 → 引导页 → 控制台执行 build → 刷新预览 → 内容出现。
+4. 上传 jpg → 网格显示缩略图（网络面板确认 -thumb.webp）、灯箱打开原图。
+5. 上传 bmp → 网格回退原图、灯箱原图，无破图。
+6. 上传 gif → 变体为首帧静态 webp；删除图片 → 变体无残留。
+
+### §9 工作树终态与提交
+
+- 提交 4 个：`feat(Phase3-C4): /preview 预览通道（JWT cookie GET-only，ADR-012 同构四边界，ADR-019）` / `feat(Phase3-C4): 上传缩略图变体（-thumb.webp，EXIF auto-orient，删除耦合，fail-open）` / `test(Phase3-C4): preview 与缩略图 e2e（夹具 preview-dist）及基线修复` / `docs(Phase3-C4): ADR-019、注记与台账`
+- 未跟踪合规文件：`docs/HANDOFF-ARCHITECT.md`（授权保留不动）
+- 终态三连：test **355/355**、build 0、lint 0/0（全部 commit 前最后代码态全量验证）。

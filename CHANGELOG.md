@@ -1,5 +1,15 @@
 # 变更日志
 
+## Phase3-C4 — /preview 预览通道 + 上传缩略图变体（ADR-019，C-Plus 连续执行）
+
+- **T2 /preview 通道**：`modules/preview/` 三件套（service/controller/module，注册 AppModule）——Server 自有静态通道直接服务 Astro dist（不托管 astro preview 进程，架构定案）；独立 http 监听随主服务生命周期同启停，绑定 host 镜像主服务（`MIZUKI_PREVIEW_HOST` 可覆盖）、端口 `MIZUKI_PREVIEW_PORT` 缺省 4173（占用 → 启动报错含指引）、dist 根 `MIZUKI_PREVIEW_DIST_PATH` 活读缺省 `<mizukiRoot>/dist`；守卫链同构 ADR-012 四边界：GET-only（405 先于认证，从严）→ 仅认 `mizuki_preview_jwt` cookie（外来 cookie 零行为差异，ACCESS_TOKEN_VERIFIER 校验，401 先于 dist 存在性与引导页）→ 逐段解码走私拒绝 + safeRealJoin 路径监狱 + 隐藏文件禁 + 目录自动补 index.html/尾斜杠归一 → dist 资产扩展名白名单（图片超集，对照缺口记 ADR-019），非白名单/隐藏统一 404 存在性隐藏；dist 缺失 → 200 引导页（非 500）；缓存头 html no-cache / `_astro/**` immutable
+- **T2.5 preview-ticket**：`POST /api/v1/admin/preview-ticket`（管理端认证）→ Set-Cookie（HttpOnly/SameSite=Lax/Path=/，**无 Port 属性** RFC 6265 host-wide 跨端口共享，TTL=900s 与 ACCESS_TTL 同步 ≤24h）+ `{port}` 实际端口下发（禁前端硬编码）
+- **T3 缩略图变体**（相册面管线）：原图原子落盘后同步生成同目录 `<去扩展名>-thumb.webp`——`.rotate()` EXIF auto-orient + 短边≤480 等比（竖/方限宽横限高，不放大）+ webp + temp+rename；bmp 跳过（ADR-017 双口径延伸）、gif 首帧静态 webp、tiff 限相册面；**fail-open 仅限变体**（sharp 异常仅记日志，上传响应形状零变化）；删除耦合（原图删则变体删，孤儿幂等容忍）；`AlbumView.images` 排除派生变体（形状不变，内容面偏差记 ADR-019）；变体经既有 `/site-assets` 路径直达（webp 已在白名单，零新路径）
+- **T4 面板**：ConsolePage「站点预览」改 preview-ticket 签发 + 新窗口 `${protocol}//${hostname}:${port}/`（hostname 一律 window.location.hostname 派生，禁硬编码 127.0.0.1——部署拓扑检查项先例；白名单 `preview` 任务本体未动）；AlbumDetailPage 网格优先变体（缺失 onerror 回退原图）、灯箱/编辑用原图，新建 `api/preview.ts`
+- **T5 e2e**：新建 `p9d-preview.e2e-spec.ts` 8 用例（①a 无 cookie 401 先于引导页/①b 错误命名空间 401/② 票据+直出/③ 405+票据 401/④ 穿越五变体 404/⑤ dist 缺失引导页/⑥ 隐藏+白名单外 404/⑦ 子目录+尾斜杠+svg+_astro immutable）；`p7d-thumbnails.e2e-spec.ts` 5 用例（⑦ jpg 变体+字节保真+site-assets 可达/⑧ bmp 无变体/⑨ 损坏 zlib 流 fail-open 锚/⑩ tiff 变体 480×720/⑪ 删除耦合+幂等容忍）；夹具 `test/fixtures/preview-dist/`（index/子目录页/svg/_astro css/隐藏文件/白名单外 md）；vitest setup 缺省 `MIZUKI_PREVIEW_PORT=0`（并行 worker 不抢 4173）
+- **T6/T7**：ADR-019（参数终值表 + 四边界映射表 + 缩略图管线终值）、ADR-012 追加「C4 同构应用」一行、ADR-017 追加「C4 延伸」一行、REQUIREMENTS-PHASE3 §2 C4 落地注记 + 流程节候选两条（部署拓扑检查项先例 + 红队转正处置：无人工裁决落笔，维持候选）、台账
+- **验收**：test 342 → **355**（+13，≥354 下限达成）、build 0、lint 0/0；纪律：零新增依赖（sharp 既有）、零 any/as any/@ts-ignore、零表结构变更、公开 API 路径与形状零变化、P9 白名单与 SSE 语义不变、C3 解析链仅调用不触碰
+
 ## Phase3-C3 — 包管理器确定性解析链（R2-16，ADR-011 落地，C-Plus 连续执行）
 
 - **T2 解析器**：`apps/server/src/modules/process/pm-resolver.ts`（`PackageManagerResolver`）四层链——① 层①显式配置（注入映射 > env `MIZUKI_PM_<NAME>_PATH`，resolve 期活读不做启动快照；已配置且探活失败**快速失败不降级**，错误含变量名与「不会自动降级」指引）；② lockfile 探测复用 P9 既有 `detectPackageManager`（`resolveProjectSpawnPlan` 编排，零重写）；③ 真实二进制定位：node_modules/.bin 优先 → `System32\where.exe` / `/usr/bin/which`（系统二进制绝对路径，搜索范围经子进程 PATH env 可注入）全候选逐个探活，探活与任务 spawn 完全同一执行计划（probe=spawn 一致性，C2a bmp 教训），判据 exit 0、5s 超时可注入、失败跳下一候选；`.cmd/.bat` **垫片穿透**（取末条引号内 `.cjs/.mjs/.js` 路径，`%~dp0/%dp0%` 还原后 resolve → `process.execPath + 入口` 直跑，ADR-011 决策③）；④ 全失败 → 四层尝试摘要 + 配置指引 BadRequestException。全程 shell:false；记忆化键 = name+层①env+生效PATH+注入映射+projectRoot，探活失败不缓存

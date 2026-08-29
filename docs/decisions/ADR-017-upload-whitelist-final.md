@@ -28,3 +28,5 @@ B4 审计曾裁定 bmp 为「白名单放行即必 400 的死入口」（sharp 0
 - 证据链：`apps/server/test/p7c-album-fields.e2e-spec.ts` b3 三用例 + 基线 `p7-media-albums` tiff 用例修订 + `magic-sniff.spec.ts` 修订/新增。
 
 > C2a 判卷定案：媒体库面 bmp 防御拒绝（sharp 无法解码、无法满足 media_file 尺寸契约），相册面准入（原格式落盘）——两口径并存依据见 SESSIONS C2a 判卷。
+
+> C4 延伸（2026-08-29）：缩略图变体 bmp 跳过系本 ADR 双口径延伸（sharp 无法解码故无法生成）；tiff 变体限相册面（媒体库面零触碰），见 ADR-019。
