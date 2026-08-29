@@ -71,3 +71,6 @@ docs/**     linguist-documentation
 
 # ── 追加型文件：合并时使用 union 策略，避免 CHANGELOG 冲突 ──
 CHANGELOG.md merge=union
+
+# ── C3 解析链夹具：posix 扩展名脚本保持 LF（shebang 执行依赖，autocrlf 例外）──
+apps/server/test/fixtures/pm-resolver/posix/** text eol=lf

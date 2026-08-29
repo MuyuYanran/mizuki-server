@@ -290,7 +290,7 @@ describe('P9 进程管理 e2e', () => {
 
     expect(manager.getTask(taskId).status).not.toBe('running');
     await waitFor(() => !pidAlive(pid), 10_000);
-    // 停机后拒绝新任务
-    expect(() => manager.startTask('dev')).toThrow();
+    // 停机后拒绝新任务（C3 起 startTask 含解析链，为异步 Promise 拒绝）
+    await expect(manager.startTask('dev')).rejects.toThrow();
   }, 60_000);
 });
