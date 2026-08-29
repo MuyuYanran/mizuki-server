@@ -90,9 +90,10 @@ describe('P4 六类 schema 与 fixture 数据核对', () => {
     ).toBe(true);
   });
 
-  it('类型错误被拒：skills.level 非数字 / projects.featured 非布尔', () => {
-    expect(SkillsItemSchema.safeParse({ id: 1, name: 'n', level: 'high' }).success).toBe(false);
-    expect(ProjectsItemSchema.safeParse({ id: 1, title: 't', featured: 'yes' }).success).toBe(false);
+  it('类型错误被拒：skills.level 非枚举 / projects.featured 非布尔', () => {
+    // [C2b/ADR-018] skills.level 已迁移为官方枚举，非枚举值一律拒绝
+    expect(SkillsItemSchema.safeParse({ id: '1', name: 'n', level: 'high' }).success).toBe(false);
+    expect(ProjectsItemSchema.safeParse({ id: '1', title: 't', featured: 'yes' }).success).toBe(false);
   });
 
   it('未知字段被剥离（zod 默认 strip，防止脏字段落盘）', () => {
@@ -103,5 +104,36 @@ describe('P4 六类 schema 与 fixture 数据核对', () => {
       evil: 'should-be-stripped',
     });
     expect(result).toEqual({ id: 1, content: 'c', date: 'd' });
+  });
+
+  it('[C2b/ADR-018] projects/skills/timeline/devices 未知字段拒绝（.strict()）', () => {
+    const base = {
+      id: 'x',
+      title: 't',
+      description: 'd',
+      image: 'i.png',
+      category: 'web',
+      techStack: ['a'],
+      status: 'planned',
+      startDate: '2026-08-01',
+    };
+    expect(ProjectsItemSchema.safeParse({ ...base, evil: 'x' }).success).toBe(false);
+    expect(ProjectsItemSchema.safeParse(base).success).toBe(true);
+    expect(
+      SkillsItemSchema.safeParse({
+        id: 'x', name: 'n', description: 'd', icon: 'a:b', category: 'other',
+        level: 'expert', experience: { years: 1, months: 0 }, evil: 'x',
+      }).success,
+    ).toBe(false);
+    expect(
+      TimelineItemSchema.safeParse({
+        id: 'x', title: 't', description: 'd', type: 'work', startDate: '2026-08-01', evil: 'x',
+      }).success,
+    ).toBe(false);
+    expect(
+      DeviceItemSchema.safeParse({
+        name: 'n', image: 'i', specs: 's', description: 'd', link: 'l', evil: 'x',
+      }).success,
+    ).toBe(false);
   });
 });

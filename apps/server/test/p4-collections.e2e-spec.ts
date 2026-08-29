@@ -76,9 +76,15 @@ describe('P4 六类集合 CRUD e2e', () => {
   async function crudCycle(type: string, createBody: Record<string, unknown>, patch: Record<string, unknown>, assertChange: (item: Record<string, unknown>) => void): Promise<void> {
     const created = await server().post(`/api/v1/admin/collections/${type}`).send(createBody);
     expect(created.status).toBe(201);
-    // [B2/裁决 9] 五类 array 集合 id 均为 number（max+1 自动生成）
-    const id = created.body.id as number;
-    expect(typeof id).toBe('number');
+    // [B2/裁决 9 + C2b/ADR-018] diary/friends id 为 number（max+1）；
+    // projects/timeline/skills id 为 string（留空 slugify 自动生成）
+    const id = created.body.id as number | string;
+    if (type === 'diary' || type === 'friends') {
+      expect(typeof id).toBe('number');
+    } else {
+      expect(typeof id).toBe('string');
+      expect(String(id).length).toBeGreaterThan(0);
+    }
 
     let list = await server().get(`/api/v1/admin/collections/${type}`);
     expect(list.status).toBe(200);
@@ -128,11 +134,20 @@ describe('P4 六类集合 CRUD e2e', () => {
   it('§6.1 projects：全循环', async () => {
     await crudCycle(
       'projects',
-      { title: 'e2e 项目', techStack: ['NestJS'] },
-      { featured: true, status: 'done' },
+      // [C2b/ADR-018] 官方必填面：description/image/techStack/status/startDate 必填，id 留空自动 slugify
+      {
+        title: 'e2e 项目',
+        description: 'e2e 描述',
+        image: '/images/projects/e2e.png',
+        category: 'web',
+        techStack: ['NestJS'],
+        status: 'in-progress',
+        startDate: '2026-08-01',
+      },
+      { featured: true, status: 'completed' },
       (item) => {
         expect(item['featured']).toBe(true);
-        expect(item['status']).toBe('done');
+        expect(item['status']).toBe('completed');
       },
     );
   });
@@ -140,11 +155,12 @@ describe('P4 六类集合 CRUD e2e', () => {
   it('§6.1 timeline：全循环', async () => {
     await crudCycle(
       'timeline',
-      { title: 'e2e 事件', type: 'other', startDate: '2026-08-26' },
+      // [C2b/ADR-018] 官方枚举 education|work|project|achievement
+      { title: 'e2e 事件', description: 'e2e 描述', type: 'achievement', startDate: '2026-08-26' },
       { title: '改后事件' },
       (item) => {
         expect(item['title']).toBe('改后事件');
-        expect(item['type']).toBe('other');
+        expect(item['type']).toBe('achievement');
       },
     );
   });
@@ -152,20 +168,28 @@ describe('P4 六类集合 CRUD e2e', () => {
   it('§6.1 skills：全循环（含嵌套 experience）', async () => {
     await crudCycle(
       'skills',
-      { name: 'e2e 技能', experience: { years: 1, months: 2 } },
-      { level: 7 },
+      // [C2b/ADR-018] 官方必填面：description/icon/category/level/experience 必填
+      {
+        name: 'e2e 技能',
+        description: 'e2e 描述',
+        icon: 'logos:typescript-icon',
+        category: 'frontend',
+        level: 'intermediate',
+        experience: { years: 1, months: 2 },
+      },
+      { level: 'advanced' },
       (item) => {
-        expect(item['level']).toBe(7);
+        expect(item['level']).toBe('advanced');
         expect(item['experience']).toEqual({ years: 1, months: 2 });
       },
     );
   });
 
   it('§6.2 devices（grouped）：新增（带 group）→ 分组结构 → 修改 → 删除最后一个 → 空分组清理', async () => {
-    // 新分组（新增时创建）
+    // 新分组（新增时创建）；[C2b/ADR-018] 官方恰 5 必填字段
     const created = await server()
       .post('/api/v1/admin/collections/devices')
-      .send({ group: 'e2e 组', name: '测试设备', specs: '1T' });
+      .send({ group: 'e2e 组', name: '测试设备', image: 'e2e.png', specs: '1T', description: 'e2e 设备', link: 'https://e2e.example.com' });
     expect(created.status).toBe(201);
     expect(created.body.name).toBe('测试设备');
 
@@ -241,7 +265,7 @@ describe('P4 六类集合 CRUD e2e', () => {
   it('§6.8 timeline 默认映射：仅给 type=education → icon/color 被填充', async () => {
     const res = await server()
       .post('/api/v1/admin/collections/timeline')
-      .send({ title: '默认映射事件', type: 'education', startDate: '2026-08-26' });
+      .send({ title: '默认映射事件', description: 'd', type: 'education', startDate: '2026-08-26' });
     expect(res.status).toBe(201);
     expect(typeof res.body.icon).toBe('string');
     expect(res.body.icon.length).toBeGreaterThan(0);
@@ -254,7 +278,8 @@ describe('P4 六类集合 CRUD e2e', () => {
   it('§6.4 写后文件可编译：全部 6 个数据文件 tsc --noEmit 通过', { timeout: 120_000 }, () => {
     const dataDir = path.join(mizukiRoot, 'src/data');
     const files = fs.readdirSync(dataDir).filter((f) => f.endsWith('.ts')).map((f) => path.join(dataDir, f));
-    expect(files).toHaveLength(6);
+    // [C2b] 第七集合 anime.ts 入列（fixture 变更清单）
+    expect(files).toHaveLength(7);
     const tscBin = path.resolve(__dirname, '../node_modules/typescript/bin/tsc');
     execFileSync(
       process.execPath,

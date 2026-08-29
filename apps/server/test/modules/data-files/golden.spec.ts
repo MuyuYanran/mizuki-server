@@ -137,12 +137,13 @@ describe('P3 golden-file：六个数据文件往返 + 外部字节不变', () =>
 
   it('projects（satisfies）：改 featured 字段 → 再读值正确；外部字节不变', async () => {
     const rel = 'src/data/projects.ts';
-    await h.service.mutateCollection<{ id: number; featured?: boolean }[]>(rel, 'projectsData', (list) =>
-      list.map((item) => (item.id === 2 ? { ...item, featured: true } : item)),
+    // [C2b/ADR-018] projects id 官方为 string
+    await h.service.mutateCollection<{ id: string; featured?: boolean }[]>(rel, 'projectsData', (list) =>
+      list.map((item) => (item.id === '2' ? { ...item, featured: true } : item)),
     );
-    const after = h.service.readCollection<{ id: number; featured?: boolean }[]>(rel, 'projectsData');
-    expect(after.find((item) => item.id === 2)?.featured).toBe(true);
-    expect(after.find((item) => item.id === 1)?.featured).toBe(true);
+    const after = h.service.readCollection<{ id: string; featured?: boolean }[]>(rel, 'projectsData');
+    expect(after.find((item) => item.id === '2')?.featured).toBe(true);
+    expect(after.find((item) => item.id === '1')?.featured).toBe(true);
     assertOutsideInitializerByteIdentical(
       path.join(FIXTURE_DIR, rel),
       path.join(h.root, rel),
@@ -175,23 +176,25 @@ describe('P3 golden-file：六个数据文件往返 + 外部字节不变', () =>
     );
   });
 
-  it('skills（嵌套对象/负数）：改嵌套 experience → 值正确；外部字节不变', async () => {
+  it('skills（嵌套对象）：改嵌套 experience → 值正确；外部字节不变', async () => {
     const rel = 'src/data/skills.ts';
-    const before = h.service.readCollection<{ id: number; level?: number; experience?: unknown }[]>(
+    // [C2b/ADR-018] skills id/level 迁移为官方 string/枚举后，负数覆盖点移除
+    //（fixture 变更清单）；嵌套对象往返覆盖保留
+    const before = h.service.readCollection<{ id: string; level?: string; experience?: unknown }[]>(
       rel,
       'skillsData',
     );
-    expect(before.find((s) => s.id === 3)?.level).toBe(-3);
+    expect(before.find((s) => s.id === '3')?.level).toBe('beginner');
 
     await h.service.mutateCollection<typeof before>(rel, 'skillsData', (list) =>
       list.map((item) =>
-        item.id === 1 ? { ...item, experience: { years: 5, months: 1 } } : item,
+        item.id === '1' ? { ...item, experience: { years: 5, months: 1 } } : item,
       ),
     );
 
     const after = h.service.readCollection<typeof before>(rel, 'skillsData');
-    expect(after.find((s) => s.id === 1)?.experience).toEqual({ years: 5, months: 1 });
-    expect(after.find((s) => s.id === 3)?.level).toBe(-3);
+    expect(after.find((s) => s.id === '1')?.experience).toEqual({ years: 5, months: 1 });
+    expect(after.find((s) => s.id === '3')?.level).toBe('beginner');
     assertOutsideInitializerByteIdentical(
       path.join(FIXTURE_DIR, rel),
       path.join(h.root, rel),

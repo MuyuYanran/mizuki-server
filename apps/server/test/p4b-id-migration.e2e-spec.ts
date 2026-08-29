@@ -119,12 +119,12 @@ describe('P4b id 迁移 e2e（B2/裁决 9 + ADR-014）', () => {
     expect(text).toContain('id: 7');
   });
 
-  it('③ 幂等：全 number id 不触发迁移（磁盘字节不变）', async () => {
-    const before = diskText('src/data/timeline.ts');
-    const res = await server().get('/api/v1/admin/collections/timeline');
+  it('③ 幂等：官方值文件不触发迁移（磁盘字节不变；[C2b] 载体由 timeline 改为 projects——timeline id 已官方 string 化）', async () => {
+    const before = diskText('src/data/projects.ts');
+    const res = await server().get('/api/v1/admin/collections/projects');
     expect(res.status).toBe(200);
-    expect((res.body as { id: unknown }[]).every((i) => typeof i.id === 'number')).toBe(true);
-    expect(diskText('src/data/timeline.ts')).toBe(before);
+    expect((res.body as { id: unknown }[]).every((i) => typeof i.id === 'string')).toBe(true);
+    expect(diskText('src/data/projects.ts')).toBe(before);
   });
 
   it('④ POST 不带 id → 自动分配 max+1（迁移后 friends [1,2] → 新 id 3）', async () => {
