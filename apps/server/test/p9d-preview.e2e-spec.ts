@@ -24,6 +24,7 @@ import { initAndLogin, withAuth } from './helpers/admin-auth';
  *  ⑤  有效 cookie + dist 缺失 → 200 + 引导页 HTML（非 500）；
  *  ⑥  隐藏文件与非白名单扩展名 → 统一 404；
  *  ⑦  子目录页 / 尾斜杠归一 / 静态资产 / _astro immutable 缓存头。
+ *  ⑧⑨ [Phase3-F] 缓存三档分派：档③ public 直拷 no-cache；错误路径零缓存头。
  *
  * 装配：AppModule + mizuki fixture（init/login）；preview 监听一律
  * 127.0.0.1 + 端口 0 注入（禁占用真实 4173）；dist 路径经
@@ -233,5 +234,31 @@ describe('P9d [Phase3-C4] /preview 预览通道 e2e', () => {
     const css = await previewRequest(previewPort, 'GET', '/_astro/app-42a1.css', previewCookie);
     expect(css.status).toBe(200);
     expect(css.headers['cache-control']).toBe('public, max-age=31536000, immutable');
+  });
+
+  // ── ⑧⑨ 缓存三档分派（[Phase3-F] ADR-019 追加节收官落地） ──
+
+  it('⑧ 档③ public 直拷资产（无内容指纹）→ Cache-Control: no-cache（正确性优先）', async () => {
+    const svg = await previewRequest(previewPort, 'GET', '/assets/logo.svg', previewCookie);
+    expect(svg.status).toBe(200);
+    expect(svg.headers['cache-control']).toBe('no-cache');
+  });
+
+  it('⑨ 错误路径零缓存头：401 / 405 / 白名单 404 / 路径监狱 404 均不注入 Cache-Control', async () => {
+    const unauth = await previewRequest(previewPort, 'GET', '/');
+    expect(unauth.status).toBe(401);
+    expect(unauth.headers['cache-control']).toBeUndefined();
+
+    const post = await previewRequest(previewPort, 'POST', '/', previewCookie);
+    expect(post.status).toBe(405);
+    expect(post.headers['cache-control']).toBeUndefined();
+
+    const md = await previewRequest(previewPort, 'GET', '/note.md', previewCookie);
+    expect(md.status).toBe(404);
+    expect(md.headers['cache-control']).toBeUndefined();
+
+    const traversal = await previewRequest(previewPort, 'GET', '/../../secret.txt', previewCookie);
+    expect(traversal.status).toBe(404);
+    expect(traversal.headers['cache-control']).toBeUndefined();
   });
 });

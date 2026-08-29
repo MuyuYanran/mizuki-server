@@ -20,6 +20,7 @@ import { initAndLogin, withAuth } from './helpers/admin-auth';
  * commentConfig：④ GET 全字段回读（基线常量代入：SITE_LANG → 'zh_CN'）；
  * ⑤ 全字段保存往返一致；⑥ 非法值 → 400；⑦ 官方字段面零删减锚（15 键全往返）。
  * 禁蔓延：⑩ 受控子集外键 → 400（.strict()）。留档卫生：⑪ 重复覆盖不污染原文本留档。
+ * ⑫⑬ [Phase3-F] siteLang 拆分锚：'zh_CN' 下划线形（C7 疑问①）与 'zh-Hans' 连字符形双兼容。
  * ⑧ 掩码写回 → 判定注记替代（T1.1：commentConfig 无真 secret 性质键，脱敏义务不触发）。
  * 注：主题根用 mizuki fixture cpSync 后内联写入最小 src/config.ts（零 fixture 变更）；
  * 用例按文件序执行且共享状态（①②③④⑨ lang 面 → ⑤⑥⑦ comments 面 → ⑩⑪）。
@@ -264,5 +265,27 @@ describe('Phase3-C7：站点配置受控子集（override）e2e', () => {
     const carrier = readCarrier();
     expect((carrier.originals as Record<string, string>)?.['siteConfig.lang']).toBe('SITE_LANG');
     expect(fs.readFileSync(configTsPath, 'utf8')).toContain('lang: "ja"');
+  });
+
+  // ── ⑫⑬ [Phase3-F] siteLang 拆分锚（C7 疑问① 收官落地：config 域 [-_] 双兼容） ──
+
+  it('⑫ siteLang 拆分锚：lang="zh_CN"（下划线形）→ 200 物化且回读一致', async () => {
+    const put = await server().put('/api/v1/admin/config/lang').send({ lang: 'zh_CN' });
+    expect(put.status).toBe(200);
+    const view = (
+      put.body as { siteConfig: { lang: string | null; baselineLang: string | null } }
+    ).siteConfig;
+    expect(view.lang).toBe('zh_CN'); // 下划线形合法（主题约定 SITE_LANG 形）
+    expect(view.baselineLang).toBe('zh_CN'); // 原文本留档代入锚（SITE_LANG → zh_CN）
+    expect(fs.readFileSync(configTsPath, 'utf8')).toContain('lang: "zh_CN"'); // 物化
+  });
+
+  it('⑬ siteLang 拆分锚：lang="zh-Hans"（连字符形）→ 200（双兼容不弃既有口径）', async () => {
+    const put = await server().put('/api/v1/admin/config/lang').send({ lang: 'zh-Hans' });
+    expect(put.status).toBe(200);
+    expect((put.body as { siteConfig?: { lang?: string | null } }).siteConfig?.lang).toBe(
+      'zh-Hans',
+    );
+    expect(fs.readFileSync(configTsPath, 'utf8')).toContain('lang: "zh-Hans"'); // 物化
   });
 });
