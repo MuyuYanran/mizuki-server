@@ -19,6 +19,7 @@ import { ProcessModule } from './modules/process/process.module';
 import { PreviewModule } from './modules/preview/preview.module';
 import { BackupModule } from './modules/backup/backup.module';
 import { SettingsModule } from './modules/settings/settings.module';
+import { SiteConfigModule } from './modules/site-config/site-config.module';
 
 /**
  * [阶段 P0a] 应用根模块
@@ -61,6 +62,8 @@ import { SettingsModule } from './modules/settings/settings.module';
     BackupModule,
     // [P8] 站点设置与 Mizuki config 接管
     SettingsModule,
+    // [Phase3-C7] 站点配置受控子集管理（lang + commentConfig，ADR-020）
+    SiteConfigModule,
   ],
   providers: [
     // [P1] 全局 ThrottlerGuard（配合上方 ThrottlerModule 的 60 次/分/IP 配置）

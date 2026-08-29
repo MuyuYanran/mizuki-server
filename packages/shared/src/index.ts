@@ -14,3 +14,9 @@ export * from './collections';
 
 // [P7] 媒体引用贡献者契约（注册表机制纯类型，宿主在 server common/registry）
 export * from './media-reference';
+
+// [Phase3-C7] 语言代码口径（C5 posts lang 裁决共享抽取，posts 与 siteConfig.lang 共用）
+export * from './lang-code';
+
+// [Phase3-C7] 站点配置受控子集 schema（override 批，ADR-020）
+export * from './site-config';

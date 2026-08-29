@@ -28,7 +28,13 @@ import { eq } from 'drizzle-orm';
 import { nanoid } from 'nanoid';
 import sharp from 'sharp';
 import { z } from 'zod';
-import { ArticlePublishedPayload, ContentChangedPayload, EVENTS, PostChangedPayload } from '@mizuki/shared';
+import {
+  ArticlePublishedPayload,
+  ContentChangedPayload,
+  EVENTS,
+  PostChangedPayload,
+  langCodeSchema,
+} from '@mizuki/shared';
 import { logger } from '../../common/logger';
 import { parseMarkdown, stringifyMarkdown } from '../../common/markdown/frontmatter';
 import { ForbiddenPathError, safeJoin } from '../../common/security/safe-join';
@@ -85,11 +91,9 @@ export const PostFrontmatterSchema = z
     // 写入口校验（合并整体校验/uploadCover）；读取/公开 API 直走 parseMarkdown 不受影响。
     // 注记：内层 .optional() 承接空串归一出的 undefined；外层 .optional() 使缺键可选
     // （提示词终行缺外层，缺键即 400——e2e ④ 捕获后补齐，语义与裁决意图一致）。
-    lang: z.string()
-      .trim()
-      .transform((v) => (v === '' ? undefined : v))
-      .pipe(z.string().regex(/^[A-Za-z0-9]+(-[A-Za-z0-9]+)*$/).max(16).optional())
-      .optional(),
+    // [Phase3-C7] 终行上收 shared langCodeSchema()（siteConfig.lang 共用同一裁决口径，
+    // 引用不重写；字段面与校验语义零变化）。
+    lang: langCodeSchema(),
   })
   .passthrough();
 
