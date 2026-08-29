@@ -1,6 +1,7 @@
 /**
  * [Phase3-C7] 站点配置受控子集 schema（override 批，ADR-020）
- * [受控子集] siteConfig.lang（语言，C5 口径）+ commentConfig（评论配置，决议 1），
+ * [受控子集] siteConfig.lang（语言，siteLangSchema 口径——F 拆分后 config 域 [-_]
+ *   双兼容，C7 疑问① 收官落地）+ commentConfig（评论配置，决议 1），
  *   其余 config.ts 字段零纳入（禁蔓延）。commentConfig 字段面以主题类型定义
  *   （Mizuki src/types/config.ts 的 CommentConfig/TwikooConfig/GiscusConfig，
  *   对齐基线源）为准：零删减零改名；全部 .strict()——越界键显式 400，禁静默剥除。
@@ -8,12 +9,14 @@
  *   等系公开性质，twikoo envId 为公开服务地址；Twikoo 管理凭据存其自建数据库
  *   而非 config.ts）——脱敏义务不触发（T1.1 盘点结论，ADR-020）。
  * [注记] commentConfig 的 twikoo.lang/giscus.lang 为普通字符串（主题自身约定
- *   取 SITE_LANG 形如 'zh_CN' 下划线形），不套用 C5 BCP-47 口径——该口径仅
- *   适用于 siteConfig.lang（架构师裁决范围即此）。
+ *   取 SITE_LANG 形如 'zh_CN' 下划线形），不套用语言代码口径（posts 连字符 /
+ *   config 双兼容两域拆分见 lang-code.ts）——该口径仅适用于 siteConfig.lang。
  * [状态] ACTIVE
  */
 import { z } from 'zod';
-import { LANG_CODE_MAX_LENGTH, LANG_CODE_PATTERN, langCodeSchema } from './lang-code';
+// [Phase3-F] lang 校验口径切换 siteLangSchema（config 域 [-_] 双兼容，C7 疑问① 收官落地）；
+// 载体形态 / 合并 / 持久化机制冻结，仅口径切换。
+import { siteLangSchema } from './lang-code';
 
 /** Twikoo 子配置（主题类型：envId 必填，region/lang 可选） */
 export const TwikooConfigSchema = z
@@ -56,18 +59,19 @@ export const CommentConfigSchema = z
 /**
  * PUT /admin/config/lang 请求体。
  * 四格语义：键缺失 / 空串 → 归一缺省（清除 override，不落键）；
- * 非法（内嵌空白/超长/越界键）→ 400；合法 → 物化进 config.ts + 侧车。
+ * 非法（内嵌空白/超长/越界键）→ 400；合法（'en' / 'zh_CN' / 'zh-Hans'，F 起
+ * 下划线形双兼容）→ 物化进 config.ts + 侧车。
  */
-export const PutLangBodySchema = z.object({ lang: langCodeSchema() }).strict();
+export const PutLangBodySchema = z.object({ lang: siteLangSchema() }).strict();
 
 /** override 侧车文件 schema（持久化载体，Server 自管读写） */
 export const ConfigOverrideFileSchema = z
   .object({
     version: z.literal(1),
-    /** siteConfig 受控键 override 态（缺键 = 未设置 = 基线生效） */
+    /** siteConfig 受控键 override 态（缺键 = 未设置 = 基线生效；lang 口径同 PUT，F 起 [-_] 双兼容） */
     siteConfig: z
       .object({
-        lang: z.string().regex(LANG_CODE_PATTERN).max(LANG_CODE_MAX_LENGTH).optional(),
+        lang: siteLangSchema(),
       })
       .strict()
       .optional(),

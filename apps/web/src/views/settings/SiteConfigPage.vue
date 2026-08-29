@@ -12,7 +12,7 @@
 import { onMounted, ref } from 'vue';
 import { ElMessage } from 'element-plus';
 import type { ZodObject, ZodType } from 'zod';
-import { CommentConfigSchema, LANG_CODE_PATTERN } from '@mizuki/shared';
+import { CommentConfigSchema, SITE_LANG_PATTERN } from '@mizuki/shared';
 import { configApi } from '../../api/config';
 import { ApiError } from '../../api/http';
 import { SchemaForm, emptyValueFromSchema } from '../../lib/schema-form';
@@ -89,8 +89,8 @@ function normalizeComments(value: Record<string, unknown>): Record<string, unkno
 
 async function onSubmit(value: Record<string, unknown>): Promise<void> {
   const langTrim = lang.value.trim();
-  if (langTrim !== '' && !LANG_CODE_PATTERN.test(langTrim)) {
-    ElMessage.warning('语言仅允许字母数字与连字符分段（BCP-47 简码，如 en / zh-Hant）');
+  if (langTrim !== '' && !SITE_LANG_PATTERN.test(langTrim)) {
+    ElMessage.warning('语言仅允许字母数字，以连字符或下划线分段（如 en / zh-Hans / zh_CN）');
     return;
   }
   saving.value = true;
@@ -134,7 +134,7 @@ onMounted(() => {
       <el-form-item label="语言">
         <el-input v-model="lang" placeholder="en" class="lang-input" />
         <div class="field-help">
-          可选；空 = 站点默认（当前基线：{{ baselineLang ?? '未知' }}），BCP-47 简码由服务端校验
+          可选；空 = 站点默认（当前基线：{{ baselineLang ?? '未知' }}），连字符/下划线分段语言代码由服务端校验
         </div>
       </el-form-item>
     </el-form>
