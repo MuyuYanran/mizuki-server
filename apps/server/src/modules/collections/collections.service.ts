@@ -1,15 +1,22 @@
 /**
- * [阶段 P4] collections/collections.service — 六类集合 CRUD 编排
- * [职责] 基于 DataFileService（P3 引擎，唯一合法读写通道）实现六类内容的
+ * [阶段 P4] collections/collections.service — 七类集合 CRUD 编排
+ * [职责] 基于 DataFileService（P3 引擎，唯一合法读写通道）实现集合内容的
  *   增删改查；每次写入成功出口发射 content.changed（scope='collection'）。
- *   禁止为六类内容建任何数据库表（文件即数据库，MASTER-PLAN §2 决策 1）。
+ *   禁止为集合内容建任何数据库表（文件即数据库，MASTER-PLAN §2 决策 1）。
  * [状态] ACTIVE
  *
- * 规则（P4 §3.3）：
- * - POST：无 id（devices 无 name）时自动生成；id 冲突 → 409；
- * - [B2/裁决 9] 五类 numericId 集合 id 为 number：POST 自动生成改 max+1
- *   （冲突重试，上界 1000 次）；引擎载入文件时检测非 number id 即自动
- *   换新迁移（ADR-014：原始值层操作、原子写回、幂等、无旧引用兼容）；
+ * 规则（P4 §3.3 + Phase3-C2b/ADR-018）：
+ * - POST：diary/friends 无 id 时自动 max+1（冲突重试，上界 1000 次）；
+ *   projects/skills/timeline id 留空 → slugify（来源 title/name，结果空 →
+ *   item-<nanoid(6)>）；anime 无 id 不生成（title 为必填定位键）；
+ *   id 冲突 → 409；
+ * - [B2/裁决 9 + ADR-014] diary/friends 载入时检测非 number id 自动换新；
+ * - [ADR-018] projects/skills/timeline 载入时执行值域迁移（number id →
+ *   String、status/type/level 遗留枚举 → 官方枚举、skills.projects[] 同步
+ *   String 化）：zod parse 之前的原始值层、幂等、原子写回、非法值不迁移
+ *   （交由校验拒绝，禁自创映射）；
+ * - [ADR-018] 编辑时定位键只读（projects/skills/timeline 的 id 与 anime 的
+ *   title 改值 = 换定位器，禁止 → 400）；
  * - PATCH/DELETE 目标不存在 → 404；
  * - grouped（devices）：POST body 含 group；DELETE 后空分组键自动清理；
  * - timeline POST 未给 icon/color 时按 type 填充默认映射（ADR-004）；
@@ -32,19 +39,15 @@ const MAX_ID_RETRY = 1000;
 
 /**
  * timeline 按 type 的默认 icon/color。
- * [B4 修订] 官方文档（docs/refs/mizuki-docs/special-timeline.md §2/§3）使用
- *   Iconify 图标集；education 与 work 两类有文档示例可核对：
- *   education = material-symbols:school / #059669（§2 示例逐字）。
- *   官方 type 枚举为 education|work|project|achievement（§2），与当前
- *   TimelineTypeSchema（education|certificate|project|other）不一致——枚举
- *   与本表整体对齐属集合服务行为变更，转 B4 审计裁决（T2-g/T2-h）；
- *   certificate/project/other 三类无官方示例，暂定值保留并注记。
+ * [ADR-004/C2b 修订] 官方枚举 education|work|project|achievement：
+ *   education 与 work 有官方文档示例（special-timeline.md §2/§3 逐字）；
+ *   project/achievement 无官方示例，暂定值保留并注记。
  */
 const TIMELINE_DEFAULTS: Record<string, { icon: string; color: string }> = {
-  education: { icon: 'material-symbols:school', color: '#059669' },
-  certificate: { icon: 'award', color: '#f59e0b' }, // 暂定：无官方示例（ADR-004 注记）
+  education: { icon: 'material-symbols:school', color: '#059669' }, // 官方示例（ADR-004 §B4 修订）
+  work: { icon: 'material-symbols:work', color: '#DC2626' }, // 官方示例（ADR-004 C2b 修订）
   project: { icon: 'rocket', color: '#10b981' }, // 暂定：无官方示例（ADR-004 注记）
-  other: { icon: 'star', color: '#8b5cf6' }, // 暂定：无官方示例（ADR-004 注记）
+  achievement: { icon: 'star', color: '#8b5cf6' }, // 暂定：无官方示例（ADR-004 注记）
 };
 
 @Injectable()
@@ -54,15 +57,15 @@ export class CollectionsService {
     private readonly emitter: EventEmitter2,
   ) {}
 
-  /** 全量列表（array → 数组；grouped → 分组对象）；载入前先跑 id 迁移触发 */
+  /** 全量列表（array → 数组；grouped → 分组对象）；载入前先跑迁移触发 */
   async list(def: CollectionDef): Promise<unknown> {
-    await this.ensureNumericIds(def);
+    await this.prepareLoad(def);
     return this.dataFiles.readCollection(def.file, def.varName);
   }
 
-  /** 新增条目（grouped 时 input 须含 group 字段）；先跑 id 迁移保证 max+1 基准正确 */
+  /** 新增条目（grouped 时 input 须含 group 字段）；先跑迁移保证生成基准正确 */
   async create(def: CollectionDef, input: unknown): Promise<Item> {
-    await this.ensureNumericIds(def);
+    await this.prepareLoad(def);
     const item = def.shape === 'grouped' ? await this.createGrouped(def, input) : await this.createArray(def, input);
     this.emitChanged(def, 'create');
     return item;
@@ -70,7 +73,7 @@ export class CollectionsService {
 
   /** 修改条目（按 idField 定位；numericId 集合 :id 为数字，grouped 跨分组查找） */
   async update(def: CollectionDef, id: string, patchInput: unknown): Promise<Item> {
-    await this.ensureNumericIds(def);
+    await this.prepareLoad(def);
     const patch = stripGroup(patchInput);
     const targetId = def.numericId ? Number(id) : id;
     let updated: Item | undefined;
@@ -106,6 +109,7 @@ export class CollectionsService {
           if (index < 0) {
             throw new NotFoundException(`条目不存在：${def.type}/${id}`);
           }
+          this.rejectLocatorChange(def, list[index]!, patch);
           const merged = this.parseItemOrThrow(def, { ...list[index]!, ...patch });
           const newId = merged[def.idField];
           if (list.some((item, i) => i !== index && item[def.idField] === newId)) {
@@ -123,7 +127,7 @@ export class CollectionsService {
 
   /** 删除条目（grouped 时自动清理空分组键） */
   async remove(def: CollectionDef, id: string): Promise<void> {
-    await this.ensureNumericIds(def);
+    await this.prepareLoad(def);
     const targetId = def.numericId ? Number(id) : id;
     if (def.shape === 'grouped') {
       await this.dataFiles.mutateCollection<GroupedData>(
@@ -165,6 +169,12 @@ export class CollectionsService {
   }
 
   // ── 内部实现 ──
+
+  /** 载入前置：numericId 换新（ADR-014）+ 官方值域迁移（ADR-018），均幂等 */
+  private async prepareLoad(def: CollectionDef): Promise<void> {
+    await this.ensureNumericIds(def);
+    await this.migrateLegacyValues(def);
+  }
 
   /**
    * [B2/裁决 9] 引擎载入文件时的 id 迁移触发（ADR-014）：
@@ -209,6 +219,36 @@ export class CollectionsService {
     );
   }
 
+  /**
+   * [ADR-018] 官方值域迁移（projects/skills/timeline）：B2 裁决 9 曾对三类
+   * 实现 number id 过度覆盖，官方三集合 id 均为字符串名称串。沿用 ADR-014
+   * 载入触发原始值层点位（zod parse 之前）：
+   * - id: number → String(n)；
+   * - projects.status: 'active'→'in-progress'、'done'→'completed'（其他值
+   *   不迁移，交由 schema 校验拒绝——禁自创映射）；
+   * - skills.level: 1→'beginner'、2→'intermediate'、3→'advanced'、≥4→
+   *   'expert'（非 number 不迁移）；skills.projects[] 各项同步 String 化
+   *   （引用 projects id，与 projects id 迁移同批一致）；
+   * - timeline.type: 'certificate'→'work'、'other'→'achievement'。
+   * 幂等（官方值直通）；文件锁 + temp+rename 原子写回；磁盘字节仅变迁移目标。
+   */
+  private async migrateLegacyValues(def: CollectionDef): Promise<void> {
+    if (def.shape !== 'array' || !(def.type === 'projects' || def.type === 'skills' || def.type === 'timeline')) {
+      return;
+    }
+    const current = this.dataFiles.readCollection<unknown>(def.file, def.varName);
+    if (!Array.isArray(current) || !current.some((item) => needsLegacyMigration(def.type, item))) {
+      return; // 幂等：无遗留值不触发
+    }
+    logger.warn({ type: def.type, file: def.file }, '检测到遗留 id 类型/枚举值，执行官方值域迁移（ADR-018）');
+    await this.dataFiles.mutateCollection<Item[]>(
+      def.file,
+      def.varName,
+      (list) => list.map((item) => migrateLegacyItem(def.type, item)),
+      // 故意不传 schema：迁移发生在原始值层（ADR-014 同款防死锁）
+    );
+  }
+
   /** [B2/裁决 9] numericId 集合的自动 id：文件内现存 number id 最大值 + 1 */
   private nextAutoId(def: CollectionDef): number {
     const current = this.dataFiles.readCollection<unknown>(def.file, def.varName);
@@ -220,12 +260,15 @@ export class CollectionsService {
     const raw = { ...(input as Item) };
     applyTimelineDefaults(def, raw);
     // [B2/裁决 9] numericId：id 缺省/0 → max+1 自动生成（冲突重试，上界 1000 次）
-    const autoId = def.numericId && (raw[def.idField] === undefined || raw[def.idField] === '' || raw[def.idField] === 0);
-    if (!def.numericId && (raw[def.idField] === undefined || raw[def.idField] === '')) {
-      raw[def.idField] = nanoid(); // devices 无 idField 概念（name 由用户填），此分支仅防御
+    const autoNumericId = def.numericId && (raw[def.idField] === undefined || raw[def.idField] === '' || raw[def.idField] === 0);
+    // [ADR-018] 字符串 id 集合：id 留空 → slugify 生成（来源 title/name）
+    const autoSlugId = !def.numericId && def.shape === 'array' && def.idField === 'id' && (raw['id'] === undefined || raw['id'] === '');
+    if (autoSlugId) {
+      const slug = slugify(String(raw[def.slugSource ?? 'title'] ?? ''));
+      raw['id'] = slug === '' ? `item-${nanoid(6)}` : slug;
     }
     for (let attempt = 0; ; attempt += 1) {
-      if (autoId) {
+      if (autoNumericId) {
         delete raw[def.idField];
         raw[def.idField] = this.nextAutoId(def);
       }
@@ -244,7 +287,7 @@ export class CollectionsService {
         );
         return item;
       } catch (error) {
-        if (autoId && error instanceof ConflictException && attempt < MAX_ID_RETRY) {
+        if (autoNumericId && error instanceof ConflictException && attempt < MAX_ID_RETRY) {
           continue; // 并发写入挪动了 max 基准 → 重算 max+1 再试
         }
         throw error;
@@ -276,6 +319,21 @@ export class CollectionsService {
       groupedSchema(def),
     );
     return item;
+  }
+
+  /**
+   * [ADR-018] 定位键只读守卫：projects/skills/timeline 的 id 与 anime 的
+   * title 是定位器，PATCH 改值 = 换定位器，禁止（400）。diary/friends 的
+   * number id 与 devices 的 name 分支语义维持既有行为不在此列。
+   */
+  private rejectLocatorChange(def: CollectionDef, current: Item, patch: Item): void {
+    const guarded = !def.numericId && def.shape === 'array' && (def.idField === 'id' || def.type === 'anime');
+    if (!guarded) {
+      return;
+    }
+    if (patch[def.idField] !== undefined && patch[def.idField] !== current[def.idField]) {
+      throw new BadRequestException(`定位键 ${def.idField} 只读，不可修改（如需更换请删除后重建）：${def.type}`);
+    }
   }
 
   /** itemSchema 校验，失败转 BadRequestException（detail 携带 zod issues） */
@@ -358,4 +416,71 @@ function applyTimelineDefaults(def: CollectionDef, raw: Item): void {
   }
   raw['icon'] ??= defaults.icon;
   raw['color'] ??= defaults.color;
+}
+
+/** [ADR-018] slug 生成：小写、空白/下划线转连字符、剔除 [a-z0-9-] 外字符 */
+function slugify(source: string): string {
+  return source
+    .toLowerCase()
+    .replace(/[\s_]+/g, '-')
+    .replace(/[^a-z0-9-]/g, '')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '');
+}
+
+/** [ADR-018] 单条遗留值检测（幂等判据：存在任一遗留形态即需要迁移） */
+function needsLegacyMigration(type: string, raw: unknown): boolean {
+  if (typeof raw !== 'object' || raw === null) {
+    return false;
+  }
+  const item = raw as Item;
+  if (typeof item['id'] === 'number') {
+    return true;
+  }
+  if (type === 'projects' && (item['status'] === 'active' || item['status'] === 'done')) {
+    return true;
+  }
+  if (type === 'skills') {
+    if (typeof item['level'] === 'number') {
+      return true;
+    }
+    if (Array.isArray(item['projects']) && item['projects'].some((p) => typeof p === 'number')) {
+      return true;
+    }
+  }
+  if (type === 'timeline' && (item['type'] === 'certificate' || item['type'] === 'other')) {
+    return true;
+  }
+  return false;
+}
+
+/** [ADR-018] 单条迁移（仅动迁移目标，其余字段原样保留；非法值不动） */
+function migrateLegacyItem(type: string, raw: Item): Item {
+  const next: Item = { ...raw };
+  if (typeof next['id'] === 'number') {
+    next['id'] = String(next['id']);
+  }
+  if (type === 'projects') {
+    if (next['status'] === 'active') {
+      next['status'] = 'in-progress';
+    } else if (next['status'] === 'done') {
+      next['status'] = 'completed';
+    }
+  } else if (type === 'skills') {
+    if (typeof next['level'] === 'number') {
+      const level = next['level'] as number;
+      next['level'] =
+        level >= 4 ? 'expert' : level === 3 ? 'advanced' : level === 2 ? 'intermediate' : level === 1 ? 'beginner' : next['level'];
+    }
+    if (Array.isArray(next['projects'])) {
+      next['projects'] = next['projects'].map((p) => (typeof p === 'number' ? String(p) : p));
+    }
+  } else if (type === 'timeline') {
+    if (next['type'] === 'certificate') {
+      next['type'] = 'work';
+    } else if (next['type'] === 'other') {
+      next['type'] = 'achievement';
+    }
+  }
+  return next;
 }

@@ -7,13 +7,16 @@
  *   DELETE /admin/collections/:type/:id   删除（grouped 自动清理空分组）
  * [状态] ACTIVE
  *
+ * [Phase3-C2b/ADR-018] :id 校验 registry 驱动：diary/friends（numericId）
+ *   仅接受正整数字符串；projects/skills/timeline/anime 接受字符串（URL
+ *   解码后按 idField 定位）。
  * :type 先对注册表白名单校验（未知 type → 400，不产生任何文件读写）；
  * 输入校验由 CollectionsService（itemSchema）完成；P6 前无认证守卫属预期。
  */
 import { BadRequestException, Body, Controller, Delete, Get, HttpCode, HttpStatus, Param, Patch, Post } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { CollectionsService } from './collections.service';
-import { findCollectionDef, type CollectionDef } from './registry';
+import { findCollectionDef, REGISTRY, type CollectionDef } from './registry';
 
 @ApiTags('管理')
 @ApiBearerAuth()
@@ -56,13 +59,15 @@ export class CollectionsController {
   private requireDef(type: string): CollectionDef {
     const def = findCollectionDef(type);
     if (!def) {
-      throw new BadRequestException(`未知的集合类型：${type}（可用：diary/friends/projects/timeline/skills/devices）`);
+      throw new BadRequestException(`未知的集合类型：${type}（可用：${REGISTRY.map((d) => d.type).join('/')}）`);
     }
     return def;
   }
 }
 
-/** [B2/裁决 9] :id 路由参数校验：numericId 集合仅接受正整数字符串（无需双兼容） */
+/** [B2/裁决 9 + ADR-018] :id 路由参数校验 registry 驱动：
+ * numericId（diary/friends）仅接受正整数字符串；字符串 id 集合原样透传
+ * （express 已 URL 解码，由服务层按 idField 定位，不存在 → 404） */
 function routeId(def: CollectionDef, id: string): string {
   if (def.numericId && !/^\d+$/.test(id)) {
     throw new BadRequestException(`id 须为正整数：${def.type}/${id}`);

@@ -11,7 +11,7 @@ import { BadRequestException, Controller, Get, NotFoundException, Param } from '
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import { Public } from '../../common/decorators/public.decorator';
 import { DataFileService } from '../data-files/data-file.service';
-import { findCollectionDef } from './registry';
+import { findCollectionDef, REGISTRY } from './registry';
 
 @ApiTags('公开')
 @Public()
@@ -24,7 +24,7 @@ export class PublicCollectionsController {
   read(@Param('type') type: string): unknown {
     const def = findCollectionDef(type);
     if (!def) {
-      throw new BadRequestException(`未知的集合类型：${type}（可用：diary/friends/projects/timeline/skills/devices）`);
+      throw new BadRequestException(`未知的集合类型：${type}（可用：${REGISTRY.map((d) => d.type).join('/')}）`);
     }
     if (!def.public) {
       throw new NotFoundException(`集合未公开：${type}`);

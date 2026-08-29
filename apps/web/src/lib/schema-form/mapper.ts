@@ -39,7 +39,8 @@ export type WidgetKind =
   | 'select'
   | 'tags'
   | 'date'
-  | 'group';
+  | 'group'
+  | 'json';
 
 /** 单个字段的渲染描述符（由 schema 推导，组件按此渲染） */
 export interface FieldDescriptor {
@@ -58,8 +59,10 @@ export interface FieldDescriptor {
   children?: FieldDescriptor[];
   /** schema `.describe()` 元数据：字段下方帮助文案 + 必填 tooltip（R2-12/13） */
   description?: string;
-  /** [B2/裁决 9] 只读字段：顶层 number id——新增自动分配、编辑不可改，列表页渲染窄列 */
+  /** [B2/裁决 9] 只读字段：顶层 id——新增自动生成、编辑不可改，列表页渲染窄列 */
   readOnly?: boolean;
+  /** [C2b] 日期精度：date 控件的月份态（YYYY-MM，anime.startDate/endDate） */
+  datePrecision?: 'day' | 'month';
 }
 
 /** 字段名 → 中文标签覆盖（六类 schema 共用的语义化命名） */
@@ -99,6 +102,18 @@ const LABEL_OVERRIDES: Record<string, string> = {
   group: '分组',
   specs: '规格',
   link: '链接',
+  cover: '封面',
+  rating: '评分',
+  progress: '观看进度',
+  totalEpisodes: '总集数',
+  episodes: '集数描述',
+  year: '年份',
+  genre: '题材',
+  studio: '制作公司',
+  certifications: '认证',
+  achievements: '成就',
+  position: '职位',
+  links: '链接组',
 };
 
 /** 长文本字段名白名单（命中 → textarea） */
@@ -188,14 +203,19 @@ function describeField(key: string, raw: ZodType): FieldDescriptor {
   // 枚举 → select
   if (kind === 'ZodEnum') {
     // zod v4 的 ZodEnum.options 类型为 Values[keyof Values][]（联合），
-    // 这里统一转 string —— 六类 schema 的枚举值均为字符串字面量。
+    // 这里统一转 string —— 七类 schema 的枚举值均为字符串字面量。
     const rawOptions = (inner as unknown as { options: readonly (string | number | symbol)[] })
       .options;
     return { key, label, widget: 'select', required, options: rawOptions.map(String), description };
   }
 
-  // 数组（ZodArray<ZodString>）→ tags
+  // 数组（ZodArray<ZodString>）→ tags；元素为对象（如 timeline.links）→
+  // [C2b] JSON 文本框兜底（提示词 T4.2：mapper 扩展对象数组工程量过大时的兜底口径）
   if (kind === 'ZodArray') {
+    const element = (inner as unknown as { element?: ZodType }).element;
+    if (element !== undefined && typeName(element) === 'ZodObject') {
+      return { key, label, widget: 'json', required, description };
+    }
     return { key, label, widget: 'tags', required, description };
   }
 
@@ -209,9 +229,11 @@ function describeField(key: string, raw: ZodType): FieldDescriptor {
     return { key, label, widget: 'number', required, description };
   }
 
-  // [R2-9] 日期 → date（ZodDate 直挂；日期语义命名的 ZodString 同挂）
+  // [R2-9] 日期 → date（ZodDate 直挂；日期语义命名的 ZodString 同挂）；
+  // [C2b] YYYY-MM 格式（正则约束探针）→ 月份精度
   if (kind === 'ZodDate' || (kind === 'ZodString' && isDateField(key))) {
-    return { key, label, widget: 'date', required, description };
+    const precision = kind === 'ZodString' && isMonthPrecision(inner) ? 'month' : 'day';
+    return { key, label, widget: 'date', required, datePrecision: precision, description };
   }
 
   // 字符串 → input / textarea / url 提示
@@ -239,13 +261,15 @@ function describeField(key: string, raw: ZodType): FieldDescriptor {
 /**
  * ZodObject schema → FieldDescriptor[]（表单渲染入口）。
  * 遍历 schema.shape 的每个字段，递归描述。
- * [B2/裁决 9] 顶层 number id 字段标记 readOnly（新增自动分配、编辑不可改）。
+ * [B2/裁决 9 + C2b/ADR-018] 顶层 id 字段标记 readOnly（新增留空自动生成、
+ * 编辑不可改）——number id（diary/friends）与 string id（projects/skills/
+ * timeline）一并覆盖。
  */
 export function describeSchema(schema: ZodObject<Record<string, ZodType>>): FieldDescriptor[] {
   const shape = schema.shape;
   return Object.entries(shape).map(([key, type]) => {
     const fd = describeField(key, type);
-    return key === 'id' && fd.widget === 'number' ? { ...fd, readOnly: true } : fd;
+    return key === 'id' ? { ...fd, readOnly: true } : fd;
   });
 }
 
@@ -277,6 +301,24 @@ export function todayString(): string {
   const m = String(now.getMonth() + 1).padStart(2, '0');
   const d = String(now.getDate()).padStart(2, '0');
   return `${y}-${m}-${d}`;
+}
+
+/** [C2b] 当前月份（YYYY-MM，月份精度日期字段的默认值） */
+export function currentMonthString(): string {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+}
+
+/**
+ * [C2b] 月份精度探针：日期语义 ZodString 携带 YYYY-MM 正则约束
+ * （anime.startDate/endDate），用样本值探针判定，不依赖 zod 内部结构。
+ */
+function isMonthPrecision(t: ZodType): boolean {
+  try {
+    return t.safeParse('2026-08').success && !t.safeParse('2026-08-29').success;
+  } catch {
+    return false;
+  }
 }
 
 /** [R2-9] 是否日期控件（与 describeField 的判定保持一致） */
@@ -311,11 +353,14 @@ export function emptyValueFromSchema(schema: ZodObject<Record<string, ZodType>>)
         }
       }
       out[key] = child;
-    } else if (key === 'id' && kind === 'ZodNumber') {
-      // [B2/裁决 9] id 自动分配：新增表单不填（服务端 max+1），留空绕过本地必填校验
+    } else if (key === 'id') {
+      // [B2/裁决 9 + C2b] id 自动生成：新增表单不填（number max+1 / string
+      // slugify），留空绕过本地必填校验
       out[key] = undefined;
     } else if (!required) {
       out[key] = undefined;
+    } else if (kind === 'ZodString' && isDateWidget(kind, key) && isMonthPrecision(inner)) {
+      out[key] = currentMonthString();
     } else if (isDateWidget(kind, key)) {
       out[key] = todayString();
     } else {

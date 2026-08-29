@@ -44,7 +44,7 @@ interface CollectionConfig {
   shape: 'array' | 'grouped';
 }
 
-/** 六类配置（顺序即菜单顺序；idField/shape 与后端 registry 逐字对齐） */
+/** 七类配置（顺序即菜单顺序；idField/shape 与后端 registry 逐字对齐） */
 const CONFIGS: CollectionConfig[] = [
   { type: 'diary', title: '日记', schema: DiaryItemSchema, idField: 'id', shape: 'array' },
   { type: 'friends', title: '友链', schema: FriendsItemSchema, idField: 'id', shape: 'array' },
@@ -85,7 +85,8 @@ function cellText(item: CollectionItem, col: FieldDescriptor): string {
     return '';
   }
   if (Array.isArray(value)) {
-    return value.join(', ');
+    // 对象数组（如 timeline.links）无法逗号拼接，转 JSON 略写
+    return value.every((v) => typeof v === 'string') ? value.join(', ') : JSON.stringify(value);
   }
   if (typeof value === 'object') {
     return JSON.stringify(value);

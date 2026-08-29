@@ -57,6 +57,35 @@ function updateField(key: string, value: unknown): void {
   emit('update:modelValue', next);
 }
 
+/** [C2b] 对象数组（timeline.links）JSON 文本框：草稿文本与解析状态 */
+const JSON_PLACEHOLDER = 'JSON 数组文本，如 [{"name":"官网","url":"https://…","type":"website"}]';
+const jsonDrafts = ref<Record<string, string | undefined>>({});
+
+/** 渲染值：无效 JSON 编辑中保留草稿原文，其余序列化现值 */
+function jsonTextOf(field: FieldDescriptor): string {
+  const draft = jsonDrafts.value[field.key];
+  if (draft !== undefined) {
+    return draft;
+  }
+  return JSON.stringify((props.modelValue[field.key] as unknown) ?? [], null, 2);
+}
+
+/** JSON 文本提交：解析为数组才更新字段；失败保留草稿并提示 */
+function updateJsonField(field: FieldDescriptor, text: string): void {
+  try {
+    const parsed = JSON.parse(text) as unknown;
+    if (!Array.isArray(parsed)) {
+      throw new Error('not an array');
+    }
+    jsonDrafts.value = { ...jsonDrafts.value, [field.key]: undefined };
+    localErrors.value = { ...localErrors.value, [field.key]: '' };
+    updateField(field.key, parsed);
+  } catch {
+    jsonDrafts.value = { ...jsonDrafts.value, [field.key]: text };
+    localErrors.value = { ...localErrors.value, [field.key]: 'JSON 数组解析失败' };
+  }
+}
+
 /** 嵌套对象字段更新 */
 function updateNestedField(parentKey: string, childKey: string, value: unknown): void {
   const parent = (props.modelValue[parentKey] ?? {}) as Record<string, unknown>;
@@ -164,12 +193,12 @@ function errorFor(key: string, childKey?: string): string {
           <span class="field-label-text">{{ field.label }}</span>
           <FieldHint v-if="field.required" :description="field.description" :label="field.label" />
         </template>
-        <!-- [B2/裁决 9] id 自动分配：只读展示（编辑态显示现值、新增态留空提示） -->
+        <!-- [B2/裁决 9 + C2b] id 自动生成：只读展示（编辑态显示现值、新增态留空提示） -->
         <el-input
           v-if="field.readOnly"
           :model-value="modelValue[field.key] === undefined || modelValue[field.key] === null ? '' : String(modelValue[field.key])"
           disabled
-          placeholder="自动分配"
+          placeholder="留空自动生成"
         />
         <!-- 字符串长文本 -->
         <el-input
@@ -179,14 +208,14 @@ function errorFor(key: string, childKey?: string): string {
           :rows="4"
           @update:model-value="(v: unknown) => updateField(field.key, v)"
         />
-        <!-- [R2-9] 日期：el-date-picker（YYYY-MM-DD） -->
+        <!-- [R2-9] 日期：el-date-picker（日精度 YYYY-MM-DD；[C2b] 月精度 YYYY-MM） -->
         <el-date-picker
           v-else-if="field.widget === 'date'"
           :model-value="(modelValue[field.key] as string) ?? undefined"
-          type="date"
-          value-format="YYYY-MM-DD"
+          :type="field.datePrecision === 'month' ? 'month' : 'date'"
+          :value-format="field.datePrecision === 'month' ? 'YYYY-MM' : 'YYYY-MM-DD'"
           placeholder="选择日期"
-          format="YYYY-MM-DD"
+          :format="field.datePrecision === 'month' ? 'YYYY-MM' : 'YYYY-MM-DD'"
           class="date-input"
           @update:model-value="(v: unknown) => updateDateField(field, v)"
         />
@@ -211,6 +240,15 @@ function errorFor(key: string, childKey?: string): string {
         >
           <el-option v-for="opt in field.options" :key="opt" :label="opt" :value="opt" />
         </el-select>
+        <!-- [C2b] 对象数组（timeline.links）：JSON 文本框兜底（T4.2 取舍口径） -->
+        <el-input
+          v-else-if="field.widget === 'json'"
+          :model-value="jsonTextOf(field)"
+          type="textarea"
+          :rows="6"
+          :placeholder="JSON_PLACEHOLDER"
+          @update:model-value="(v: string) => updateJsonField(field, v)"
+        />
         <!-- 标签数组 -->
         <div v-else-if="field.widget === 'tags'" class="tags-input">
           <el-tag

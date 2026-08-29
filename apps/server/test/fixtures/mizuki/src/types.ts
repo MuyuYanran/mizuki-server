@@ -1,5 +1,7 @@
 // fixture 类型定义集中处（数据文件 import type 引用，写回时不被触碰）
-// [B2/裁决 9] 五类集合 id 迁移为 number（max+1 自动生成，ADR-014）；devices 为 grouped 无 id
+// [B2/裁决 9] diary/friends id 为 number（max+1 自动生成，ADR-014）；
+// [Phase3-C2b/ADR-018] projects/skills/timeline id 为 string（官方名称串）、
+// 枚举与必填面对齐官方；devices 恰 5 必填字段；anime 无 id（title 定位）。
 export interface Diary {
   id: number;
   content: string;
@@ -20,51 +22,64 @@ export interface Friend {
 }
 
 export interface Project {
-  id: number;
+  id: string;
   title: string;
-  description?: string;
-  image?: string;
-  category?: string;
-  techStack?: string[];
-  status?: string;
+  description: string;
+  image: string;
+  category: 'web' | 'mobile' | 'desktop' | 'other';
+  techStack: string[];
+  status: 'completed' | 'in-progress' | 'planned';
+  startDate: string;
   liveDemo?: string;
   sourceCode?: string;
-  startDate?: string;
   endDate?: string;
   featured?: boolean;
   tags?: string[];
   visitUrl?: string;
 }
 
+export interface TimelineLink {
+  name: string;
+  url: string;
+  type: 'website' | 'certificate' | 'project' | 'other';
+}
+
 export interface TimelineItem {
-  id: number;
+  id: string;
   title: string;
-  description?: string;
-  type: 'education' | 'certificate' | 'project' | 'other';
-  icon?: string;
-  color?: string;
+  description: string;
+  type: 'education' | 'work' | 'project' | 'achievement';
   startDate: string;
+  endDate?: string;
   location?: string;
   organization?: string;
+  position?: string;
   skills?: string[];
+  achievements?: string[];
+  links?: TimelineLink[];
+  icon?: string;
+  color?: string;
   featured?: boolean;
 }
 
 export interface Skill {
-  id: number;
+  id: string;
   name: string;
-  description?: string;
-  icon?: string;
-  category?: string;
-  level?: number;
-  experience?: { years: number; months: number };
+  description: string;
+  icon: string;
+  category: 'frontend' | 'backend' | 'database' | 'tools' | 'other';
+  level: 'beginner' | 'intermediate' | 'advanced' | 'expert';
+  experience: { years: number; months: number };
+  projects?: string[];
+  certifications?: string[];
   color?: string;
 }
 
 export interface Device {
   name: string;
-  image?: string;
-  specs?: string;
-  description?: string;
-  link?: string;
+  image: string;
+  specs: string;
+  description: string;
+  link: string;
 }
+

@@ -1,7 +1,10 @@
 /**
- * [阶段 P4] collections/registry — 六类集合注册表
- * [职责] CollectionDef 结构与六类配置（MASTER-PLAN §4.2 逐字）；
+ * [阶段 P4] collections/registry — 七类集合注册表
+ * [职责] CollectionDef 结构与七类配置（MASTER-PLAN §4.2 逐字）；
  *   新增一种内容类型 = 增加一个配置对象，控制器/服务零改动。
+ * [Phase3-C2b/ADR-018] 官方 id 类型修正：projects/skills/timeline 为字符串
+ *   名称串（numericId:false），仅 diary/friends 维持 number（max+1）；
+ *   anime 第七集合注册（无 id 字段，title 为定位器，禁止注入 id）。
  * [状态] ACTIVE
  */
 import { z } from 'zod';
@@ -23,9 +26,12 @@ export interface CollectionDef {
   shape: 'array' | 'grouped';
   itemSchema: z.ZodType;
   idField: string;
-  /** [B2/裁决 9] id 为 number（max+1 生成 + 载入时自动换新迁移，ADR-014）；
-   * devices 的 idField 为 name（官方 grouped 规格），保持 string，不参与迁移 */
+  /** [ADR-018] id 为 number 的集合（diary/friends）：max+1 生成 + 载入时
+   * 自动换新迁移（ADR-014）；projects/skills/timeline 为 string 名称串、
+   * anime 无 id（title 定位）、devices idField 为 name——均 false */
   numericId: boolean;
+  /** [ADR-018] 字符串 id 集合 POST 留空时的 slugify 来源字段 */
+  slugSource?: 'title' | 'name';
   imageDir?: string;
   public: boolean;
 }
@@ -58,7 +64,8 @@ export const REGISTRY: CollectionDef[] = [
     varName: 'projectsData',
     shape: 'array',
     idField: 'id',
-    numericId: true,
+    numericId: false,
+    slugSource: 'title',
     public: true,
     itemSchema: ProjectsItemSchema,
   },
@@ -68,7 +75,8 @@ export const REGISTRY: CollectionDef[] = [
     varName: 'timelineData',
     shape: 'array',
     idField: 'id',
-    numericId: true,
+    numericId: false,
+    slugSource: 'title',
     public: true,
     itemSchema: TimelineItemSchema,
   },
@@ -78,7 +86,8 @@ export const REGISTRY: CollectionDef[] = [
     varName: 'skillsData',
     shape: 'array',
     idField: 'id',
-    numericId: true,
+    numericId: false,
+    slugSource: 'name',
     public: true,
     itemSchema: SkillsItemSchema,
   },
