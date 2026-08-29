@@ -44,6 +44,8 @@ const MENU: MenuItem[] = [
   { path: '/backups', title: '备份' },
   { path: '/console', title: '构建预览' },
   { path: '/settings', title: '设置' },
+  // [Phase3-C7] 站点配置受控子集（ADR-020）
+  { path: '/site-config', title: '站点配置' },
 ];
 
 /** 可见菜单：mode 未知（fail-open）时全量显示（R2-5） */

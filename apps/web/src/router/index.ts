@@ -28,6 +28,7 @@ import AlbumDetailPage from '../views/albums/AlbumDetailPage.vue';
 import BackupsPage from '../views/backups/BackupsPage.vue';
 import ConsolePage from '../views/process/ConsolePage.vue';
 import SettingsPage from '../views/settings/SettingsPage.vue';
+import SiteConfigPage from '../views/settings/SiteConfigPage.vue';
 
 const routes: RouteRecordRaw[] = [
   { path: '/login', name: 'login', component: LoginView, meta: { public: true } },
@@ -55,6 +56,8 @@ const routes: RouteRecordRaw[] = [
       { path: 'backups', component: BackupsPage, meta: { title: '备份' } },
       { path: 'console', component: ConsolePage, meta: { title: '构建预览' } },
       { path: 'settings', component: SettingsPage, meta: { title: '设置' } },
+      // [Phase3-C7] 站点配置受控子集（lang + commentConfig，ADR-020）
+      { path: 'site-config', component: SiteConfigPage, meta: { title: '站点配置' } },
     ],
   },
   { path: '/:pathMatch(.*)*', redirect: '/' },

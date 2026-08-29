@@ -32,6 +32,8 @@ const props = defineProps<{
   loading?: boolean;
   /** 后端返回的字段错误（detail.issues 映射后） */
   serverErrors?: Record<string, string>;
+  /** [Phase3-C7] 页面级标签覆盖（键名 → 显示文案），透传 describeSchema */
+  labels?: Record<string, string>;
 }>();
 
 const emit = defineEmits<{
@@ -40,7 +42,7 @@ const emit = defineEmits<{
   (e: 'cancel'): void;
 }>();
 
-const descriptors = computed<FieldDescriptor[]>(() => describeSchema(props.schema));
+const descriptors = computed<FieldDescriptor[]>(() => describeSchema(props.schema, props.labels));
 
 /** 本地校验错误（schema.parse 在浏览器端跑一次） */
 const localErrors = ref<Record<string, string>>({});

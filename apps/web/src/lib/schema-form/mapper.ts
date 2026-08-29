@@ -142,9 +142,9 @@ function isUrlField(key: string): boolean {
   );
 }
 
-/** 字段名 → 显示标签（覆盖表优先，否则原样返回） */
-function labelFor(key: string): string {
-  return LABEL_OVERRIDES[key] ?? key;
+/** 字段名 → 显示标签（页面级覆盖优先，其次全局覆盖表，否则原样返回） */
+function labelFor(key: string, labels?: Record<string, string>): string {
+  return labels?.[key] ?? LABEL_OVERRIDES[key] ?? key;
 }
 
 /** 取 ZodType 的构造器名（zod v4 无公开 typeName()，用 constructor.name 兜底） */
@@ -184,10 +184,10 @@ function unwrapOptional(t: ZodType): { inner: ZodType; required: boolean } {
   return { inner, required };
 }
 
-/** 单字段 → FieldDescriptor（递归处理嵌套 object） */
-function describeField(key: string, raw: ZodType): FieldDescriptor {
+/** 单字段 → FieldDescriptor（递归处理嵌套 object；labels 为 [Phase3-C7] 页面级标签覆盖） */
+function describeField(key: string, raw: ZodType, labels?: Record<string, string>): FieldDescriptor {
   const { inner, required } = unwrapOptional(raw);
-  const label = labelFor(key);
+  const label = labelFor(key, labels);
   const kind = typeName(inner);
   const description = descriptionOf(raw, inner);
 
@@ -195,7 +195,7 @@ function describeField(key: string, raw: ZodType): FieldDescriptor {
   if (kind === 'ZodObject') {
     const childShape = (inner as ZodObject<Record<string, ZodType>>).shape;
     const children = Object.entries(childShape).map(([childKey, childType]) =>
-      describeField(childKey, childType),
+      describeField(childKey, childType, labels),
     );
     return { key, label, widget: 'group', required, children, description };
   }
@@ -264,11 +264,16 @@ function describeField(key: string, raw: ZodType): FieldDescriptor {
  * [B2/裁决 9 + C2b/ADR-018] 顶层 id 字段标记 readOnly（新增留空自动生成、
  * 编辑不可改）——number id（diary/friends）与 string id（projects/skills/
  * timeline）一并覆盖。
+ * [Phase3-C7] labels：页面级标签覆盖（键名 → 显示文案，任意深度生效），
+ * 不污染六类共用的全局 LABEL_OVERRIDES；缺省 undefined 行为零变化。
  */
-export function describeSchema(schema: ZodObject<Record<string, ZodType>>): FieldDescriptor[] {
+export function describeSchema(
+  schema: ZodObject<Record<string, ZodType>>,
+  labels?: Record<string, string>,
+): FieldDescriptor[] {
   const shape = schema.shape;
   return Object.entries(shape).map(([key, type]) => {
-    const fd = describeField(key, type);
+    const fd = describeField(key, type, labels);
     return key === 'id' ? { ...fd, readOnly: true } : fd;
   });
 }
