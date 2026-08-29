@@ -50,3 +50,5 @@ getAnimeList 必须位于 localAnimeList **之后**（引擎 golden 字节保持
 - anime 第七集合入 registry → `/public/collections/:type` 白名单自动含 anime（路径与形状不变，公开 API 冻结遵守）；
 - C7 config.ts 域边界：anime.mode/bangumi/bilibili 配置管理归 C7，本批不碰；
 - 面板 SchemaForm：id 字段只读（创建留空提示自动生成）、timeline links 对象数组 JSON 文本框兜底、anime 月份精度日期控件（YYYY-MM）。
+
+> columns 上界 6 为 Server 防呆上限（C2a 规格），官方仅『默认 3』无上界——非官方口径。

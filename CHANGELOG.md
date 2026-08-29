@@ -1,5 +1,14 @@
 # 变更日志
 
+## Phase3-C3 — 包管理器确定性解析链（R2-16，ADR-011 落地，C-Plus 连续执行）
+
+- **T2 解析器**：`apps/server/src/modules/process/pm-resolver.ts`（`PackageManagerResolver`）四层链——① 层①显式配置（注入映射 > env `MIZUKI_PM_<NAME>_PATH`，resolve 期活读不做启动快照；已配置且探活失败**快速失败不降级**，错误含变量名与「不会自动降级」指引）；② lockfile 探测复用 P9 既有 `detectPackageManager`（`resolveProjectSpawnPlan` 编排，零重写）；③ 真实二进制定位：node_modules/.bin 优先 → `System32\where.exe` / `/usr/bin/which`（系统二进制绝对路径，搜索范围经子进程 PATH env 可注入）全候选逐个探活，探活与任务 spawn 完全同一执行计划（probe=spawn 一致性，C2a bmp 教训），判据 exit 0、5s 超时可注入、失败跳下一候选；`.cmd/.bat` **垫片穿透**（取末条引号内 `.cjs/.mjs/.js` 路径，`%~dp0/%dp0%` 还原后 resolve → `process.execPath + 入口` 直跑，ADR-011 决策③）；④ 全失败 → 四层尝试摘要 + 配置指引 BadRequestException。全程 shell:false；记忆化键 = name+层①env+生效PATH+注入映射+projectRoot，探活失败不缓存
+- **T3/T4 接线**：`startTask` async 化——解析链取 SpawnPlan（file+args 前缀）后按既有 taskArgs 固定参数 spawn；解析产物（planFile/planArgsPrefix/planSource）进任务日志（ADR-011 command_snapshot 语义的内存日志承载，P9 无 task_run 表，零表结构变更）；白名单四任务、SSE、env 透传、tree-kill 语义零变化
+- **T5 测试**：单测 `pm-resolver.spec.ts` 7 用例（①显式优先/①b env 活读/②快速失败/③假 shim 跳过/④全失败摘要/④'探活超时/⑤层②集成）；e2e `p9b-pm-resolver.e2e-spec.ts` 2 用例（⑥真实 PATH build 任务 exit 0 + 解析产物取证；⑦显式假 shim → 400 含指引）；夹具 `test/fixtures/pm-resolver/`（win cmd-shim 四形态 + posix sh 三形态 + 零依赖 entries，双形态按平台分支）
+- **T6/T7**：ADR-011 追加「C3 落地」节（提示词冲突裁定 + 对照表 + 实施备注回填 + 实测证据）、ADR-018 追加 columns 上界口径一行、anime.md 快照头部 status 枚举更正、REQUIREMENTS-PHASE2 R2-16 与 PHASE3 §1.3/§1.7 落地注记、台账
+- **偏差记录**：提示词层③「策略 A（cmd.exe argv 包装）」与 ADR-011 决策③（垫片穿透）冲突，按 §0 铁律以 ADR-011 为准——策略 A 弃用（实测可行仅留档）；受影响基线修复 1 条：p9 §6.2 `startTask` 同步 toThrow 断言改 `rejects.toThrow`（解析链引入异步，语义不变）
+- **验收**：test 333 → **342**（+9，≥340 下限达成）、build 0、lint 0/0；纪律：零新增依赖（where.exe/which 为系统二进制）、零 any/as any/@ts-ignore、零表结构变更、P9 白名单与 SSE 语义不变
+
 ## Phase3-C2b — 集合字段面对齐官方 + id 类型修正 + anime 第七集合（C-Plus 连续执行）
 
 - **T1/T2 字段面与 id 修正（ADR-018）**：projects/skills/timeline/devices 四 schema 按官方五页 verbatim 逐字对齐——id 修正为字符串名称串（registry `numericId:false`，修正 B2 裁决 9 的 number id 过度覆盖）、必填面收紧、category/status/level/type 枚举化、YYYY-MM-DD 日期正则、`.strict()` 未知字段拒绝（devices 收敛恰 5 必填）；载入触发的值域迁移（`migrateLegacyValues`，ADR-014 机器扩展）：zod parse 之前原始值层、幂等（官方值直通）、文件锁+temp+rename+pre_write 原子写回、磁盘字节仅变迁移目标；非法枚举值不迁移（交由校验拒绝，禁自创映射）；skills.projects[] 引用与 projects id 同批 String 化

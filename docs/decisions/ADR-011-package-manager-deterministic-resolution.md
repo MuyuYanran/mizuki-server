@@ -53,3 +53,33 @@ ProcessManagerService 在 spawn 前增加「确定性解析」步骤：
 
 ## 实施备注
 （待实施者回填：实际提取逻辑要点 / 观测到的最终命令示例 / 失败文案定稿）
+
+## C3 落地（2026-08-29）
+
+**提示词冲突裁定**：批次提示词层③提出「策略 A（cmd.exe argv 数组包装）」并禁止解析垫片；
+与本 ADR 决策③（垫片文本解析提取 js 入口直跑）冲突 → 按铁律**以本 ADR 为准**，
+垫片穿透落地，策略 A 弃用（其技术可行性已实测确认：`cmd.exe ['/d','/s','/c',<path>]`
+argv 包装 exit 0，仅留档不作实现）。
+
+**对照表（提示词 vs 本 ADR）**：层①显式配置（`MIZUKI_PM_<NAME>_PATH` 活读 + 注入映射，
+探活失败快速失败不降级）与探活机器（exit 0 / 5s 超时 / probe=spawn 同计划）为本 ADR
+空白处的提示词补充（无冲突，保留）；层② lockfile 探测复用 P9 既有
+`detectPackageManager`；层③候选序 = 本 ADR 决策②（node_modules/.bin 优先 →
+where.exe/which -a 全候选）；层④报错文案 = 决策④。
+
+**实现位置**：`apps/server/src/modules/process/pm-resolver.ts`（`PackageManagerResolver`）；
+接线于 `process-manager.service.ts` `startTask`（解析产物进任务日志 plan* 字段，本 ADR
+command_snapshot 语义的内存日志承载——P9 无 task_run 表，零表结构变更）。
+
+**实施备注回填**：提取逻辑 = 取垫片文本最后一条被引号包裹、以 `.cjs/.mjs/.js` 结尾的路径，
+`%~dp0/%dp0%` 还原为垫片所在目录后 `path.resolve`（npm cmd-shim 生成格式中入口恒在末行
+CALL 语句）；不执行垫片本体，入口存在性由探活验证（dlx 悬空垫片即被跳过）。探活/执行
+环境 = 受控透传（PATH/HOME/APPDATA）+ Windows 补默认 `PATHEXT`；定位器用系统二进制绝对
+路径（`System32\where.exe` / `/usr/bin/which`），搜索范围经子进程 PATH env 承载（可注入）。
+记忆化：缓存键 = name + 层① env 值 + 生效 PATH + 注入映射 + projectRoot（任一变更失配
+重解析），探活失败不缓存。失败文案定稿见 pm-resolver 层①/层④模板（层①含变量名与
+「不会自动降级」语义；层④含四层尝试摘要 + 配置指引 + `where <name>` 自检提示）。
+
+**实测证据（宿主机，Node v25.2.1 / Windows）**：直接 spawn .cmd（shell:false）→ EINVAL
+（CVE-2024-27980 后语义，垫片穿透由此成为必选路径）；p9b e2e ⑥ 真实解析 build 任务：
+planFile `D:\...\node-v25.2.1\npm`、planSource `where`、任务自然退出 exitCode=0。

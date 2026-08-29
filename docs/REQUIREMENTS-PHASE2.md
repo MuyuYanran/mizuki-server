@@ -156,6 +156,9 @@ SchemaForm 对必填字段渲染问号图标 el-tooltip，悬停显示解释、�
   e2e `p5b-description-required`；读取/列表/sync/盘上存量不校验。其余八项裁决 B2 已落地。
 - 【状态（三期 C0 批注）】**R2-16 由三期 C3 认领**（包管理器确定性解析，四层解析链方案
   见 REQUIREMENTS-PHASE3 §1 决议 3；C3 批先核对 ADR-011 原文，冲突以 ADR-011 为准）。
+- 【状态（三期 C3 落地批注）】**R2-16 已由 C3 落地**（2026-08-29，ADR-011「C3 落地」节 +
+  `pm-resolver.ts` + p9b e2e；垫片穿透按本文件规格实施，提示词策略 A 与本规格冲突经铁律
+  裁定弃用；详见 CHANGELOG Phase3-C3 节）。
 
 ## R2-18 评论功能（三期 C0 关闭）
 - 原规划：`GET/POST /public/comments/...`（comment 表 P0b 已建，P8 冻结表 ⏳）。

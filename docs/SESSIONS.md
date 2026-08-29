@@ -2057,3 +2057,93 @@ timeline links（ZodArray<ZodObject>）**采用 JSON 文本框兜底**（记报�
 - `feat(Phase3-C2b): anime 第七集合（title 定位、canonical 文件形状）`
 - `test(Phase3-C2b): p4c/p4d 对齐 e2e 与受影响基线修复`
 - `docs(Phase3-C2b): ADR-018、ADR-004 修订与台账`
+
+## Phase3-C3 交付报告 — 包管理器确定性解析链（R2-16，ADR-011 落地，C-Plus 连续执行）
+
+### 1. 任务清单
+
+| 任务 | 内容 | 状态 |
+|---|---|---|
+| §1 前置检查 | HEAD=b77ad91 docs(Phase3-C2b)、工作树仅授权 untracked、在位文件五项、基线三连全绿（333/333、build 0、lint 0/0） | ✓ |
+| T1 | ADR-011 全文对照 + 现状侦查（结果表见 §2/§3） | ✓ |
+| T2 | `pm-resolver.ts` 四层链 + 记忆化 | ✓ |
+| T3 | 层① config 面（env 活读，入缓存键） | ✓ |
+| T4 | `startTask` 接线（SpawnPlan 取代裸名 spawn） | ✓ |
+| T5 | 单测 7 + e2e 2 + 夹具 pm-resolver | ✓ |
+| T6 | 注记三件（anime.md 更正 / ADR-018 columns / ADR-011 C3 落地节） | ✓ |
+| T7 | 台账五处（REQUIREMENTS×2 / §1.7 流程候选 / CHANGELOG / 本报告） | ✓ |
+
+### 2. T1 对照表（ADR-011 vs 提示词，铁律：冲突以 ADR-011 为准）
+
+| 点 | ADR-011 | 提示词 | 裁定 |
+|---|---|---|---|
+| 层② lockfile 探测 | 决策① | 复用 P9 既有 | 一致 |
+| 候选定位 | 决策② node_modules/.bin 优先 → where/which 兜底 | 层③ where/which 全候选逐个探活 | 合并：候选序按 ADR-011，全候选+探活按提示词 |
+| **.cmd 处置** | **决策③ 垫片文本解析 → node+js 入口直跑** | **策略 A cmd.exe argv 包装，禁止解析垫片** | **冲突 → 以 ADR-011 为准**：垫片穿透落地，策略 A 弃用（偏差记录） |
+| 探活机器 | 空白 | exit 0 / 5s 超时 / probe=spawn 同计划 | 保留提示词（补 ADR 空白） |
+| 层① 显式配置 | 空白 | MIZUKI_PM_* 活读 + 快速失败 | 保留提示词（补 ADR 空白） |
+| 层④ 报错 | 决策④ 人类可读诊断 | 四层摘要 + 指引 | 一致（合并文案） |
+| shell:false | 决策理由 | 全程 | 一致 |
+| 白名单/SSE | 影响节不变 | 不变 | 一致 |
+
+**现状侦查结果表**：a) 现有 spawn = cross-spawn(裸名, args, {shell:false, env 透传 PATH/HOME/APPDATA, cwd=mizukiRoot})——cross-spawn 内部对 .cmd 自动 cmd.exe 包装（故未踩 EINVAL），垫片悬空时表现为「不是内部或外部命令」；白名单校验点 = controller ZodValidationPipe(StartTaskBodySchema)。b) node v25.2.1。c) EINVAL 实测：直接 spawn .cmd（shell:false）→ EINVAL ✓（预期确认）；cmd.exe ['/d','/s','/c'] argv 包装 → exit 0（策略 A 可行性留档，不作实现）。d) 既有真实 spawn 测试 = p9 e2e（mini-project npm 四任务）+ process-manager.spec 纯函数（不 spawn）。
+
+### 3. 实现要点（T2/T3/T4）
+
+- **层①**：注入映射 > env `MIZUKI_PM_<NAME>_PATH`（resolve 期活读，P11 坑 5）；已配置且探活失败 → BadRequestException 含变量名与「不会自动降级」指引，不落层②③④。
+- **层③**：候选 = node_modules/.bin（name/.cmd/.bat/.exe）→ 定位器全候选；定位器用**系统二进制绝对路径**（`%SystemRoot%\System32\where.exe` / `/usr/bin/which`），搜索范围经子进程 PATH env 承载（注入即测试替身，win 补默认 PATHEXT）；探活与任务 spawn 完全同一执行计划（cross-spawn, shell:false, ['--version']），exit 0 通过，超时（默认 5s，可注入）kill，失败跳下一候选。
+- **垫片穿透（ADR-011 决策③）**：取垫片文本**末条**引号内 `.cjs/.mjs/.js` 路径，`%~dp0/%dp0%` 还原为垫片目录后 path.resolve → `process.execPath + 入口`；不执行垫片本体；入口存在性由探活验证（dlx 悬空垫片即被跳过）；解析失败 → 跳过该候选记入摘要。
+- **层④**：四层尝试摘要（层①状态 + 逐候选明细含退出码/超时/spawn 错误码）+ 配置指引 + `where <name>` 自检提示。
+- **记忆化**（两案选其一的记录）：**缓存键方案**——键 = name + 层① env 值 + 生效 PATH + 注入映射 + projectRoot（任一变更失配重解析；层① env 值入键是防「先成功后改 env 仍命中旧缓存」），探活失败不缓存（异常路径不写 memo）。
+- **T4**：`startTask` async 化，`spawn(plan.file, [...plan.argsPrefix, ...taskArgs], buildSpawnOptions(cwd))`；解析产物（planFile/planArgsPrefix/planSource）进任务日志 = ADR-011 command_snapshot 语义的内存日志承载（P9 无 task_run 表，零表结构变更）；白名单/SSE/env 透传/tree-kill 零变化。
+
+### 4. T5 数账（333 → 342，+9）与基线修复
+
+| 文件 | 增量 | 内容 |
+|---|---|---|
+| `test/modules/process/pm-resolver.spec.ts` | +7（新文件） | ① 显式路径优先/①b env 活读（P11 坑 5 锚）/② 快速失败不降级/③ 假 shim 跳过→下一候选/④ 全失败摘要/④' 探活超时/⑤ 层②集成 pnpm-lock.yaml |
+| `test/p9b-pm-resolver.e2e-spec.ts` | +2（新文件） | ⑥ 真实 PATH build 任务 exit 0 + 解析产物取证；⑦ 显式假 shim → 400 含 MIZUKI_PM_NPM_PATH 指引 |
+| `test/p9-process.e2e-spec.ts` | 0（断言改写） | **基线修复 1 条（逐条记录，禁静默）**：§6.2 `expect(() => startTask('dev')).toThrow()` → `await expect(...).rejects.toThrow()`——解析链引入异步，语义不变（停机后拒绝新任务） |
+| 合计 | **+9** | 333 → 342（≥340 下限达成） |
+
+测试纪律：单测一律注入 pathEnv 指向 test/fixtures/pm-resolver/，不改测试进程真实 PATH；每用例新建 resolver 实例 + 缓存键含 pathEnv/映射（双保险）。
+
+### 5. fixture 清单（test/fixtures/pm-resolver/，本批唯一授权新建）
+
+- `entries/`：good-entry.cjs（exit 0）/ exit3-entry.cjs（exit 3）/ hang-entry.cjs（60s 挂起）——零依赖，探活成功候选用真实 node 执行。
+- `win/`（cmd-shim 真实生成格式）：good/pnpm.cmd、exit3/pnpm.cmd、dangling/pnpm.cmd（指向不存在 missing-entry.cjs，复现 dlx 悬空场景）、hang/pnpm.cmd。
+- `posix/`：good/pnpm、exit3/pnpm、hang/pnpm（sh + shebang；执行位由 spec 运行期 chmod 补齐，不依赖 git 携带位）。
+- 双形态按 `process.platform` 分支，测试互不影响。
+
+### 6. 策略 A 最终形态与缓存键选择（§5 报告义务）
+
+- **策略 A 最终形态：弃用**。实测其技术可行（`cmd.exe ['/d','/s','/c', <path>]` argv 包装 exit 0，EINVAL 复现确认 Node v25.2.1 语义），但与 ADR-011 决策③冲突，按铁律以 ADR-011 垫片穿透为准；死锁停止协议未触发（ADR-011 本身即更优解，无需架构师再裁决）。
+- **缓存键选择：缓存键方案**（非每用例新建）。键 = name + 层① env 值 + 生效 PATH + 注入映射 + projectRoot；探活失败不缓存。生产侧 ProcessManagerService 持单例（任务启动免重复探活），测试侧每用例新建实例叠加双保险。
+
+### 7. 偏差与疑问
+
+1. **偏差（提示词层③）**：策略 A 弃用、垫片穿透落地——铁律裁定，已记 ADR-011「C3 落地」节与本报告 §2。
+2. **偏差（基线修复 1 条）**：p9 §6.2 同步断言改 rejects（§4 逐条记录）。
+3. **command_snapshot 落点偏差**：ADR-011 原文写「task_run.command_snapshot 表字段沿用」，P9 实际无 task_run 表（任务内存态）——按「零表结构变更」纪律以任务日志 plan* 字段承载同语义，记 ADR-011 实施备注；若三期收官要持久化可再裁决。
+4. **疑问**：`where npm` 在本机返回无扩展名 `npm`（sh 脚本）在前、`npm.cmd` 在后——无扩展名候选探活失败后跳至 .cmd 候选，链路正确但每次任务启动多一次失败探活（约 <100ms）；若要消除可按 PATHEXT 优先序重排候选，属优化候选不阻塞。
+5. 范围外发现：无新增（collections/albums/posts/articles、公开 API、/site-assets、VditorEditor、TipTap 零触碰）。
+
+### 8. 手动走查清单（人工核验项；console 任务集 = install/dev/build/preview 四项）
+
+| # | 项目 | 操作 | 预期 |
+|---|---|---|---|
+| 1 | install（npm） | 面板启动 mini-project install 任务 | 201 running，日志 plan* 字段为解析产物，任务正常完成 |
+| 2 | dev/build/preview | 同上逐项启动并停止 | 与 1 同口径；SSE 日志流与停止语义不变 |
+| 3 | 显式路径正配 | 设 `MIZUKI_PM_PNPM_PATH` 指向真实 pnpm 可执行体后启动 pnpm 项目任务 | 探活通过直接采用（日志 planSource=explicit-env） |
+| 4 | 显式路径错配 | 设 `MIZUKI_PM_PNPM_PATH` 指向不存在路径 → 启动任务 | 400，错误含变量名与「不会自动降级」指引（不静默绕过） |
+| 5 | pnpm 多版本机器 | 存在悬空 dlx 垫片的环境启动 pnpm 任务 | 悬空候选被探活跳过，日志摘要可见逐候选明细 |
+| 6 | POSIX 抽查（如有 Linux/macOS 环境） | 启动 npm 任务 | which -a 候选链路出真值（本批 POSIX 分支仅单测逻辑覆盖，无真机验证——记走查项） |
+
+### 9. 工作树终态与 commit 记录
+
+- 未跟踪合规文件：`docs/HANDOFF-ARCHITECT.md`（授权保留不动）；`.tmpvitest/` 已入 .gitignore。
+- 提交 3 个：
+- `feat(Phase3-C3): 包管理器确定性解析链（R2-16，ADR-011 落地）`
+- `test(Phase3-C3): 解析链单测与 e2e（夹具 pm-resolver）`
+- `docs(Phase3-C3): ADR-011 落地注记、快照更正与台账`
+- 终态三连：test **342/342**、build 0、lint 0/0（全部 commit 前最后代码态全量验证）。

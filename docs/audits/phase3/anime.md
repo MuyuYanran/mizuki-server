@@ -1,5 +1,8 @@
 # 官方文档快照：番剧页（anime）
 
+> 更正：本规划级快照 status 枚举记录有误（wish|doing|done），官方原文为
+> watching|completed|planned，以 C2b 裁决级供料/ADR-018 为准（架构师 2026-08-29 已验官方 §4.1 verbatim）。
+
 - 来源 URL：`https://docs.mizuki.mysqil.com/special/anime/`
 - 规划级快照：架构师 2026-08-28 取证的要点转述；该页面被选定落地时须重新抓取原文升级为裁决级快照。
 
