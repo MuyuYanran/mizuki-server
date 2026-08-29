@@ -53,6 +53,7 @@ pnpm-debug.log*
 apps/server/data/*
 !apps/server/data/README.md
 !apps/server/data/backups/
+apps/server/data/backups/*
 !apps/server/data/backups/.gitkeep
 
 # ── OS / Editor ──
