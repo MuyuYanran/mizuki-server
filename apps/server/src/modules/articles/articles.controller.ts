@@ -12,7 +12,6 @@
  * 分页参数：?page=&limit=（默认 1/10；limit 上限 50，超限 400）。
  */
 import {
-  BadRequestException,
   Body,
   Controller,
   Delete,

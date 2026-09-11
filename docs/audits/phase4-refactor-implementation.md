@@ -61,6 +61,14 @@
 B2 的 409 分支与新单源模块（`atomic-write`/`url-path`/`zod-issues`）尚无直接单测，
 列为后续批次建议（见 §6）。
 
+> **勘误注记（D4h 台账补记，2026-09-11）**：上文「未新增测试」与 §4.3「59 个新增
+> 单测全绿」自相矛盾（D4g G2.2 定性）。该 59 例系恢复提交 1fb04b0 携带的 **Wave-2
+> 补测**（六 common spec：atomic-write / mizuki-root / article-row / url-path /
+> segment-name / zod-issues），原仓 SESSIONS 报告随仓库丢失、无独立批次申报。
+> 对象全部为 Wave1-4 重构授权单源模块，与 §6 补测建议同向——现经 D4g 溯源 +
+> D4h 授权**追认为在册交付物**；本节「未新增测试」表述以本注记为准作废，
+> 台账载体见 SESSIONS「Phase4-D1/D2/D3/E3a 台账重建」节末段。
+
 ---
 
 ## 4. 验证记录

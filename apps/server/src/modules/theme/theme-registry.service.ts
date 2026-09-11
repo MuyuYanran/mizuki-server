@@ -20,7 +20,7 @@
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { ConflictException, Injectable } from '@nestjs/common';
 import {
   CommentConfigSchema,
   type DeclarationProbeSpec,
@@ -31,11 +31,7 @@ import {
   type ThemeStatusView,
 } from '@mizuki/shared';
 import {
-  type AsExpression,
   Node,
-  type ParenthesizedExpression,
-  type SatisfiesExpression,
-  SyntaxKind,
   type SourceFile,
 } from 'ts-morph';
 import { z } from 'zod';

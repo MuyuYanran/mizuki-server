@@ -248,6 +248,15 @@ async function onSave(): Promise<void> {
     ElMessage.warning('标题为必填');
     return;
   }
+  // [Phase5-E1b/T1] 新建 slug 必填拦截：对齐 CreatePostBodySchema.PostSlugSchema
+  // （min(1) 单段名，issues 铁证：空 slug 直发 → 400「Too small: expected string to
+  // have >=1 characters」+「slug 不得包含路径分隔符」双重拒绝）。B3（491aeff）引入
+  // 面板起即缺此拦截；富文本面板（slug || undefined + schema .optional + 服务端
+  // 自动生成）无此问题，posts 的 slug 为文件系统主键、无自动生成机制，故取必填拦截。
+  if (!isEdit.value && newSlug.value.trim() === '') {
+    ElMessage.warning('slug 为必填');
+    return;
+  }
   // [Phase4-D4/S5] 原 description 必填拦截已拆除（描述可选，supersede B2.1/裁决 8；
   // 空串为合法存储值，p5b ② 锚钉版）
   saving.value = true;
@@ -422,6 +431,9 @@ function formatValue(value: unknown): string {
       <div class="content-area">
         <div v-if="!isEdit" class="slug-input">
           <el-input v-model="newSlug" placeholder="slug（目录名 / 文件名）" />
+          <!-- [Phase5-E1b/T1] slug 字段级错误展示（对齐 title 既有模式：
+               handleError 已把 issues path=slug 透传 serverErrors，此处补展示位） -->
+          <div v-if="serverErrors['slug']" class="field-error">{{ serverErrors['slug'] }}</div>
           <!-- [D4f/F2] 创建形态切换：'dir' 缺省（目录式 slug/index.md）| 'file'（单文件
                posts/slug.md；封面走 image 字段，图片请用 /images 公共路径） -->
           <el-radio-group v-model="newForm" size="small" class="form-switch">

@@ -11,7 +11,7 @@
 ├── apps/
 │   ├── server/          # NestJS 后端（API + 静态面板托管，默认端口 20154）
 │   │   ├── bin/mizuki-server   # 生产启动脚本（加载 dist/main.js）
-│   │   └── test/               # 单元 + e2e 测试（250 用例）
+│   │   └── test/               # 单元 + e2e 测试（490 用例）
 │   └── web/             # 管理面板（Vue 3 + Element Plus）
 ├── packages/
 │   └── shared/          # 前后端共享 zod schema / 事件契约
@@ -34,7 +34,7 @@
 pnpm install      # 安装全部依赖（Node ≥ 22 LTS / pnpm ≥ 9）
 pnpm dev          # 启动后端开发服务（端口 20154，watch 模式）
 pnpm build        # 构建全部工作区（server dist + web dist + shared）
-pnpm test         # 后端全量测试（单元 + e2e，250 用例）
+pnpm test         # 后端全量测试（单元 + e2e，490 用例）
 pnpm lint         # 代码风格 + 分层边界检查
 ```
 

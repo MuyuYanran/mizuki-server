@@ -2659,6 +2659,36 @@ Q3/Q4/Q5 判据覆盖）。处置建议：无需处置；本核查全程 SELECT 
 
 ---
 
+# Phase4-D1/D2/D3/E3a 台账重建 — 失传批次补记（2026-09-11，D4h 授权）
+
+> [性质] **台账重建，非当期交付报告**：四批次交付物经恢复提交 `1fb04b0` 入库（106 文件
+> 之一部），原仓 SESSIONS 报告随仓库丢失（D4g G1.3 溯源定性：代码内批次标签 /
+> ADR-023/024 引用完备，质量形态与本仓纪律一致）。本条目据 D4g 侦查报告 +
+> in-code 标签重建，架构师 D4h 授权补记追认。
+> [归属实证] 媒体选择器归属按 E0 实证写实 = **D2**（MediaPicker.vue 头注
+> `[Phase4-D2/ADR-022]` + d4g G1.3 表 + E1 批复用事实三证一致）。
+> [证据链] `docs/audits/phase4-d4/d4g-recovery-audit.md` G1.3（文件级归属表）/
+> G2.1（测试增量逐文件表）。
+
+| 批次 | 交付物（文件） | 用途（据 in-code 标签与 ADR） | 测试锚 |
+|---|---|---|---|
+| Phase4-D1 | VditorEditor.vue（与 D2 共享改）；p4d1-editor-wrap.e2e-spec.ts | 编辑器包装层（转义注入面 + B3.5 自托管同步义务） | p4d1 +2 |
+| Phase4-D2 | MediaPicker.vue、lib/media-ref.ts（A）；lib/image-src.ts、CodeMirrorEditor.vue、AboutEditPage.vue、CollectionListPage.vue、albums.service.ts（M 接线）；p4d2-media.e2e-spec.ts；diary.ts describe 1 行文案（随批追认，零行为影响） | 统一选图器（媒体库/相册/外链三通道，ADR-022）+ 引用形态中心（幂等语义）——Phase5-E1 的 MediaPicker 复用即此件 | p4d2 +6 |
+| Phase4-D3 | shared/nav-config.ts（A）；site-config.controller.ts、api/config.ts、RichArticleListPage.vue、shared/site-config.ts、theme.css（M 接线）；p4d3-nav.e2e-spec.ts | 导航受控子集管理（ADR-020 追加节、ADR-023 token 映射） | p4d3 +6 |
+| Phase4-E3a | theme-registry.service.ts、theme.controller.ts、theme.module.ts、shared/theme-profile.ts（A）；app.module.ts、site-config.module.ts（M 接线）；p4e3a-theme-lock.e2e-spec.ts | theme-lock 机制（ADR-024：Registry + Theme Profile + Tier 1 档案；漂移轴 + 探针轴正交） | p4e3a +14（含 [Phase4-D4/配套2] 锚 ⑭ 1 例） |
+
+**Wave-2 补测追认（同批补记）**：六 common spec（atomic-write +7 / mizuki-root +10 /
+article-row +10 / url-path +19 / segment-name +6 / zod-issues +7，共 **59 例**）——
+对象全部为 Wave1-4 重构授权单源模块（原子写 / 路径监狱 / zod 400 形状等安全关键面）；
+原仓「未新增测试」表述与 refactor-implementation §4.3 自相矛盾，勘误注记已在该文档
+§3 追加（本节即 D4g G4-② 补授权动作的 SESSIONS 侧载体）。
+
+**遗留开放项**（不随本补记关闭）：refactor-review 所记 D4e 终态 451 例 vs 本仓恢复结果
+480 例的 **29 例残差**——原仓口径本仓不可再现（恢复提交系合并重建非全量移植），
+留架构师对原仓台账差额核对（D4g G4-⑧）。
+
+---
+
 # Phase4-D4f 交付报告 — file-form 全生命周期补齐（2026-09-11）
 
 > [授权] 架构师微批次授权 2026-09-08（F1~F5 + 验证 + 台账纪律）；基线 HEAD = `fcb06bb`
@@ -2705,6 +2735,10 @@ fixture 副本 + 独立端口 21555 + `.test-tmp/` 运行时，已清理）。
 | `p5e-file-form-lifecycle.e2e-spec.ts` | +4（新增） | F2-① 创建往返（.md 落盘/无影子目录/source=file/索引与事件 .md 实路径投影）；F2-② slug 双向 409（目录占用→file 409、.md 占用→dir 409 与 file 409、缺省 form=dir 锚）；F3-① 删除可恢复（backupIds≥1/盘上消失/404/软删/restore+sync 复位往返）；F4-① 封面 400 + 新文案 + 零副作用 |
 | `p5-posts.e2e-spec.ts` | 0（锚翻写） | C2-②「删除 400 + 零副作用」→「删除 200 + 备份恢复往返」（supersede 翻写，standalone 经 restore 复位故后续 S4 锚原样全绿；26 用例数不变）；B2-③ 封面 400 既有锚原样通过（文案断言移交 p5e F4-①） |
 | 全量 | **+4** | 475 → 479；并行全量 474/479 + 5 条环境性失败（p9 进程管理 spawn 类 + p11 worker 崩溃，Wave-1~4 报告 §4.1-4.3 已归档的既有现象）→ 两文件单独复跑 **13/13 全绿**（非本批引入，据实申报） |
+
+> **勘误（D4g G2.0 定案，D4h 补记）**：本表「475 → 479」基线系当时并行全量跑
+> p11-fresh-chain worker 崩溃丢失 5 例所致（该轮 54 文件实收 479，含崩溃件 0 例）；
+> 权威数账为 **480 → 484**（vitest JSON 复跑 55 文件全通）。据实更正，不改历史提交。
 
 ## §4 验证记录（vue-tsc + 沙箱三连）
 
@@ -2866,4 +2900,81 @@ TipTap v3 setContent 选项对象形沿用 B3.6 记录（watch 同步未触碰�
 ## §commit
 
 - `feat(Phase5-E1): TipTap 位图粘贴/拖拽直传与图片入口接线（A6b 收尾，MediaPicker 复用）`
+
+---
+
+# Phase5-E1b + D4h 合并批交付报告 — 新建 400 契约修复 + 编辑窗口回归 + 清账收尾（2026-09-11）
+
+> [授权] 架构师授权 2026-09-08（D4h 清账 H1~H6 照旧 + E1b 增量申报制，合并批）。
+> [结论] D4h 清账全落地（lint 8→0 / README 数账修正 / 台账重建 / Wave-2 + D4f 勘误——
+> 台账部分已录于上文本批「Phase4-D1/D2/D3/E3a 台账重建」节）；E1b-T1 铁证定因 +
+> 面板侧修复（server schema 零改动）+2 e2e；E1b-T2 溯源定案「B3.6 语义在位，
+> 零代码修改」+ 双宽度截图入档；三连：test 488→**490**（+2）/ build（vue-tsc）0 /
+> **lint 0/0**。
+
+## D4h 清账收尾（H1~H6）
+
+- **H-lint**：8 行未用导入全删（articles.controller / articles.service / site-config.service
+  各 1；theme-registry 5：NotFoundException + 4 个 ts-morph 类型）——G4-⑥⑦ 裁定落地，
+  ESLINT_EXIT=0（本仓首次 lint 0/0，d4ebf43 后回归）。
+- **H-README**：两处「488 用例」→ 随本批 e2e +2 终态 **490**（授权时点 488 + T1 增量）。
+- **H-台账**：D1/D2/D3/E3a 台账重建 + Wave-2 追认 + D4f 数账勘误（480→484 权威口径）
+  已录于本文件「Phase4-D1/D2/D3/E3a 台账重建」节（同批提交）。
+
+## E1b-T1 新建 400（侦查+修复一体，铁证前置）
+
+**复现取证**（Chrome DevTools 实抓，覆盖面先确认）：
+- Markdown 面板（PostEditPage onSave）新建 slug 留空直发：`slug: ''` 空串入体 →
+  POST /admin/posts **400**，`detail.issues` 两条原文：
+  `{"path":"slug","message":"Too small: expected string to have >=1 characters"}`
+  `{"path":"slug","message":"slug 不得包含路径分隔符"}`（singleSegmentName 的 min(1)
+  与 regex `+` 量词对空串双重触发）。
+- 富文本面板（RichArticleEditPage）对照：`slug || undefined` 丢键 + schema `.optional()`
+  + 服务端自动生成 → **201**，无此缺陷——「两个方式」语义实证，非赌。
+
+**溯源定因**：B3（491aeff）引入面板起 PostEditPage 即缺 slug 必填拦截（新建分支
+`slug: newSlug.value` 直发）；CreatePostBodySchema 侧 min(1)+单段名双校验为正确防线。
+posts 的 slug 为文件系统主键（目录/文件名），无 articles 的自动生成机制 →
+**定因：面板缺拦截，schema 行为正确，server 零改动**（纪律遵守：无猜测性修复，
+无 schema 迁就）。
+
+**修复**（`apps/web/src/views/posts/PostEditPage.vue`）：
+- onSave 新建分支 slug 必填拦截（空串 → ElMessage.warning 不发请求）；
+- slug 输入框下补字段级错误展示（handleError 已透传 issues path=slug 至
+  serverErrors，此处补展示位，对齐 title 既有模式）。
+
+**e2e +2**（`apps/server/test/pe1b-create-slug-contract.e2e-spec.ts`，申报制下限内）：
+- T1-① 根因锚：Markdown 面板新建体空 slug（buildFrontmatter 缺省形态逐字复刻）→
+  400 + 两条 slug issues **原文逐字断言**（path+message 与根因逐条对应；path 为点号
+  拼接字符串——zod-issues.spec 前端契约形状）。
+- T1-② 对照锚：富文本新建体省 slug 键 → 201 + slug 自动生成。
+- afterAll 采用仓库既有 Windows 句柄重试清理（p1-security 同款，EPERM 防御）。
+
+## E1b-T2 编辑窗口回归（B3.6 修复项回归）
+
+**溯源**（git log -G "max-width|width:|flex" 五嫌疑文件全历史 + 当前源全扫）：
+- `git log --follow -G "max-width" -- PostEditPage.vue` **为空**——该文件史上从未
+  引入 max-width；width/flex hunk 全部出自 P10 初始（ce32166/9e03f4e）→ B3（491aeff）
+  → B3.6（cb14dc5）血统，恢复后仅 D4f（cf4d4fe）触碰 `flex-shrink: 0`（侧栏防缩，
+  非上限）。
+- 当前源仅有的 width 定值全为**侧栏**（fm-sidebar 320px / meta-sidebar 300px +
+  flex-shrink:0）与控件内联（el-select 100px）；编辑区 `.content-area >
+  .vditor-editor { flex: 1 1 0 }` / `.editor-area { flex: 1; min-width: 0 }`——
+  填充无上限。theme.css 零 width 规则；TipTapEditor 仅 `max-width: 100%`（溢出
+  防御，非视口上限）。
+
+**定案**：无人为限制引入，B3.6 flex 语义在位 → **零代码修改**（授权 C.b 修复项
+以溯源实证收敛为回归确认）。实测：1280 → 编辑区 ~626px、1920 → ~1266px 线性
+填充无上限；双宽度截图入档 `docs/audits/phase5-e1b/pe1b-t2-width-{1280,1920}.png`
+（对照 B3.6 口径 05/06 先例）。
+
+## 数账与三连
+
+- test **488 → 490（+2 = pe1b 契约锚，申报制 1~2 取 2）**，57 文件全绿。
+- build（shared/server/web 含 vue-tsc）exit 0；**lint 0/0**（8 条既有全清）。
+- TipTap 粘贴链（E1 新鲜交付）回归：pe1-richtext-image.e2e-spec.ts 原样全绿，勿伤达成。
+
+## §commit
+
+- `fix(Phase5-E1b): 新建空 slug 400 面板必填拦截与字段级错误展示 + D4h 清账收尾（lint 8→0 / README 490 / 台账重建与勘误 / T2 宽度回归零改动定案）`
 

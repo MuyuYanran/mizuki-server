@@ -14,7 +14,6 @@
  */
 import fs from 'node:fs';
 import {
-  BadRequestException,
   ConflictException,
   Inject,
   Injectable,
