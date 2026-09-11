@@ -11,19 +11,28 @@
  * [Phase4-D4/A6] 图片展示层走 imageSrc（自定义 NodeView，模型 src 保真）：富文本路径
  *   曾是全前端唯一未接入 imageSrc 的图片出口（其余四处消费点见 image-src.ts），
  *   站内相对路径在管理端 origin 下解析 → 404 破图。改法与取舍见 SiteAssetsImage 注释。
+ * [Phase5-E1/A6b] 位图粘贴/拖拽直传（A6 系列收尾）：editorProps 拦截图片文件 →
+ *   POST /admin/media（五件套管线全复用，零旁路）→ 插入 toSiteReference 形态
+ *   （/images/uploads/...）。上传中占位态防重复触发；失败 toast + 不插入。
+ * [Phase5-E1/E0] 工具栏 Img 按钮：原 ElMessageBox.prompt URL 单轨（禁 fill 单轨
+ *   铁律的既存违例）→ D2 已交付的 MediaPicker 弹窗（三通道，查重结论不重复建设）。
  */
-import { computed, watch } from 'vue';
+import { computed, ref, watch } from 'vue';
 import { EditorContent, useEditor } from '@tiptap/vue-3';
 import StarterKit from '@tiptap/starter-kit';
 import Link from '@tiptap/extension-link';
 import Image from '@tiptap/extension-image';
 import { imageSrc } from '../image-src';
+import { toSiteReference } from '../media-ref';
+import { notifyApiError } from '../notify';
+import { mediaApi } from '../../api/media';
+import MediaPicker, { type MediaPickResult } from '../../components/MediaPicker.vue';
 // TipTap v3：extension-table 无默认导出（命名导出），其余 table 子包有默认导出
 import { Table } from '@tiptap/extension-table';
 import TableRow from '@tiptap/extension-table-row';
 import TableHeader from '@tiptap/extension-table-header';
 import TableCell from '@tiptap/extension-table-cell';
-import { ElMessage, ElMessageBox } from 'element-plus';
+import { ElMessageBox } from 'element-plus';
 
 /**
  * [Phase4-D4 / A6 修复] 富文本编辑器内图片展示层拼源（模型零触碰）
@@ -117,9 +126,92 @@ const emit = defineEmits<{
   (e: 'update:modelValue', value: unknown): void;
 }>();
 
+// ── [Phase5-E1/A6b] 位图粘贴/拖拽直传 ──
+
+/** 上传中占位态（防重复触发：进行中时新粘贴/拖入不受理；工具栏 Img 同步 loading） */
+const imageUploading = ref(false);
+
+/** DataTransfer 中的图片文件（剪贴板位图 / 拖入文件；非图片返回空 → 走默认行为） */
+function imageFilesFrom(dataTransfer: DataTransfer | null): File[] {
+  if (dataTransfer === null) {
+    return [];
+  }
+  const files: File[] = [];
+  for (const file of dataTransfer.files) {
+    if (file.type.startsWith('image/')) {
+      files.push(file);
+    }
+  }
+  return files;
+}
+
+/** 逐文件直传（管线全复用 POST /admin/media）：成功 → 插入 /images/uploads URL；失败 → toast + 不插入 */
+async function uploadAndInsertImages(files: File[]): Promise<void> {
+  if (files.length === 0 || imageUploading.value) {
+    return; // 占位态防重复触发
+  }
+  imageUploading.value = true;
+  try {
+    for (const file of files) {
+      try {
+        const media = await mediaApi.upload(file);
+        const src = toSiteReference(media.path); // public/images/uploads/... → /images/uploads/...
+        const alt = file.name.replace(/\.[^.]+$/, '');
+        editor.value?.chain().focus().setImage({ src, alt }).run();
+      } catch (err) {
+        notifyApiError(err, `图片上传失败（${file.name}）`); // 失败 toast + 不插入
+      }
+    }
+  } finally {
+    imageUploading.value = false;
+  }
+}
+
+// ── [Phase5-E1/E0] 媒体选择器（D2 MediaPicker 复用，查重不重复建设） ──
+
+const pickerVisible = ref(false);
+
+function onImagesPicked(results: MediaPickResult[]): void {
+  const ed = editor.value;
+  if (ed === null || ed === undefined || results.length === 0) {
+    return;
+  }
+  const chain = ed.chain().focus();
+  for (const result of results) {
+    const alt = (result.name ?? '').replace(/\.[a-zA-Z0-9]+$/, '');
+    chain.setImage({ src: result.url, alt });
+  }
+  chain.run();
+}
+
 const editor = useEditor({
   content: isTipTapDoc(props.modelValue) ? props.modelValue : '',
   editable: props.editable,
+  editorProps: {
+    // [Phase5-E1/A6b] 图片文件粘贴 → 直传（返回 true 阻止默认插入 base64/无动作）
+    handlePaste: (_view, event) => {
+      const files = imageFilesFrom(event.clipboardData);
+      if (files.length === 0) {
+        return false; // 文本/富文本粘贴走默认
+      }
+      event.preventDefault();
+      void uploadAndInsertImages(files);
+      return true;
+    },
+    // [Phase5-E1/A6b] 外部图片文件拖入 → 直传（moved=true 的内部节点移动走默认）
+    handleDrop: (_view, event, _slice, moved) => {
+      if (moved) {
+        return false;
+      }
+      const files = imageFilesFrom(event.dataTransfer);
+      if (files.length === 0) {
+        return false;
+      }
+      event.preventDefault();
+      void uploadAndInsertImages(files);
+      return true;
+    },
+  },
   extensions: [
     StarterKit,
     Link.configure({ openOnClick: false }),
@@ -221,18 +313,12 @@ async function addLink(): Promise<void> {
   ed.chain().focus().extendMarkRange('link').setLink({ href: url }).run();
 }
 
-async function addImage(): Promise<void> {
-  const ed = editor.value;
-  if (ed === null || ed === undefined) {
-    return;
-  }
-  const result = await ElMessageBox.prompt('输入图片地址', '插入图片', {
-    inputPlaceholder: 'https://... 或 /images/uploads/xxx.jpg',
-  });
-  const src = result.value.trim();
-  if (src !== '') {
-    ed.chain().focus().setImage({ src }).run();
-  }
+/**
+ * [Phase5-E1/E0] 工具栏图片按钮：打开 MediaPicker 弹窗（D2 三通道：媒体库/相册/外链，
+ * 含现场上传）——原 ElMessageBox.prompt URL 单轨已随查重结论拆除（交互面禁单轨铁律）。
+ */
+function openImagePicker(): void {
+  pickerVisible.value = true;
 }
 
 function insertTable(): void {
@@ -269,15 +355,20 @@ function redo(): void {
       </el-button-group>
       <el-button-group size="small">
         <el-button @click="addLink">Link</el-button>
-        <el-button @click="addImage">Img</el-button>
+        <!-- [Phase5-E1] Img → MediaPicker 弹窗（E0 查重：D2 组件复用）；上传中 loading 同步占位态 -->
+        <el-button :loading="imageUploading" @click="openImagePicker">Img</el-button>
         <el-button @click="insertTable" :type="isActive('table') ? 'primary' : 'default'">Table</el-button>
       </el-button-group>
       <el-button-group size="small">
         <el-button @click="undo">Undo</el-button>
         <el-button @click="redo">Redo</el-button>
       </el-button-group>
+      <!-- [Phase5-E1/A6b] 粘贴/拖拽直传占位指示（进行中显示，防重复触发） -->
+      <span v-if="imageUploading" class="upload-hint">图片上传中…</span>
     </div>
     <EditorContent class="tiptap-content" :editor="editor" />
+    <!-- [Phase5-E1/E0] 统一选图器（D2 MediaPicker 复用：媒体库/相册/外链 + 现场上传） -->
+    <MediaPicker v-model="pickerVisible" @picked="onImagesPicked" />
   </div>
 </template>
 
@@ -296,6 +387,13 @@ function redo(): void {
   padding: 8px;
   border-bottom: 1px solid var(--el-border-color);
   background: var(--el-fill-color-light);
+}
+
+/* [Phase5-E1/A6b] 粘贴/拖拽直传占位指示（灰字，随 Element 双主题） */
+.upload-hint {
+  color: var(--el-text-color-secondary);
+  font-size: 12px;
+  align-self: center;
 }
 
 /* 工具栏激活态由 el-button type=primary 提供（Element 双主题自动适配） */

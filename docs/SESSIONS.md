@@ -2808,3 +2808,62 @@ fixture 副本 + 独立端口 21555 + `.test-tmp/` 运行时，已清理）。
 
 - `docs(Phase4-D4g): 数账清查侦查报告与 SESSIONS 台账（恢复提交盘点/107 增量溯源/lint 定性，纯侦查零改动）`
 
+---
+
+# Phase5-E1 交付报告 — 富文本运行时：A6b 位图粘贴直传 + 图片入口接线（2026-09-11）
+
+> [授权] 架构师授权 2026-09-08（E0 查重先行 + E1 A6b 核心 + E2 条件建设 + E3 验证；
+> 前置依赖：D4h 已落地 484 基线）。
+> [结论] E0 查重定案后量级收敛为单文件改动；E1/E2 落地；e2e +4（484→488）；
+> vue-tsc 0 / build 0 / lint 本批零新增（8 条 HEAD 既有 = D4g G3 已定性待裁）；
+> type 真实粘贴路径手验三项全过；截图三张入档 docs/audits/phase5-e/。
+
+## E0 范围查重结论（先行执行，直接决定量级）
+
+1. **媒体选择器已建**：[Phase4-D2] 已交付 `components/MediaPicker.vue`——三通道弹窗
+   （媒体库网格 + ImageUploader 现场上传 / 相册两级 / 外链直填），为 E2 双通道要求
+   （媒体库选已有 / 本地上传直传）的**超集**。→ **不重复建设，不新建
+   MediaPickerDialog.vue**（据实申报：直接复用 D2 组件）。
+2. **剩余缺口 = 接线**：TipTap 工具栏 Img 按钮原为 `ElMessageBox.prompt` URL 单轨
+   （授权点名「交互面禁 fill 单轨」铁律的既存违例）→ 本批改走 MediaPicker 弹窗。
+3. **A6b 缺口确认**：TipTapEditor 无粘贴/拖拽上传 handler（零实现）→ 本批核心。
+4. **E1-c 零特判预证**：`renderTipTapDoc` image case（render.ts）src 经 escapeAttr
+   原样透传，无路径特判 → e2e 锚一次即可。
+
+## 交付物清单（据实，量级 = E0 收敛后）
+
+| 项 | 载体 | 内容 |
+|---|---|---|
+| E1 A6b 粘贴/拖拽直传 | `lib/editors/TipTapEditor.vue` | editorProps.handlePaste/handleDrop 拦截图片文件 → `mediaApi.upload`（POST /admin/media 五件套管线全复用，零旁路）→ 插入 `toSiteReference(path)` 形态（/images/uploads/...）；占位态 `imageUploading` 防重复触发（工具栏 loading + 「图片上传中…」灰字）；失败 `notifyApiError` toast + 不插入 |
+| E2 接线（查重后） | 同上 | 工具栏 Img → MediaPicker 弹窗（D2 组件复用，三通道 + 现场上传）；prompt 单轨拆除；多选批量链式 setImage |
+| E3 e2e | `test/pe1-richtext-image.e2e-spec.ts`（+4） | ① 直传落盘 + URL 形态（含 toSiteReference 跨包直引单源）；② URL 插入 + html_cache/公开渲染往返零特判；③ 上限 413 拒绝 + 零条目零文件；④ 魔数 400 拒绝 + 零残留 |
+| E3 手验 | docs/audits/phase5-e/ 三张截图 | 真实 ClipboardEvent('paste') + DataTransfer + File 路径（非函数直调）：粘贴成功插入（site-assets 显示层 + 网络 201）/ 失败 toast（魔数文案）+ 不插入 / MediaPicker 弹窗含已传图 |
+
+RichArticleEditPage 零改动（TipTap 自治）；server 媒体管线零改动（纯消费方）；
+TipTap v3 setContent 选项对象形沿用 B3.6 记录（watch 同步未触碰）。
+
+## 手验记录（真实粘贴路径，第四次实证铁律执行）
+
+- 粘贴成功：真 File（canvas 渐变 PNG 52KB）→ defaultPrevented → 编辑器 img
+  src=/site-assets/images/uploads/`<nanoid>`.png（显示层改写 ⇒ 模型 src =
+  /images/uploads/...）、alt=paste-shot、图片完整加载（naturalWidth 320）；
+  POST /admin/media → 201。
+- 失败不插入：文本字节改名 fake.png 粘贴 → toast「文件内容与扩展名不符（魔数校验
+  失败）」（ElMessage error）→ 编辑器 img 计数不变；POST → 400。
+- MediaPicker：Img 按钮 → 「选择图片」弹窗三 tab，媒体库网格含刚上传 paste-shot.png
+  缩略图；取消正常关闭。
+- 环境注记：手验需 additive 模式路由可达（manage 模式富文本菜单隐藏 = 既有路由守卫
+  设计，经 PATCH /admin/system/mode 临时切换并还原，非缺陷）。
+
+## 数账与三连
+
+- test **484 → 488（+4 = pe1 四锚，恰达下限 ≥4）**，56 文件全跑通（本轮零 worker
+  崩溃，p9/p11 环境性失败未复现）。
+- vue-tsc 0；build（shared/server/web）exit 0；lint 本批改动零新增（8 条 HEAD 既有
+  = D4g G3 定性：3 授权文件恢复损伤 + 5 E3a 文件自带，待裁）。
+- 截图：pe1-paste-insert.png / pe1-paste-failure-toast.png / pe1-mediapicker-dialog.png。
+
+## §commit
+
+- `feat(Phase5-E1): TipTap 位图粘贴/拖拽直传与图片入口接线（A6b 收尾，MediaPicker 复用）`
+
