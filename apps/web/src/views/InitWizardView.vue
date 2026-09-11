@@ -40,6 +40,40 @@ const MODES: { value: RunMode; label: string; description: string }[] = [
 
 const account = reactive({ username: '', password: '', confirm: '' });
 
+// [W4-A] 字段级错误回填（与后端 InitBodySchema 字段路径对齐）
+const usernameError = ref('');
+const passwordError = ref('');
+
+/** 后端 zod issue 文案中文化（保持契约：path 为字段名，message 保留原意或中文化） */
+function zhIssueMessage(raw: string): string {
+  // 覆盖 InitBodySchema 实际触发的几条；未命中时回落到原值
+  if (raw.startsWith('Too small: expected string to have >=8 characters')) return '密码至少 8 个字符';
+  if (raw.startsWith('Too small: expected string to have >=1 characters')) return '字段不能为空';
+  if (raw.startsWith('Too small: expected string to have >=64 characters')) return '用户名最长 64 个字符';
+  if (raw.startsWith('Too small: expected string to have >=200 characters')) return '密码最长 200 个字符';
+  if (raw.startsWith('Invalid option: expected one of')) return '取值不在允许范围内';
+  if (raw === 'Invalid input: expected string, received undefined') return '字段缺失';
+  if (raw.startsWith('Invalid input: expected string, received')) return '字段类型错误';
+  return raw;
+}
+
+function clearFieldErrors(): void {
+  usernameError.value = '';
+  passwordError.value = '';
+}
+
+/** 把后端 detail.issues[] 投影到对应字段的 :error 状态 */
+function applyIssuesToFields(issues: { path: string; message: string }[]): void {
+  for (const issue of issues) {
+    const msg = zhIssueMessage(issue.message);
+    if (issue.path === 'username') {
+      usernameError.value = msg;
+    } else if (issue.path === 'password') {
+      passwordError.value = msg;
+    }
+  }
+}
+
 const canNextFromDetect = computed(() => detection.value !== null && detection.value.valid);
 
 async function runDetect(): Promise<void> {
@@ -70,12 +104,28 @@ function next(): void {
 }
 
 async function submit(): Promise<void> {
+  clearFieldErrors();
   if (account.username === '' || account.password === '' || account.confirm === '') {
     ElMessage.warning('请完整填写账号信息');
     return;
   }
   if (account.password !== account.confirm) {
     ElMessage.error('两次输入的密码不一致');
+    return;
+  }
+  // [W4-A] 客户端预校验：与后端 InitBodySchema 对齐
+  //   password min 8 / max 200 / username max 64
+  //   提前拦截高频错误，避免「请求体校验失败」一句话掩盖字段细节
+  if (account.username.length > 64) {
+    usernameError.value = '用户名最长 64 个字符';
+    return;
+  }
+  if (account.password.length < 8) {
+    passwordError.value = '密码至少 8 个字符';
+    return;
+  }
+  if (account.password.length > 200) {
+    passwordError.value = '密码最长 200 个字符';
     return;
   }
   submitting.value = true;
@@ -92,6 +142,18 @@ async function submit(): Promise<void> {
     if (error instanceof ApiError && error.status === 409) {
       ElMessage.warning('系统已初始化，请直接登录');
       void router.push('/login');
+    } else if (error instanceof ApiError && error.status === 400) {
+      // [W4-A] 把后端 detail.issues 展开为字段级错误 + 摘要 toast
+      // 替代原行为「只显示 message（'请求体校验失败'）」——用户原本无法判断哪个字段有问题
+      const detail = error.detail as { issues?: { path: string; message: string }[] } | null;
+      const issues = detail?.issues ?? [];
+      if (issues.length > 0) {
+        applyIssuesToFields(issues);
+        const summary = issues.map((i) => `${i.path}: ${zhIssueMessage(i.message)}`).join('；');
+        ElMessage.error(`请求体校验未通过 — ${summary}`);
+      } else {
+        ElMessage.error(error.message);
+      }
     } else {
       ElMessage.error(error instanceof ApiError ? error.message : '初始化失败');
     }
@@ -155,10 +217,10 @@ async function submit(): Promise<void> {
 
       <div v-else class="wizard-body">
         <el-form label-position="top" @submit.prevent="submit">
-          <el-form-item label="用户名">
+          <el-form-item label="用户名" :error="usernameError">
             <el-input v-model="account.username" autocomplete="username" />
           </el-form-item>
-          <el-form-item label="密码">
+          <el-form-item label="密码" :error="passwordError">
             <el-input v-model="account.password" type="password" show-password autocomplete="new-password" />
           </el-form-item>
           <el-form-item label="确认密码">
