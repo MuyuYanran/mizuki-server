@@ -10,17 +10,14 @@
  * 纪律：路径经 safeJoin；删除前 pre_write 备份；成功出口恰好一次发射
  * media.changed（payload 先过 parse）；media 不认识引用方（注册表反查）。
  */
-import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import {
   BadRequestException,
   ConflictException,
-  ForbiddenException,
   Inject,
   Injectable,
   NotFoundException,
-  PayloadTooLargeException,
 } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { desc, eq } from 'drizzle-orm';
@@ -28,26 +25,23 @@ import { nanoid } from 'nanoid';
 import sharp from 'sharp';
 import { z } from 'zod';
 import { EVENTS, MediaChangedPayload } from '@mizuki/shared';
+import { sha256Buffer } from '../../common/crypto/hash';
+import { atomicWriteFile } from '../../common/fs/atomic-write';
+import { toMizukiAbs } from '../../common/fs/mizuki-root';
+import { assertImageUpload, type UploadedFileLike } from '../../common/http/uploaded-file';
 import { logger } from '../../common/logger';
 import { MediaReferenceRegistry } from '../../common/registry/media-reference.registry';
-import { EXTENSION_FORMAT, sniffImageFormat, type MagicFormat } from '../../common/security/magic-sniff';
-import { ForbiddenPathError, safeJoin } from '../../common/security/safe-join';
+import { type MagicFormat } from '../../common/security/magic-sniff';
 import { getAppConfig } from '../../config/app-config';
 import { type BackupOptions, BACKUP_OPTIONS, BackupService } from '../../infra/backup/backup.service';
 import { type DrizzleDb, DRIZZLE_DB } from '../../infra/db/db.module';
 import { mediaFile } from '../../infra/db/schema';
 
-/** multipart 上传文件（memory storage）的最小结构（不依赖 @types/multer；
- * 与 posts 的同构接口各自局部声明，避免 L2 互 import） */
-export interface UploadedFileLike {
-  buffer: Buffer;
-  originalname: string;
-  size: number;
-  mimetype: string;
-}
-
 /** 上传目标目录（相对 Mizuki 根，MASTER-PLAN §7） */
 const UPLOADS_REL_DIR = 'public/images/uploads';
+
+/** 允许上传的扩展名清单文案（错误信息括号内全文，逐字保留 MASTER-PLAN §7 原文） */
+const UPLOAD_ALLOWED_TEXT = 'jpg/jpeg/png/gif/webp/avif/bmp/tiff';
 
 /** :id 路径参数校验（nanoid 字符集，拒绝路径分隔符） */
 export const MediaIdSchema = z.string().min(1).max(64).regex(/^[A-Za-z0-9_-]+$/);
@@ -101,22 +95,12 @@ export class MediaService {
 
   /** 上传：校验 → 重编码 → 随机名落盘 → 索引入库 → 事件 */
   async upload(file: UploadedFileLike): Promise<MediaInfo> {
-    // 1. 扩展名白名单
-    const ext = path.extname(file.originalname).toLowerCase();
-    const expectedFormat = EXTENSION_FORMAT[ext];
-    if (!expectedFormat) {
-      throw new BadRequestException(`扩展名不在白名单：${ext || '(空)'}（允许 jpg/jpeg/png/gif/webp/avif/bmp/tiff）`);
-    }
-    // 2. 魔数嗅探：真实类型必须与扩展名一致（文本改名 .png 等伪造件在此拒绝）
-    const sniffed = sniffImageFormat(file.buffer);
-    if (sniffed !== expectedFormat) {
-      throw new BadRequestException('文件内容与扩展名不符（魔数校验失败）');
-    }
-    // 3. 大小上限（配置，默认 10MB，MASTER-PLAN §7）
-    const limitBytes = getAppConfig().uploadLimitMb * 1024 * 1024;
-    if (file.buffer.length > limitBytes) {
-      throw new PayloadTooLargeException(`文件超出上传上限 ${getAppConfig().uploadLimitMb}MB`);
-    }
+    // 1~3. 扩展名白名单 → 魔数嗅探一致 → 大小上限（单源见 common/http/uploaded-file）
+    const { format: expectedFormat } = assertImageUpload(file, {
+      subject: '文件',
+      allowedText: UPLOAD_ALLOWED_TEXT,
+      limitMb: getAppConfig().uploadLimitMb,
+    });
     // 5. sharp 重编码（按原格式；去 EXIF 与内嵌 payload）+ 宽高读取
     //    （解码失败即兜底拒绝——嗅探通过但内容损坏同样拦截）
     let reencoded: Buffer;
@@ -144,9 +128,9 @@ export class MediaService {
     const absPath = this.joinWithinRoot(relPath);
     fs.mkdirSync(path.dirname(absPath), { recursive: true });
     await this.backup.preWriteBackup(absPath, 'media upload'); // 新文件 → 跳过（无物可备），管线步骤保留
-    this.atomicWrite(absPath, reencoded);
+    atomicWriteFile(absPath, reencoded);
 
-    const sha256 = createHash('sha256').update(reencoded).digest('hex');
+    const sha256 = sha256Buffer(reencoded);
     const id = nanoid();
     const createdAt = new Date();
     await this.db.insert(mediaFile).values({
@@ -254,28 +238,8 @@ export class MediaService {
     this.emitter.emit(EVENTS.MediaChanged, payload);
   }
 
-  private requireRoot(): string {
-    if (this.options.mizukiRoot === '') {
-      throw new BadRequestException('Mizuki 项目根目录未配置（请先完成初始化）');
-    }
-    return path.resolve(this.options.mizukiRoot);
-  }
-
+  /** root 内相对路径 → 绝对路径（未配置 400 / 越界 403，单源见 common/fs/mizuki-root） */
   private joinWithinRoot(rel: string): string {
-    try {
-      return safeJoin(this.requireRoot(), rel);
-    } catch (error) {
-      if (error instanceof ForbiddenPathError) {
-        throw new ForbiddenException(`路径越界，已拒绝：${rel}`);
-      }
-      throw error;
-    }
-  }
-
-  /** 原子写：同目录临时文件 → rename（统一写管线第 7 步模式） */
-  private atomicWrite(absPath: string, data: Buffer): void {
-    const tmp = path.join(path.dirname(absPath), `.tmp-${nanoid(8)}`);
-    fs.writeFileSync(tmp, data);
-    fs.renameSync(tmp, absPath);
+    return toMizukiAbs(this.options.mizukiRoot, rel);
   }
 }

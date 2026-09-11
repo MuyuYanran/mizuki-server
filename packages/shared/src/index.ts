@@ -20,3 +20,9 @@ export * from './lang-code';
 
 // [Phase3-C7] 站点配置受控子集 schema（override 批，ADR-020）
 export * from './site-config';
+
+// [Phase4-D3] 导航受控子集 schema（#8，C7 机制扩展至对象数组域，ADR-020 追加节）
+export * from './nav-config';
+
+// [Phase4-E3a] 主题档案 schema + Mizuki Tier 1 内置档案（theme-lock 机制，ADR-024）
+export * from './theme-profile';

@@ -79,36 +79,47 @@ async function performFetch(method: HttpMethod, path: string, body: unknown, tok
 /**
  * 并发去重的 refresh（§3.5 硬性）：首个 401 发起刷新，窗口期内的其他
  * 401 共享同一 Promise；无论成败随后清空引用。
+ *
+ * [Wave-4/F1] 返回值区分三态而非原布尔值：
+ *   - 'ok'       刷新成功 → 重放原请求；
+ *   - 'rejected' 服务端明确拒绝（无 refresh token / 非 2xx / 响应形状异常）
+ *                → 凭据确实失效，清 token + 触发会话失效跳登录；
+ *   - 'network'  请求本身抛错（断网、超时、后端重启瞬间）→ **不得清 token**
+ *                ——原实现把任何异常都视为刷新失败并强制登出，弱网下会把
+ *                已登录用户误踢回登录页。
  */
-let refreshPromise: Promise<boolean> | null = null;
+type RefreshOutcome = 'ok' | 'rejected' | 'network';
 
-function refreshTokensOnce(): Promise<boolean> {
+let refreshPromise: Promise<RefreshOutcome> | null = null;
+
+function refreshTokensOnce(): Promise<RefreshOutcome> {
   if (refreshPromise === null) {
-    refreshPromise = (async (): Promise<boolean> => {
+    refreshPromise = (async (): Promise<RefreshOutcome> => {
       const refreshToken = getRefreshToken();
       if (!refreshToken) {
-        return false;
+        return 'rejected';
       }
+      let res: Response;
       try {
-        const res = await fetch(`${API_PREFIX}/admin/auth/refresh`, {
+        res = await fetch(`${API_PREFIX}/admin/auth/refresh`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ refreshToken }),
         });
-        if (!res.ok) {
-          return false;
-        }
-        const body = await parseJsonBody(res);
-        const accessToken = body?.['accessToken'];
-        const nextRefresh = body?.['refreshToken'];
-        if (typeof accessToken !== 'string' || typeof nextRefresh !== 'string') {
-          return false;
-        }
-        setTokens(accessToken, nextRefresh);
-        return true;
       } catch {
-        return false;
+        return 'network'; // 网络层异常：凭据状态未知，保守按「稍后重试」处理
       }
+      if (!res.ok) {
+        return 'rejected';
+      }
+      const body = await parseJsonBody(res);
+      const accessToken = body?.['accessToken'];
+      const nextRefresh = body?.['refreshToken'];
+      if (typeof accessToken !== 'string' || typeof nextRefresh !== 'string') {
+        return 'rejected'; // 2xx 但形状异常：无法续期，按拒绝处理（服务端缺陷，日志在服务端）
+      }
+      setTokens(accessToken, nextRefresh);
+      return 'ok';
     })().finally(() => {
       refreshPromise = null;
     });
@@ -121,14 +132,17 @@ export async function request<T>(method: HttpMethod, path: string, body?: unknow
   let res = await performFetch(method, path, body, getAccessToken());
 
   if (res.status === 401 && !NO_REFRESH_PATHS.includes(path) && getRefreshToken()) {
-    const refreshed = await refreshTokensOnce();
-    if (refreshed) {
+    const outcome = await refreshTokensOnce();
+    if (outcome === 'ok') {
       res = await performFetch(method, path, body, getAccessToken());
-    } else {
+    } else if (outcome === 'rejected') {
       const error = await toApiError(res);
       clearAuth();
       sessionExpiredHandler?.();
       throw error;
+    } else {
+      // [Wave-4/F1] 网络异常：保留本地会话，提示可重试（status 0 = 未取得响应）
+      throw new ApiError(0, 'NetworkError', '网络异常，无法刷新登录状态，请检查连接后重试', null);
     }
   }
 

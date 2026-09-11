@@ -7,18 +7,101 @@
  * [状态] ACTIVE
  *
  * 安全：editor.getJSON() → doc_json → 后端生成 html_cache；前端不执行后端 HTML。
+ *
+ * [Phase4-D4/A6] 图片展示层走 imageSrc（自定义 NodeView，模型 src 保真）：富文本路径
+ *   曾是全前端唯一未接入 imageSrc 的图片出口（其余四处消费点见 image-src.ts），
+ *   站内相对路径在管理端 origin 下解析 → 404 破图。改法与取舍见 SiteAssetsImage 注释。
  */
 import { computed, watch } from 'vue';
 import { EditorContent, useEditor } from '@tiptap/vue-3';
 import StarterKit from '@tiptap/starter-kit';
 import Link from '@tiptap/extension-link';
 import Image from '@tiptap/extension-image';
+import { imageSrc } from '../image-src';
 // TipTap v3：extension-table 无默认导出（命名导出），其余 table 子包有默认导出
 import { Table } from '@tiptap/extension-table';
 import TableRow from '@tiptap/extension-table-row';
 import TableHeader from '@tiptap/extension-table-header';
 import TableCell from '@tiptap/extension-table-cell';
 import { ElMessage, ElMessageBox } from 'element-plus';
+
+/**
+ * [Phase4-D4 / A6 修复] 富文本编辑器内图片展示层拼源（模型零触碰）
+ *
+ * 根因：管理面板运行在管理服务端 origin 下，文章内的站内相对路径
+ *   （如 images/uploads/x.png）会相对该 origin 解析 → 404 破图。富文本（TipTap）
+ *   路径此前是全前端唯一未接入 imageSrc 的图片出口，故破图只出现在富文本、md 正常。
+ *
+ * 方案（架构师裁定 §3 首选）：自定义 NodeView —— 只改写渲染 DOM 的 src，
+ *   ProseMirror 模型与 getJSON()/html_cache 一律保持原始 src。
+ *   · 与 Vditor「预览层改写 + 反向还原」同语义，但**无需反向还原**：
+ *     TipTap 模型为 JSON，DOM 由模型单向派生、不会回流进模型，
+ *     故不存在 Vditor 那种 contenteditable 反向序列化导致的泄漏面。
+ *   · 不采用 renderHTML 改写：renderHTML 是序列化出口，会污染 getHTML()
+ *     与后端 html_cache，违反「模型 src 保真」。
+ *   · 不触碰宿主（RichArticleEditPage）：无 contentSlug prop，富文本文章为 DB
+ *     内容、无文件夹 slug 语义，contentPostSrc 不适用（裁定否决）。
+ */
+function richImageSrc(raw: string): string {
+  if (raw === '') {
+    return '';
+  }
+  // [B3.6 语义对齐] 已改写路径原样返回：imageSrc 对 /site-assets 前缀非幂等
+  if (raw.trim().startsWith('/site-assets')) {
+    return raw;
+  }
+  return imageSrc(raw);
+}
+
+/** 展示属性透传（src 单独走 richImageSrc 拼接，不在此列） */
+const IMAGE_PASSTHROUGH_ATTRS = ['alt', 'title', 'width', 'height'] as const;
+
+/**
+ * 图片节点展示层：DOM 由 NodeView 自建，src 经 imageSrc 拼接，其余展示属性原样透传。
+ * 每次由模型当前值重算（模型 src 不变 → 结果稳定，天然幂等，无需 DOM 标记）。
+ */
+const SiteAssetsImage = Image.extend({
+  addNodeView() {
+    return ({ node }) => {
+      const dom = document.createElement('img');
+      let current = node;
+
+      const sync = (): void => {
+        const raw = typeof current.attrs['src'] === 'string' ? current.attrs['src'] : '';
+        const next = richImageSrc(raw);
+        if (next === '') {
+          dom.removeAttribute('src');
+        } else {
+          dom.setAttribute('src', next);
+        }
+        for (const key of IMAGE_PASSTHROUGH_ATTRS) {
+          const value = current.attrs[key];
+          if (typeof value === 'number') {
+            dom.setAttribute(key, String(value));
+          } else if (typeof value === 'string' && value !== '') {
+            dom.setAttribute(key, value);
+          } else {
+            dom.removeAttribute(key);
+          }
+        }
+      };
+
+      sync();
+
+      return {
+        dom,
+        update(updated) {
+          if (updated.type !== current.type) {
+            return false;
+          }
+          current = updated;
+          sync();
+          return true;
+        },
+      };
+    };
+  },
+});
 
 const props = withDefaults(
   defineProps<{
@@ -40,7 +123,7 @@ const editor = useEditor({
   extensions: [
     StarterKit,
     Link.configure({ openOnClick: false }),
-    Image,
+    SiteAssetsImage,
     Table.configure({ resizable: false }),
     TableRow,
     TableHeader,
@@ -144,7 +227,7 @@ async function addImage(): Promise<void> {
     return;
   }
   const result = await ElMessageBox.prompt('输入图片地址', '插入图片', {
-    inputPlaceholder: 'https://... 或 /uploads/xxx.jpg',
+    inputPlaceholder: 'https://... 或 /images/uploads/xxx.jpg',
   });
   const src = result.value.trim();
   if (src !== '') {

@@ -37,6 +37,24 @@ export class UnsupportedLiteralError extends Error {
   }
 }
 
+/**
+ * 解包 `as const` / `satisfies Xxx` / `( … )` 包装，返回最内层表达式。
+ * [Wave-2/C2] 单源：此前「解包语义」在 astToValue、astToValueWithConsts 与
+ * theme-registry 各写一遍（第三处是局部私有函数），形态判定若加固（如新增
+ * 新型断言包装）需三处同步。本函数为纯结构查询，不改变节点。
+ */
+export function unwrapExpression(node: Node): Node {
+  let current = node;
+  while (
+    current.getKind() === SyntaxKind.AsExpression ||
+    current.getKind() === SyntaxKind.SatisfiesExpression ||
+    current.getKind() === SyntaxKind.ParenthesizedExpression
+  ) {
+    current = (current as AsExpression | SatisfiesExpression | ParenthesizedExpression).getExpression();
+  }
+  return current;
+}
+
 /** 未找到目标导出变量 */
 export class ExportNotFoundError extends NotFoundException {
   constructor(varName: string, filePath: string) {
@@ -51,11 +69,20 @@ export function loadSourceFile(absPath: string, content?: string): SourceFile {
   return project.createSourceFile(absPath, text, { overwrite: true });
 }
 
-/** 按变量名取变量声明（缺失抛 ExportNotFoundError） */
-export function getVariableDeclarationOrThrow(sf: SourceFile, varName: string): VariableDeclaration {
+/**
+ * 按变量名取变量声明（缺失抛 ExportNotFoundError）。
+ * @param displayPath 错误信息中的路径投影：默认取 ts-morph 的文件路径（**绝对路径**），
+ *   经 HTTP 出口的调用方必须传相对路径（如 `src/data/diary.ts`）——API 响应
+ *   不得泄露磁盘绝对路径（沙箱纪律；见 docs/audits/phase4-refactor-review.md E1）。
+ */
+export function getVariableDeclarationOrThrow(
+  sf: SourceFile,
+  varName: string,
+  displayPath?: string,
+): VariableDeclaration {
   const decl = sf.getVariableDeclaration(varName);
   if (!decl) {
-    throw new ExportNotFoundError(varName, sf.getFilePath());
+    throw new ExportNotFoundError(varName, displayPath ?? sf.getFilePath());
   }
   return decl;
 }
@@ -121,11 +148,8 @@ export function astToValue(node: Node, fileName: string): unknown {
     case SyntaxKind.AsExpression:
     case SyntaxKind.SatisfiesExpression:
     case SyntaxKind.ParenthesizedExpression:
-      // 兼容 `as const`、`satisfies Xxx`、( … )：解包后递归
-      return astToValue(
-        (node as AsExpression | SatisfiesExpression | ParenthesizedExpression).getExpression(),
-        fileName,
-      );
+      // 兼容 `as const`、`satisfies Xxx`、( … )：解包后递归（解包语义单源）
+      return astToValue(unwrapExpression(node), fileName);
     case SyntaxKind.PrefixUnaryExpression: {
       const expr = node as PrefixUnaryExpression;
       if (expr.getOperatorToken() === SyntaxKind.MinusToken) {
@@ -155,4 +179,107 @@ export function evaluateExport(absPath: string, varName: string): unknown {
     throw new ExportNotFoundError(varName, absPath);
   }
   return astToValue(initializer, absPath);
+}
+
+// ── [Phase4-E3a] 常量代入求值（自 site-config.service 迁入，单一来源）──
+// 主题 config.ts 允许 `lang: SITE_LANG` 式标识符引用：顶层非导出简单常量表代入后
+// 求值（site-config 基线读取与 theme 声明探针共用）。
+
+/** 简单常量值判定：字符串字面量 / 无插值模板 / 数字字面量 → 值；其余 → undefined */
+export function constValueOf(init: Node): string | number | undefined {
+  switch (init.getKind()) {
+    case SyntaxKind.StringLiteral:
+    case SyntaxKind.NoSubstitutionTemplateLiteral:
+      return (init as StringLiteral).getLiteralText();
+    case SyntaxKind.NumericLiteral: {
+      const num = Number(init.getText());
+      return Number.isFinite(num) ? num : undefined;
+    }
+    default:
+      return undefined;
+  }
+}
+
+/** 顶层非导出简单常量表（config.ts 的 SITE_LANG / SITE_TIMEZONE 类，代入标识符引用） */
+export function extractSimpleConsts(sf: SourceFile): Map<string, string | number> {
+  const map = new Map<string, string | number>();
+  for (const stmt of sf.getVariableStatements()) {
+    if (stmt.hasExportKeyword()) {
+      continue; // 导出的业务对象不走常量表（siteConfig/commentConfig 本体）
+    }
+    for (const decl of stmt.getDeclarations()) {
+      const init = decl.getInitializer();
+      if (init === undefined) {
+        continue;
+      }
+      const value = constValueOf(init);
+      if (value !== undefined) {
+        map.set(decl.getName(), value);
+      }
+    }
+  }
+  return map;
+}
+
+/**
+ * AST → JS 值（astToValue 的常量代入变体）：分派表同型（自包含字面量），
+ * 唯一差异——Identifier 节点查常量表代入（config.ts 允许 `lang: SITE_LANG` 式
+ * 引用）；常量表未命中的标识符与其他未支持节点 → UnsupportedLiteralError
+ * （调用方按「基线不可得」处置）。注意：无数组字面量分支（navBarConfig.links
+ * 原始态含 LinkPreset 标识符 → 恒抛 → 降级分支，D3 实测）。
+ */
+export function astToValueWithConsts(
+  node: Node,
+  filePath: string,
+  consts: Map<string, string | number>,
+): unknown {
+  switch (node.getKind()) {
+    case SyntaxKind.ObjectLiteralExpression: {
+      const obj = node as ObjectLiteralExpression;
+      const result: Record<string, unknown> = {};
+      for (const property of obj.getProperties()) {
+        if (!Node.isPropertyAssignment(property)) {
+          throw new UnsupportedLiteralError(filePath, property.getStartLineNumber(), property.getKindName());
+        }
+        const key = property.getNameNode();
+        const name = Node.isStringLiteral(key) ? key.getLiteralText() : key.getText();
+        result[name] = astToValueWithConsts(property.getInitializerOrThrow(), filePath, consts);
+      }
+      return result;
+    }
+    case SyntaxKind.StringLiteral:
+    case SyntaxKind.NoSubstitutionTemplateLiteral:
+      return (node as StringLiteral).getLiteralText();
+    case SyntaxKind.NumericLiteral:
+      return Number(node.getText());
+    case SyntaxKind.TrueKeyword:
+      return true;
+    case SyntaxKind.FalseKeyword:
+      return false;
+    case SyntaxKind.NullKeyword:
+      return null;
+    case SyntaxKind.AsExpression:
+    case SyntaxKind.SatisfiesExpression:
+    case SyntaxKind.ParenthesizedExpression:
+      return astToValueWithConsts(unwrapExpression(node), filePath, consts);
+    case SyntaxKind.PrefixUnaryExpression: {
+      const expr = node as PrefixUnaryExpression;
+      if (expr.getOperatorToken() === SyntaxKind.MinusToken) {
+        const operand = astToValueWithConsts(expr.getOperand(), filePath, consts);
+        if (typeof operand === 'number') {
+          return -operand;
+        }
+      }
+      throw new UnsupportedLiteralError(filePath, node.getStartLineNumber(), node.getKindName());
+    }
+    case SyntaxKind.Identifier: {
+      const value = consts.get(node.getText());
+      if (value === undefined) {
+        throw new UnsupportedLiteralError(filePath, node.getStartLineNumber(), node.getKindName());
+      }
+      return value;
+    }
+    default:
+      throw new UnsupportedLiteralError(filePath, node.getStartLineNumber(), node.getKindName());
+  }
 }

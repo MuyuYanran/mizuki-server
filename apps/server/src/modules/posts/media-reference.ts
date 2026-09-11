@@ -12,6 +12,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { Inject, Injectable } from '@nestjs/common';
 import type { MediaReference } from '@mizuki/shared';
+import { normalizeUserPath } from '../../common/fs/posix';
 import { logger } from '../../common/logger';
 import { parseMarkdown } from '../../common/markdown/frontmatter';
 import { type BackupOptions, BACKUP_OPTIONS } from '../../infra/backup/backup.service';
@@ -61,7 +62,7 @@ export class PostsMediaReferenceContributor {
 
 /** 相对 Mizuki 根的路径规范化（无前缀 '/' 时按相对文章目录解析） */
 function normalizeMediaPath(value: string, postRelDir: string): string {
-  const posix = value.split(path.sep).join('/');
+  const posix = normalizeUserPath(value);
   if (posix.includes('/')) {
     return posix;
   }

@@ -10,6 +10,7 @@
  */
 import { Injectable } from '@nestjs/common';
 import type { MediaReference } from '@mizuki/shared';
+import { normalizeUserPath } from '../../common/fs/posix';
 import { logger } from '../../common/logger';
 import { DataFileService } from '../data-files/data-file.service';
 import { REGISTRY } from './registry';
@@ -73,7 +74,7 @@ function asItems(value: unknown): Item[] {
 
 /** 构造引用：纯文件名且注册表项配置了 imageDir → 归一到 `<imageDir>/<文件名>` */
 function reference(refType: string, targetLabel: string, value: string, imageDir?: string): MediaReference {
-  const posix = value.split('\\').join('/');
+  const posix = normalizeUserPath(value);
   const mediaPath = !posix.includes('/') && imageDir ? `${imageDir}/${posix}` : posix;
   return { refType, targetLabel, mediaPath };
 }

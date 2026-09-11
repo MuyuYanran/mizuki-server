@@ -17,6 +17,8 @@ import { z } from 'zod';
 // [Phase3-F] lang 校验口径切换 siteLangSchema（config 域 [-_] 双兼容，C7 疑问① 收官落地）；
 // 载体形态 / 合并 / 持久化机制冻结，仅口径切换。
 import { siteLangSchema } from './lang-code';
+// [Phase4-D3] nav 受控子集（#8，对象数组域扩展，ADR-020 追加节）
+import { NavConfigSchema } from './nav-config';
 
 /** Twikoo 子配置（主题类型：envId 必填，region/lang 可选） */
 export const TwikooConfigSchema = z
@@ -76,6 +78,8 @@ export const ConfigOverrideFileSchema = z
       .strict()
       .optional(),
     commentConfig: CommentConfigSchema.optional(),
+    /** nav 受控键 override 态（Phase4-D3；缺键 = 未设置 = 基线生效；空数组 = 合法清空导航） */
+    nav: NavConfigSchema.optional(),
     /** 被置换原文本留档（键 = 受控定位符，值 = config.ts 原初始化器文本，用于还原） */
     originals: z.record(z.string(), z.string()).optional(),
   })

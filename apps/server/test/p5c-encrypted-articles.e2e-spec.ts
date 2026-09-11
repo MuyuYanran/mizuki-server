@@ -158,6 +158,49 @@ describe('P5c 加密文章与公开 API 泄漏点修复 e2e', () => {
     expect(read.body.frontmatter.permalink).toBe('new-fixed-link');
   });
 
+  it('[Phase4-D4/A3] §5b lang:null → 读回无 lang 键（C1 删键哨兵扩展至 lang，draft 不受牵连）', async () => {
+    const created = await server()
+      .post('/api/v1/admin/posts')
+      .send({
+        slug: 'lang-draft-delete',
+        frontmatter: {
+          title: '语言与草稿字段',
+          description: '语言与草稿字段描述',
+          lang: 'zh-CN',
+          draft: true,
+          pubDate: '2026-08-29',
+        },
+        content: 'x',
+      });
+    expect(created.status).toBe(201);
+    expect(created.body.frontmatter.lang).toBe('zh-CN');
+    expect(created.body.frontmatter.draft).toBe(true);
+
+    const patched = await server()
+      .patch('/api/v1/admin/posts/lang-draft-delete')
+      .send({ frontmatter: { lang: null } }); // null 哨兵 = 删除指令
+    expect(patched.status).toBe(200);
+    expect(Object.keys(patched.body.frontmatter)).not.toContain('lang');
+    expect(patched.body.frontmatter.draft).toBe(true); // 邻键零牵连
+
+    const read = await server().get('/api/v1/admin/posts/lang-draft-delete');
+    expect(read.status).toBe(200);
+    expect(Object.keys(read.body.frontmatter)).not.toContain('lang');
+    expect(read.body.frontmatter.draft).toBe(true);
+  });
+
+  it('[Phase4-D4/A3] §5c draft:null → 读回无 draft 键（可空性为入口通行前提）', async () => {
+    const patched = await server()
+      .patch('/api/v1/admin/posts/lang-draft-delete')
+      .send({ frontmatter: { draft: null } });
+    expect(patched.status).toBe(200);
+    expect(Object.keys(patched.body.frontmatter)).not.toContain('draft');
+
+    const read = await server().get('/api/v1/admin/posts/lang-draft-delete');
+    expect(read.status).toBe(200);
+    expect(Object.keys(read.body.frontmatter)).not.toContain('draft');
+  });
+
   it('§6 加密文章 PATCH 正文：公开详情仍 html 为空串（修改不清除加密态）', async () => {
     const patched = await server()
       .patch('/api/v1/admin/posts/enc-article')

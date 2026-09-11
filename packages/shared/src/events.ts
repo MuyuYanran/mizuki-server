@@ -26,12 +26,19 @@ export const ContentChangedPayload = z.object({
   filePaths: z.array(z.string()),
 });
 
-/** post.changed — articles 索引增量 upsert/移除（发射方：posts） */
+/** post.changed — articles 索引增量 upsert/移除（发射方：posts）
+ *
+ * [Wave-2] filePath 为**可选新增字段**（additive，向后兼容）：实际盘上路径
+ * （目录式 `src/content/posts/<slug>/index.md` / 文件式 `src/content/posts/<slug>.md`）。
+ * 需求由来：B2 引入文件形态后，订阅方（articles）无从得知盘上形态，只能硬编码
+ * 目录形态推导 filePath，导致文件式文章在公开详情面读错路径（未爆发的漂移缺陷）。
+ * 订阅方须按「载荷有则优先、缺则回退旧推导」处置，不得改判 deleted 语义。 */
 export const PostChangedPayload = z.object({
   slug: z.string(),
   frontmatter: z.record(z.string(), z.unknown()),
   fileHash: z.string(),
   deleted: z.boolean(),
+  filePath: z.string().optional(),
 });
 
 /** article.published — 公开列表缓存失效（发射方：posts、articles） */

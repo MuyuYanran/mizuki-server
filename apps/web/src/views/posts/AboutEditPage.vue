@@ -9,6 +9,8 @@
 import { onMounted, ref } from 'vue';
 import { ElMessage } from 'element-plus';
 import { CodeMirrorEditor, VditorEditor } from '../../lib/editors';
+import { markdownImageRef } from '../../lib/media-ref';
+import MediaPicker, { type MediaPickResult } from '../../components/MediaPicker.vue';
 import { postsApi } from '../../api/posts';
 import { ApiError } from '../../api/http';
 
@@ -21,7 +23,21 @@ const backupHint = ref('');
 const ENGINE_KEY = 'mizuki.editor.engine';
 type Engine = 'vditor' | 'codemirror';
 const engine = ref<Engine>((localStorage.getItem(ENGINE_KEY) as Engine | null) ?? 'vditor');
-const editorRef = ref<{ getValue: () => string } | null>(null);
+/** [Phase4-D2] insertAtCursor 为可选能力（两引擎均已暴露；缺席时静默跳过） */
+const editorRef = ref<{ getValue: () => string; insertAtCursor?: (text: string) => void } | null>(null);
+
+/** [Phase4-D2/需求4] 图片按钮 → MediaPicker 选图后于光标处插入 Markdown 图片引用 */
+const imagePickerVisible = ref(false);
+
+function onImagesPicked(results: MediaPickResult[]): void {
+  const md = results
+    .map((r) => markdownImageRef(r.url, r.name !== undefined ? r.name.replace(/\.[a-zA-Z0-9]+$/, '') : ''))
+    .join('\n\n');
+  if (md === '') {
+    return;
+  }
+  editorRef.value?.insertAtCursor?.(md);
+}
 
 function onEngineChange(next: Engine): void {
   if (editorRef.value) {
@@ -90,6 +106,8 @@ function onUploadReplace(event: Event): void {
           <el-option label="Vditor" value="vditor" />
           <el-option label="CodeMirror" value="codemirror" />
         </el-select>
+        <!-- [Phase4-D2/需求4] 图片按钮：媒体库/相册/外链统一选图入口 -->
+        <el-button size="small" @click="imagePickerVisible = true">图片</el-button>
         <label class="upload-btn">
           <span>上传替换</span>
           <input type="file" accept=".md,.markdown,.txt" hidden @change="onUploadReplace" />
@@ -122,6 +140,9 @@ function onUploadReplace(event: Event): void {
       @update:model-value="content = $event"
       placeholder="输入 about 内容…"
     />
+
+    <!-- [Phase4-D2/需求4] 统一选图器（媒体库/相册/外链） -->
+    <MediaPicker v-model="imagePickerVisible" @picked="onImagesPicked" />
   </div>
 </template>
 

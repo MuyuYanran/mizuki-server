@@ -13,11 +13,9 @@
  * [状态] ACTIVE
  */
 import fs from 'node:fs';
-import path from 'node:path';
 import {
   BadRequestException,
   ConflictException,
-  ForbiddenException,
   Inject,
   Injectable,
   NotFoundException,
@@ -27,10 +25,12 @@ import { and, count, desc, eq, isNull } from 'drizzle-orm';
 import { nanoid } from 'nanoid';
 import { z } from 'zod';
 import { ArticlePublishedPayload, EVENTS, PostChangedPayload } from '@mizuki/shared';
+import { toMizukiAbs } from '../../common/fs/mizuki-root';
 import { logger } from '../../common/logger';
+import { toArticleRow, toDateOrNull } from '../../common/markdown/article-row';
 import { parseMarkdown } from '../../common/markdown/frontmatter';
 import { renderMarkdownToSafeHtml, renderTipTapDoc } from '../../common/render/render';
-import { ForbiddenPathError, safeJoin } from '../../common/security/safe-join';
+import { singleSegmentName } from '../../common/validation/segment-name';
 import { type BackupOptions, BACKUP_OPTIONS } from '../../infra/backup/backup.service';
 import { type DrizzleDb, DRIZZLE_DB } from '../../infra/db/db.module';
 import { article, articleContent } from '../../infra/db/schema';
@@ -43,13 +43,12 @@ import { article, articleContent } from '../../infra/db/schema';
  */
 export const DocJsonSchema = z.object({ type: z.string() }).passthrough();
 
-/** slug（richtext 可由调用方指定）：单段安全字符 */
-export const ArticleSlugSchema = z
-  .string()
-  .min(1)
-  .max(200)
-  .regex(/^[^\\/]+$/, 'slug 不得包含路径分隔符')
-  .refine((value) => !value.includes('..') && value !== '.', 'slug 非法');
+/** slug（richtext 可由调用方指定）：单段安全字符（穿越最小拒绝面单源） */
+export const ArticleSlugSchema = singleSegmentName({
+  max: 200,
+  separatorMessage: 'slug 不得包含路径分隔符',
+  invalidMessage: 'slug 非法',
+});
 
 export const CreateArticleBodySchema = z.object({
   title: z.string().min(1),
@@ -90,6 +89,9 @@ export interface PublicListResult {
   page: number;
   limit: number;
 }
+
+/** markdown 文章目录（相对 Mizuki 根；filePath 缺省回退推导用） */
+const POSTS_REL_DIR = 'src/content/posts';
 
 /** 富文本文章管理视图 */
 export interface ArticleAdminView {
@@ -253,7 +255,10 @@ export class ArticlesService {
         logger.info({ slug: payload.slug }, 'post.changed：markdown 索引行已软删');
         return;
       }
-      const values = markdownRowValues(payload.slug, payload.frontmatter, payload.fileHash);
+      // [Wave-2/B1] 盘上路径由载荷下发（目录式 index.md / 文件式 <slug>.md）；
+      // 缺省（旧发射方或未携带）回退目录形态推导，保持向后兼容。
+      const filePath = payload.filePath ?? `${POSTS_REL_DIR}/${payload.slug}/index.md`;
+      const values = toArticleRow(payload.slug, payload.frontmatter, payload.fileHash, filePath);
       const rows = await this.db
         .select()
         .from(article)
@@ -444,54 +449,15 @@ export class ArticlesService {
     };
   }
 
-  private requireRoot(): string {
-    if (this.options.mizukiRoot === '') {
-      throw new BadRequestException('Mizuki 项目根目录未配置（请先完成初始化）');
-    }
-    return path.resolve(this.options.mizukiRoot);
-  }
-
+  /** root 内相对路径 → 绝对路径（未配置 400 / 越界 403，单源见 common/fs/mizuki-root） */
   private joinWithinRoot(rel: string): string {
-    try {
-      return safeJoin(this.requireRoot(), rel);
-    } catch (error) {
-      if (error instanceof ForbiddenPathError) {
-        throw new ForbiddenException(`路径越界，已拒绝：${rel}`);
-      }
-      throw error;
-    }
+    return toMizukiAbs(this.options.mizukiRoot, rel);
   }
 }
 
 // ── 纯工具 ──
-
-/** frontmatter → article 行字段（与 P5 sync 映射一致：§3.6 规则） */
-function markdownRowValues(slug: string, frontmatter: Record<string, unknown>, fileHash: string) {
-  return {
-    title: typeof frontmatter['title'] === 'string' ? frontmatter['title'] : slug,
-    status: frontmatter['draft'] === true || frontmatter['published'] === false ? 'draft' : 'published',
-    filePath: `src/content/posts/${slug}/index.md`,
-    fileHash,
-    categoryId: typeof frontmatter['category'] === 'string' ? frontmatter['category'] : null,
-    cover: typeof frontmatter['image'] === 'string' ? frontmatter['image'] : null,
-    summary: typeof frontmatter['description'] === 'string' ? frontmatter['description'] : null,
-    pinned: frontmatter['pinned'] === true,
-    pubDate: toDateOrNull(frontmatter['pubDate'] ?? frontmatter['date']),
-    updatedAt: new Date(),
-  };
-}
-
-/** date 字符串 / Date → Date；非法 → null */
-function toDateOrNull(value: unknown): Date | null {
-  if (value instanceof Date) {
-    return Number.isNaN(value.getTime()) ? null : value;
-  }
-  if (typeof value === 'string') {
-    const parsed = new Date(value);
-    return Number.isNaN(parsed.getTime()) ? null : parsed;
-  }
-  return null;
-}
+// frontmatter → article 行映射与状态推导已上收 common/markdown/article-row（单源）：
+// 此前本文件与 posts.service 各持一份映射，filePath 口径与告警行为已发生漂移。
 
 /** title → slug（保留字母数字与中日韩字符，其余转 '-'） */
 function slugifyFromTitle(title: string): string {

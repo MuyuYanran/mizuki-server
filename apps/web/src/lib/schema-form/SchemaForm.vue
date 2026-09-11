@@ -18,7 +18,7 @@
  */
 import { computed, ref, watch } from 'vue';
 import type { z, ZodObject, ZodType } from 'zod';
-import { describeSchema, validateBySchema, type FieldDescriptor } from './mapper';
+import { describeSchema, validateBySchema, hasStringId, type FieldDescriptor } from './mapper';
 import FieldHint from '../../components/FieldHint.vue';
 
 const props = defineProps<{
@@ -34,6 +34,8 @@ const props = defineProps<{
   serverErrors?: Record<string, string>;
   /** [Phase3-C7] 页面级标签覆盖（键名 → 显示文案），透传 describeSchema */
   labels?: Record<string, string>;
+  /** [Phase4-D4/B3] 新增态允许编辑 id（仅对 string id 集合生效；编辑态父传 false 保持只读） */
+  idEditable?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -43,6 +45,9 @@ const emit = defineEmits<{
 }>();
 
 const descriptors = computed<FieldDescriptor[]>(() => describeSchema(props.schema, props.labels));
+
+/** [Phase4-D4/B3] id 可编辑生效条件：父允许 + string id 集合（number id 恒自动生成保持只读） */
+const editableId = computed(() => (props.idEditable ?? false) && hasStringId(props.schema));
 
 /** 本地校验错误（schema.parse 在浏览器端跑一次） */
 const localErrors = ref<Record<string, string>>({});
@@ -72,10 +77,23 @@ function jsonTextOf(field: FieldDescriptor): string {
   return JSON.stringify((props.modelValue[field.key] as unknown) ?? [], null, 2);
 }
 
-/** JSON 文本提交：解析为数组才更新字段；失败保留草稿并提示 */
-function updateJsonField(field: FieldDescriptor, text: string): void {
+/** JSON 文本提交：解析为数组才更新字段；失败保留草稿并提示。
+ * [Phase4-D4e/E1] 归一化移出 input（与 C5 tags 同病同治）：原实现在 input 即
+ * JSON.parse——合法中间态（如 `[]`、`["a"]` 闭合瞬间）立即 emit → stringify 回显
+ * reformat 打断输入（缩进改写/光标跳动）；非法中间态红错逐键闪烁。改为 input 透传
+ * 草稿、blur/提交才解析归一。 */
+function onJsonInput(field: FieldDescriptor, text: string): void {
+  jsonDrafts.value = { ...jsonDrafts.value, [field.key]: text };
+}
+
+/** [Phase4-D4e/E1] blur 才解析归一：成功 emit + 清草稿；失败保留草稿 + 报错 */
+function onJsonBlur(field: FieldDescriptor): void {
+  const draft = jsonDrafts.value[field.key];
+  if (draft === undefined) {
+    return;
+  }
   try {
-    const parsed = JSON.parse(text) as unknown;
+    const parsed = JSON.parse(draft) as unknown;
     if (!Array.isArray(parsed)) {
       throw new Error('not an array');
     }
@@ -83,10 +101,106 @@ function updateJsonField(field: FieldDescriptor, text: string): void {
     localErrors.value = { ...localErrors.value, [field.key]: '' };
     updateField(field.key, parsed);
   } catch {
-    jsonDrafts.value = { ...jsonDrafts.value, [field.key]: text };
     localErrors.value = { ...localErrors.value, [field.key]: 'JSON 数组解析失败' };
   }
 }
+
+/** [Phase4-D4e/E1] 提交兜底：未 blur 的 JSON 草稿解析归一（失败字段键返回 failedKeys 由调用方挂错阻断） */
+function normalizePendingJsonDrafts(value: Record<string, unknown>): {
+  value: Record<string, unknown>;
+  failedKeys: string[];
+} {
+  const pending = Object.entries(jsonDrafts.value).filter(([, d]) => d !== undefined);
+  if (pending.length === 0) {
+    return { value, failedKeys: [] };
+  }
+  const next = { ...value };
+  const failedKeys: string[] = [];
+  const cleared = { ...jsonDrafts.value };
+  for (const [key, draft] of pending) {
+    try {
+      const parsed = JSON.parse(draft as string) as unknown;
+      if (!Array.isArray(parsed)) {
+        throw new Error('not an array');
+      }
+      next[key] = parsed;
+      cleared[key] = undefined;
+    } catch {
+      failedKeys.push(key);
+      localErrors.value = { ...localErrors.value, [key]: 'JSON 数组解析失败' };
+    }
+  }
+  jsonDrafts.value = cleared;
+  return { value: next, failedKeys };
+}
+
+/** [Phase4-D4/A5] 字符串数组（tags-text）草稿原文与本组件最近 emit 值 */
+const arrayDrafts = ref<Record<string, string | undefined>>({});
+const lastEmitted: Record<string, unknown> = {};
+
+/** 渲染文本：草稿原文优先（防 emit 回写规范化改写输入），否则 join 回显（编辑态数据源） */
+function arrayTextOf(field: FieldDescriptor): string {
+  const draft = arrayDrafts.value[field.key];
+  if (draft !== undefined) {
+    return draft;
+  }
+  const current = props.modelValue[field.key];
+  return Array.isArray(current) ? (current as string[]).join('、') : '';
+}
+
+/** [C5] 归一化：逗号/中文逗号/顿号分隔 → split（trim + 滤空段）；空文本 → 空数组 */
+function normalizeArrayText(text: string): string[] {
+  return text
+    .split(/[,，、]/)
+    .map((s) => s.trim())
+    .filter((s) => s !== '');
+}
+
+/**
+ * [Phase4-D4/C5] input 透传原值：仅存草稿，不 split、不 emit（归一化移出 input）。
+ * 原实现（A5）在 input 即数组化 emit → modelValue 每键更新 → watch 清草稿判定
+ * `nv[key] !== lastEmitted[key]` 在 reactive 代理数组 vs raw 数组上恒真 → 草稿
+ * 每键被清 → join 回显吃掉分隔符（用户真机复现：逐键输入顿号/逗号无法进入输入框；
+ * fill 整串一次成型掩盖——C5 二分探针实锤：type '甲,' → 输入框 '甲'）。
+ */
+function onArrayInput(field: FieldDescriptor, text: string): void {
+  arrayDrafts.value = { ...arrayDrafts.value, [field.key]: text };
+}
+
+/** [Phase4-D4/C5] blur 才归一：split → trim → 滤空段 → 数组化 emit → 清草稿（join 回显归一结果） */
+function onArrayBlur(field: FieldDescriptor): void {
+  const draft = arrayDrafts.value[field.key];
+  if (draft === undefined) {
+    return;
+  }
+  const parts = normalizeArrayText(draft);
+  arrayDrafts.value = { ...arrayDrafts.value, [field.key]: undefined };
+  lastEmitted[field.key] = parts;
+  updateField(field.key, parts);
+}
+
+/**
+ * 外部数据替换（非本组件 emit 回写，如打开编辑抽屉载入他条）→ 清草稿回显新值。
+ * [Phase4-D4/C5] 比对改**值语义**（JSON.stringify 深比较）：reactive 代理数组与
+ * lastEmitted 持有的 raw 数组 `!==` 恒真（原引用比对失效致草稿每键被清），禁用。
+ * input 期间 modelValue 不再变化（onArrayInput 不 emit），本 watch 仅服务 blur 后
+ * 回写（draft 已清，skip）与外部替换（清草稿回显新值）两态。
+ */
+watch(
+  () => props.modelValue,
+  (nv) => {
+    for (const key of Object.keys(arrayDrafts.value)) {
+      const draft = arrayDrafts.value[key];
+      if (draft === undefined) {
+        continue;
+      }
+      const expected = lastEmitted[key] ?? normalizeArrayText(draft);
+      if (JSON.stringify(nv[key]) !== JSON.stringify(expected)) {
+        arrayDrafts.value = { ...arrayDrafts.value, [key]: undefined };
+      }
+    }
+  },
+);
 
 /** 嵌套对象字段更新 */
 function updateNestedField(parentKey: string, childKey: string, value: unknown): void {
@@ -121,7 +235,27 @@ function removeTag(field: FieldDescriptor, index: number): void {
 
 /** 提交：先本地 schema.parse，全通过才 emit submit 给父组件 */
 function onSubmit(): void {
-  const errors = validateBySchema(props.schema, props.modelValue);
+  // [Phase4-D4/C5] 未 blur 草稿兜底归一：键入后直接点提交（未触发 blur）的场景
+  const pendingDrafts = Object.entries(arrayDrafts.value).filter(([, d]) => d !== undefined);
+  let submitting: Record<string, unknown> = props.modelValue;
+  if (pendingDrafts.length > 0) {
+    submitting = { ...props.modelValue };
+    const cleared = { ...arrayDrafts.value };
+    for (const [key, draft] of pendingDrafts) {
+      const parts = normalizeArrayText(draft as string);
+      submitting[key] = parts;
+      lastEmitted[key] = parts;
+      cleared[key] = undefined;
+    }
+    arrayDrafts.value = cleared;
+  }
+  // [Phase4-D4e/E1] JSON 未 blur 草稿兜底：解析失败 → 保留草稿 + 字段级报错阻断提交
+  const jsonNormalized = normalizePendingJsonDrafts(submitting);
+  submitting = jsonNormalized.value;
+  const errors = validateBySchema(props.schema, submitting);
+  for (const key of jsonNormalized.failedKeys) {
+    errors[key] = errors[key] ?? 'JSON 数组解析失败';
+  }
   // [B2/裁决 9] id 只读自动分配：新增态留空（服务端 max+1），本地校验跳过该字段
   if (descriptors.value.some((f) => f.readOnly)) {
     delete errors['id'];
@@ -130,7 +264,7 @@ function onSubmit(): void {
   if (Object.keys(errors).length > 0) {
     return;
   }
-  emit('submit', props.modelValue);
+  emit('submit', submitting);
 }
 
 /** serverErrors 变化时清掉本地同字段错误（后端为权威） */
@@ -195,12 +329,19 @@ function errorFor(key: string, childKey?: string): string {
           <span class="field-label-text">{{ field.label }}</span>
           <FieldHint v-if="field.required" :description="field.description" :label="field.label" />
         </template>
-        <!-- [B2/裁决 9 + C2b] id 自动生成：只读展示（编辑态显示现值、新增态留空提示） -->
+        <!-- [B2/裁决 9 + C2b] id 只读展示（编辑态显示现值、新增态留空提示）；
+             [Phase4-D4/B3] string id 集合新增态可输入（idEditable，服务端 slugify 白名单为准） -->
         <el-input
-          v-if="field.readOnly"
+          v-if="field.readOnly && !editableId"
           :model-value="modelValue[field.key] === undefined || modelValue[field.key] === null ? '' : String(modelValue[field.key])"
           disabled
           placeholder="留空自动生成"
+        />
+        <el-input
+          v-else-if="field.readOnly && editableId"
+          :model-value="modelValue[field.key] === undefined || modelValue[field.key] === null ? '' : String(modelValue[field.key])"
+          placeholder="可留空自动生成；仅小写字母、数字与连字符（-）"
+          @update:model-value="(v: unknown) => updateField(field.key, v)"
         />
         <!-- 字符串长文本 -->
         <el-input
@@ -242,14 +383,23 @@ function errorFor(key: string, childKey?: string): string {
         >
           <el-option v-for="opt in field.options" :key="opt" :label="opt" :value="opt" />
         </el-select>
-        <!-- [C2b] 对象数组（timeline.links）：JSON 文本框兜底（T4.2 取舍口径） -->
+        <!-- [C2b→E1] 对象数组（timeline.links）：JSON 文本框兜底——input 透传草稿、blur 才解析（与 C5 同病同治） -->
         <el-input
           v-else-if="field.widget === 'json'"
           :model-value="jsonTextOf(field)"
           type="textarea"
           :rows="6"
           :placeholder="JSON_PLACEHOLDER"
-          @update:model-value="(v: string) => updateJsonField(field, v)"
+          @update:model-value="(v: string) => onJsonInput(field, v)"
+          @blur="onJsonBlur(field)"
+        />
+        <!-- [Phase4-D4/A5→C5] 字符串数组：input 透传原值（草稿态），blur 才归一数组化 -->
+        <el-input
+          v-else-if="field.widget === 'tags-text'"
+          :model-value="arrayTextOf(field)"
+          :placeholder="`多项用逗号/顿号分隔，如：甲、乙`"
+          @update:model-value="(v: string) => onArrayInput(field, v)"
+          @blur="onArrayBlur(field)"
         />
         <!-- 标签数组 -->
         <div v-else-if="field.widget === 'tags'" class="tags-input">

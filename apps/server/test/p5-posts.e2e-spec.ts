@@ -27,6 +27,9 @@ import { initAndLogin, withAuth } from './helpers/admin-auth';
  * sync 幂等、事件断言（post.changed / article.published / content.changed）、about。
  * [P6 守卫适配] beforeAll 中 init + login 取得 access token，
  * 全部请求经 withAuth 代理自动附加（适配方式见 P6 交付报告 §6.11）。
+ * [Phase4-D4/B2] 追加文件形态四规则 e2e（B2-①~④）：sync 识别（filePath 实路径投影）/
+ * 列表详情往返 / 写面 400 指引（删③·改·封④）/ 同名冲突目录式优先（②）。
+ * fixture 增 standalone.md 单文件样例（授权项；全 spec 断言均为 >=/toContain 加法安全）。
  */
 
 const FIXTURE_DIR = path.resolve(__dirname, 'fixtures/mizuki');
@@ -369,6 +372,231 @@ describe('P5 Markdown 文章 e2e', () => {
     expect(slugs).toContain('fm-round');
     const round = (list.body as { slug: string; status: string }[]).find((item) => item.slug === 'fm-round');
     expect(round?.status).toBe('published');
+  });
+
+  // ── [Phase4-D4/B2] 文件形态四规则 e2e（fixture 增 standalone.md 单文件样例） ──
+
+  it('B2-① sync 识别文件形态：standalone.md 入库且 filePath 为 .md 实路径、哈希与状态正确', async () => {
+    // fixture 单文件样例已在 §6.5 sync 入库；此处复跑 sync 验证幂等 + 文件形态投影
+    const res = await server().post('/api/v1/admin/posts/sync');
+    expect(res.status).toBe(201);
+    expect(res.body.inserted).toBe(0); // 幂等零新增（已入库）
+
+    const sqlite = app.get<Database.Database>(SQLITE_CONNECTION);
+    const row = sqlite
+      .prepare(
+        "SELECT file_path, file_hash, status FROM article WHERE slug = 'standalone' AND source_type = 'markdown' AND deleted_at IS NULL",
+      )
+      .get() as { file_path: string; file_hash: string; status: string } | undefined;
+    expect(row).toBeDefined();
+    // 规则①：slug = 文件名去 .md 直取；article.filePath = 文件形态 .md 实路径（禁目录形态硬编码）
+    expect(row!.file_path).toBe('src/content/posts/standalone.md');
+    const actual = fs.readFileSync(path.join(mizukiRoot, 'src/content/posts/standalone.md'), 'utf8');
+    expect(row!.file_hash).toBe(createHash('sha256').update(actual).digest('hex'));
+    expect(row!.status).toBe('published');
+  });
+
+  it('B2-② 列表/详情往返：文件形态文章在列表可见、GET 详情返回原文', async () => {
+    const list = await server().get('/api/v1/admin/posts');
+    expect(list.status).toBe(200);
+    const item = (list.body as { slug: string; frontmatter: Record<string, unknown> }[]).find(
+      (p) => p.slug === 'standalone',
+    );
+    expect(item).toBeDefined();
+    expect(item!.frontmatter['title']).toBe('单文件样例');
+
+    const detail = await server().get('/api/v1/admin/posts/standalone');
+    expect(detail.status).toBe(200);
+    expect(detail.body.frontmatter['description']).toBe('文件形态样例文章（无同名目录与 index.md）');
+    expect(String(detail.body.content)).toContain('文件形态正文');
+  });
+
+  it('B2-③ 文件形态写面限制（C2 后剩余）：封面上传 400 指引（规则④；删除拒绝移交 C2-②）', async () => {
+    // [Phase4-D4/C2] 原本锚的「PATCH 400 指引请直接编辑源文件」与「删除 400」两段：
+    // PATCH 随编辑解除（supersede B2 只读分派）翻转为 200 往返（见 C2-①）；删除 400
+    // 保留并扩断言（见 C2-②）。本锚剩余职责 = 规则④ 封面上传拒绝。
+    const cover = await server()
+      .post('/api/v1/admin/posts/standalone/cover')
+      .attach('file', Buffer.from('fake-image-bytes'), 'cover.png');
+    expect(cover.status).toBe(400);
+
+    // 拒绝路径零副作用：盘上源文件仍在
+    expect(fs.existsSync(path.join(mizukiRoot, 'src/content/posts/standalone.md'))).toBe(true);
+  });
+
+  it('C2-① [Phase4-D4/C2] 文件形态编辑解除：PATCH frontmatter+内容往返、盘上字节正确、无影子分叉', async () => {
+    // 编辑解除（产品裁定 supersede B2 只读分派，架构师授权 2026-09-08）：
+    // file-form 与目录式共用读写管线，写回定位 = resolvePostFile 既有产物（.md 实路径）。
+    const patch = await server()
+      .patch('/api/v1/admin/posts/standalone')
+      .send({
+        frontmatter: { description: 'C2 编辑解除改写样例', published: '2026-09-08' },
+        content: 'C2 往返正文（file-form 编辑解除验证）',
+      });
+    expect(patch.status).toBe(200);
+
+    // 无影子分叉：原 .md 实路径被改写、不产生目录式复本
+    const fileAbs = path.join(mizukiRoot, 'src/content/posts/standalone.md');
+    expect(fs.existsSync(fileAbs)).toBe(true);
+    expect(fs.existsSync(path.join(mizukiRoot, 'src/content/posts/standalone/index.md'))).toBe(false);
+
+    // 盘上字节正确：frontmatter 增量合并落盘（published 裸日期无引号 = S3 语义）
+    const onDisk = fs.readFileSync(fileAbs, 'utf8');
+    expect(onDisk).toContain('description: C2 编辑解除改写样例');
+    expect(onDisk).toContain('published: 2026-09-08');
+    expect(onDisk).toContain('C2 往返正文（file-form 编辑解除验证）');
+
+    // 索引投影：filePath 恒 .md 实路径（禁目录形态硬编码）、哈希与盘上一致
+    const sqlite = app.get<Database.Database>(SQLITE_CONNECTION);
+    const row = sqlite
+      .prepare(
+        "SELECT file_path, file_hash FROM article WHERE slug = 'standalone' AND source_type = 'markdown' AND deleted_at IS NULL",
+      )
+      .get() as { file_path: string; file_hash: string } | undefined;
+    expect(row).toBeDefined();
+    expect(row!.file_path).toBe('src/content/posts/standalone.md');
+    expect(row!.file_hash).toBe(createHash('sha256').update(onDisk).digest('hex'));
+
+    // GET 回读往返一致
+    const detail = await server().get('/api/v1/admin/posts/standalone');
+    expect(detail.status).toBe(200);
+    expect(detail.body.frontmatter['description']).toBe('C2 编辑解除改写样例');
+    expect(String(detail.body.content)).toContain('C2 往返正文（file-form 编辑解除验证）');
+  });
+
+  it('C2-② [Phase4-D4/C2] 文件形态删除仍拒：400 指引 + 源文件/索引行零副作用（规则③保留）', async () => {
+    const del = await server().delete('/api/v1/admin/posts/standalone');
+    expect(del.status).toBe(400);
+    expect(JSON.stringify(del.body)).toContain('请在文件系统删除源文件');
+
+    // 零副作用：盘上源文件仍在、索引行未软删
+    expect(fs.existsSync(path.join(mizukiRoot, 'src/content/posts/standalone.md'))).toBe(true);
+    const sqlite = app.get<Database.Database>(SQLITE_CONNECTION);
+    const row = sqlite
+      .prepare(
+        "SELECT deleted_at FROM article WHERE slug = 'standalone' AND source_type = 'markdown'",
+      )
+      .get() as { deleted_at: string | null } | undefined;
+    expect(row).toBeDefined();
+    expect(row!.deleted_at).toBeNull();
+  });
+
+  it('B2-④ 同名冲突：目录式优先、文件式跳过（规则②），读取面恒解析到目录式', async () => {
+    // 构造冲突：文件式与 fixture 目录式 hello-world 并存
+    const conflictAbs = path.join(mizukiRoot, 'src/content/posts/hello-world.md');
+    fs.writeFileSync(
+      conflictAbs,
+      '---\ntitle: 冲突文件形态\ndescription: 冲突样例\n---\n\n冲突正文。\n',
+    );
+    try {
+      const list = await server().get('/api/v1/admin/posts');
+      expect(list.status).toBe(200);
+      const matches = (list.body as { slug: string; frontmatter: Record<string, unknown> }[]).filter(
+        (p) => p.slug === 'hello-world',
+      );
+      expect(matches.length).toBe(1); // 目录式胜出，文件式跳过 + pino warn（日志面不进断言）
+      expect(matches[0]!.frontmatter['title']).toBe('Hello World');
+
+      const detail = await server().get('/api/v1/admin/posts/hello-world');
+      expect(detail.status).toBe(200);
+      expect(detail.body.frontmatter['title']).toBe('Hello World');
+    } finally {
+      try {
+        fs.rmSync(conflictAbs, { force: true });
+      } catch {
+        // 沙箱 shim 可能拦截删除：冲突文件位于 spec 私有 tmp（mizukiRoot），残留不影响其他 spec
+      }
+    }
+  });
+
+  it('§6.8 [Phase4-D4/B1] deriveStatus 优先链钉版：draft:true 优先 / published:false 遗留按 draft / published 日期形态不误伤', async () => {
+    const base = { description: 'B1 优先链验收' };
+    // ① draft:true 与 published 日期并存 → draft（draft 布尔开关优先于一切 published 形态）
+    const a = await server()
+      .post('/api/v1/admin/posts')
+      .send({
+        slug: 'b1-draft-wins',
+        frontmatter: { title: 'B1甲', ...base, draft: true, published: '2026-01-01' },
+        content: 'x',
+      });
+    expect(a.status).toBe(201);
+
+    // ② published:false（历史面板误写布尔，ADR-025 安全向保留分支）→ draft + pino warn
+    const b = await server()
+      .post('/api/v1/admin/posts')
+      .send({
+        slug: 'b1-published-false',
+        frontmatter: { title: 'B1乙', ...base, published: false },
+        content: 'x',
+      });
+    expect(b.status).toBe(201);
+
+    // ③ published:'2026-01-01'（官方日期语义）且无 draft → published（日期形态不得误伤为草稿）
+    const c = await server()
+      .post('/api/v1/admin/posts')
+      .send({
+        slug: 'b1-published-date',
+        frontmatter: { title: 'B1丙', ...base, published: '2026-01-01' },
+        content: 'x',
+      });
+    expect(c.status).toBe(201);
+
+    // status 为派生值，PostView/详情响应零投影（§6.1 同源）——经 sync 入库后以
+    // DB article 行为权威载体断言（§6.5 同通道）
+    const synced = await server().post('/api/v1/admin/posts/sync');
+    expect(synced.status).toBe(201);
+    const sqlite = app.get<Database.Database>(SQLITE_CONNECTION);
+    const rows = sqlite
+      .prepare("SELECT slug, status FROM article WHERE source_type = 'markdown' AND deleted_at IS NULL")
+      .all() as { slug: string; status: string }[];
+    expect(rows.find((row) => row.slug === 'b1-draft-wins')?.status).toBe('draft');
+    expect(rows.find((row) => row.slug === 'b1-published-false')?.status).toBe('draft');
+    expect(rows.find((row) => row.slug === 'b1-published-date')?.status).toBe('published');
+  });
+
+  // ── [Phase4-D4/S3/S4] 补充波次锚 ──
+
+  it('[Phase4-D4/S3/B1b] published 裸日期落盘：创建含日期 → 文件无引号 yyyy-mm-dd + 再写幂等', async () => {
+    const created = await server()
+      .post('/api/v1/admin/posts')
+      .send({
+        slug: 's3-bare-date',
+        frontmatter: { title: 'S3 裸日期', description: 'S3 断言载体', published: '2026-01-02' },
+        content: 'x',
+      });
+    expect(created.status).toBe(201);
+
+    const fileAbs = path.join(mizukiRoot, 'src/content/posts/s3-bare-date/index.md');
+    const text1 = fs.readFileSync(fileAbs, 'utf8');
+    // 官方裸日期形态（无引号）：js-yaml 对日期形字符串恒带引号、对 Date 恒输出完整 ISO，
+    // 两路皆非官方形态 —— stringifyPostMarkdown 自拼归一（S3 实证注记见实现处）
+    expect(text1).toContain('published: 2026-01-02\n');
+    expect(text1).not.toContain("published: '2026-01-02'");
+    expect(text1).not.toContain('published: 2026-01-02T');
+
+    // 再写幂等：PATCH 其他键 → published 解析为 Date（UTC 零点）→ 重写仍归一为裸日期
+    const patched = await server()
+      .patch('/api/v1/admin/posts/s3-bare-date')
+      .send({ frontmatter: { category: 'e2e' } });
+    expect(patched.status).toBe(200);
+    const text2 = fs.readFileSync(fileAbs, 'utf8');
+    expect(text2).toContain('published: 2026-01-02\n');
+    expect(text2).not.toContain('2026-01-02T');
+  });
+
+  it('[Phase4-D4/S4/B2b] source 形态标志：文件式 standalone 读回 source=\'file\'、目录式 source=\'dir\'（零路径面）', async () => {
+    const detail = await server().get('/api/v1/admin/posts/standalone');
+    expect(detail.status).toBe(200);
+    const detailBody = detail.body as { slug: string; source: string };
+    expect(detailBody.source).toBe('file');
+    // R1 注记：source 为字面量枚举，响应不含 relPath/fileAbs 等路径面
+    expect(JSON.stringify(detailBody)).not.toContain('src/content/posts');
+
+    const list = await server().get('/api/v1/admin/posts');
+    expect(list.status).toBe(200);
+    const rows = list.body as { slug: string; source: string }[];
+    expect(rows.find((row) => row.slug === 'standalone')?.source).toBe('file');
+    expect(rows.find((row) => row.slug === 'hello-world')?.source).toBe('dir');
   });
 });
 

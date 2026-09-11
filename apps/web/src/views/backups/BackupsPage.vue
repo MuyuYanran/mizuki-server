@@ -9,6 +9,8 @@ import { onMounted, ref } from 'vue';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import { backupsApi, type BackupRecordInfo, type BackupScope } from '../../api/backups';
 import { ApiError } from '../../api/http';
+import { notifyApiError } from '../../lib/notify';
+import { formatSize, formatTime } from '../../lib/format';
 
 const list = ref<BackupRecordInfo[]>([]);
 const loading = ref(false);
@@ -33,7 +35,7 @@ async function fetchList(): Promise<void> {
   try {
     list.value = await backupsApi.list();
   } catch (e) {
-    handleError(e, '加载备份列表失败');
+    notifyApiError(e, '加载备份列表失败');
   } finally {
     loading.value = false;
   }
@@ -52,7 +54,7 @@ async function onCreate(): Promise<void> {
     createVisible.value = false;
     await fetchList();
   } catch (e) {
-    handleError(e, '创建备份失败');
+    notifyApiError(e, '创建备份失败');
   } finally {
     creating.value = false;
   }
@@ -76,7 +78,7 @@ async function onRestore(record: BackupRecordInfo): Promise<void> {
     ElMessage.success(msg);
     await fetchList();
   } catch (e) {
-    handleError(e, '恢复失败');
+    notifyApiError(e, '恢复失败');
   }
 }
 
@@ -93,27 +95,12 @@ async function onDelete(record: BackupRecordInfo): Promise<void> {
     ElMessage.success('已删除');
     await fetchList();
   } catch (e) {
-    handleError(e, '删除失败');
+    notifyApiError(e, '删除失败');
   }
 }
 
-function formatSize(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
-}
 
-function formatTime(iso: string): string {
-  return new Date(iso).toLocaleString('zh-CN');
-}
 
-function handleError(e: unknown, fallback: string): void {
-  if (e instanceof ApiError) {
-    ElMessage.error(e.message);
-  } else {
-    ElMessage.error(fallback);
-  }
-}
 
 onMounted(() => {
   void fetchList();

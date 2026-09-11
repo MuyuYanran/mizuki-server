@@ -28,6 +28,7 @@ import { nanoid } from 'nanoid';
 import { z } from 'zod';
 import { ContentChangedPayload, EVENTS } from '@mizuki/shared';
 import { logger } from '../../common/logger';
+import { parseOrBadRequest } from '../../common/validation/zod-issues';
 import { DataFileService } from '../data-files/data-file.service';
 import type { CollectionDef } from './registry';
 
@@ -266,6 +267,18 @@ export class CollectionsService {
     if (autoSlugId) {
       const slug = slugify(String(raw[def.slugSource ?? 'title'] ?? ''));
       raw['id'] = slug === '' ? `item-${nanoid(6)}` : slug;
+    } else if (
+      !def.numericId &&
+      def.shape === 'array' &&
+      def.idField === 'id' &&
+      typeof raw['id'] === 'string'
+    ) {
+      // [Phase4-D4/B3] 字符串 id 显式提供：slugify 幂等探针白名单（服务端为准，
+      // 客户端仅体验层）——slugify(provided) !== provided 即含白名单外字符 → 400
+      const provided = raw['id'];
+      if (slugify(provided) !== provided) {
+        throw new BadRequestException(`id 仅允许小写字母、数字与连字符（-）：${provided}`);
+      }
     }
     for (let attempt = 0; ; attempt += 1) {
       if (autoNumericId) {
@@ -336,21 +349,9 @@ export class CollectionsService {
     }
   }
 
-  /** itemSchema 校验，失败转 BadRequestException（detail 携带 zod issues） */
+  /** itemSchema 校验，失败转 BadRequest（detail 携带 zod issues；单源见 common/validation/zod-issues） */
   private parseItemOrThrow(def: CollectionDef, input: unknown): Item {
-    const result = def.itemSchema.safeParse(input);
-    if (!result.success) {
-      throw new BadRequestException({
-        message: `集合条目校验失败（${def.type}）`,
-        detail: {
-          issues: result.error.issues.map((issue) => ({
-            path: issue.path.join('.'),
-            message: issue.message,
-          })),
-        },
-      });
-    }
-    return result.data as Item;
+    return parseOrBadRequest(def.itemSchema, input, `集合条目校验失败（${def.type}）`) as Item;
   }
 
   /** 写入成功出口：恰好一次发射 content.changed（payload 先过 zod parse） */

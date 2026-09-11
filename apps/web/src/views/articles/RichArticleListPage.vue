@@ -55,7 +55,7 @@ async function onDelete(row: ArticleAdminView): Promise<void> {
 </script>
 
 <template>
-  <div class="rich-article-list-page">
+  <div class="rich-article-list-page panel-card">
     <div class="page-header">
       <h2>富文本文章</h2>
       <el-button type="primary" @click="goNew">新建文章</el-button>
@@ -84,7 +84,7 @@ async function onDelete(row: ArticleAdminView): Promise<void> {
 
 <style scoped>
 .rich-article-list-page {
-  padding: 16px;
+  /* [Phase4-D3] padding 由 .panel-card 统一提供 */
 }
 
 .page-header {

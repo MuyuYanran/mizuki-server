@@ -17,6 +17,7 @@ import { settingsApi } from '../../api/settings';
 import { authApi } from '../../api/auth';
 import { clearAuth } from '../../stores/auth';
 import { ApiError } from '../../api/http';
+import { notifyApiError } from '../../lib/notify';
 
 /** 单个设置项的编辑态 */
 interface SettingItem {
@@ -75,7 +76,7 @@ async function fetchAll(): Promise<void> {
       return { key, value, original: text, text, parseError: '' };
     });
   } catch (e) {
-    handleError(e, '加载设置失败');
+    notifyApiError(e, '加载设置失败');
   } finally {
     loading.value = false;
   }
@@ -105,7 +106,7 @@ async function onSave(item: SettingItem): Promise<void> {
     item.original = item.text;
     ElMessage.success('已保存');
   } catch (e) {
-    handleError(e, '保存失败');
+    notifyApiError(e, '保存失败');
   } finally {
     saving.value = null;
   }
@@ -122,7 +123,7 @@ async function onDelete(item: SettingItem): Promise<void> {
     ElMessage.success('已删除');
     await fetchAll();
   } catch (e) {
-    handleError(e, '删除失败');
+    notifyApiError(e, '删除失败');
   }
 }
 
@@ -145,17 +146,10 @@ async function onAdd(): Promise<void> {
     newValue.value = '';
     await fetchAll();
   } catch (e) {
-    handleError(e, '新增失败');
+    notifyApiError(e, '新增失败');
   }
 }
 
-function handleError(e: unknown, fallback: string): void {
-  if (e instanceof ApiError) {
-    ElMessage.error(e.message);
-  } else {
-    ElMessage.error(fallback);
-  }
-}
 
 // ── [B2/裁决 5] 修改密码卡片 ──
 
@@ -196,7 +190,7 @@ async function onChangePassword(): Promise<void> {
     passwordForm.confirm = '';
     void router.push('/login');
   } catch (e) {
-    handleError(e, '修改密码失败');
+    notifyApiError(e, '修改密码失败');
   } finally {
     changingPassword.value = false;
   }

@@ -9,6 +9,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { z } from 'zod';
+import { atomicWriteFile } from '../common/fs/atomic-write';
 import { logger } from '../common/logger';
 
 /** 配置 schema（字段基线见 P0b 提示词 §3.1，扩展须记 ADR） */
@@ -26,6 +27,17 @@ export const AppConfigSchema = z.object({
   jwtSecret: z.string().optional(),
   /** [B2/裁决 6] Swagger 文档挂载开关（默认 true；公网部署建议置 false，见 README） */
   swagger: z.boolean().default(true),
+  /**
+   * [Wave-2/B3] CORS 白名单扩展条目（默认空数组）。
+   * 修复前：该键未纳入 schema，而 zod 对象默认 strip 未声明键 → getAppConfig()
+   *   永远取不到它，app.setup.ts 的 CORS 扩展通道是**恒不生效的死代码**
+   *   （注释承诺与实现背离，运维配置静默失效且无告警）。
+   * 修复后：纳入 schema 并作为 app.setup 的附加白名单生效。
+   * `.catch([])`：写错形态（如给字符串）时回落空数组，不因配置写法错误导致
+   *   启动失败——与「配置非法即启动失败」的既有取舍的唯一例外，理由是该键
+   *   此前被完全忽略，升级不应因历史脏写法阻断启动。
+   */
+  corsOrigins: z.array(z.string()).catch([]),
 });
 
 export type AppConfig = z.infer<typeof AppConfigSchema>;
@@ -105,9 +117,7 @@ export function mergeAndPersistConfig(patch: Record<string, unknown>): void {
     }
   }
   const next = { ...current, ...patch };
-  fs.mkdirSync(path.dirname(configPath), { recursive: true });
-  const tmp = path.join(path.dirname(configPath), `.tmp-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
-  fs.writeFileSync(tmp, JSON.stringify(next, null, 2));
-  fs.renameSync(tmp, configPath);
+  // 原子写单源（common/fs/atomic-write）：目录自动创建 + 临时文件失败清理
+  atomicWriteFile(configPath, JSON.stringify(next, null, 2), { ensureDir: true });
   logger.info({ configPath, keys: Object.keys(patch) }, 'config.json 已更新');
 }

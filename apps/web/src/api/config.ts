@@ -17,6 +17,10 @@ export interface SiteConfigView {
   };
   /** override 存在 → override 值；否则基线有效值；均不可得 → null */
   commentConfig: Record<string, unknown> | null;
+  /** [Phase4-D3] nav：override 存在 → override 值（空数组 = 清空导航合法态）；否则基线；均不可得 → null */
+  nav: { links: unknown[] } | null;
+  /** [Phase4-D3] 基线 nav 解析值（真实主题含 LinkPreset 标识符 → null，降级分支） */
+  baselineNav: { links: unknown[] } | null;
 }
 
 export const configApi = {
@@ -31,5 +35,14 @@ export const configApi = {
 
   putComments(comments: Record<string, unknown>): Promise<SiteConfigView> {
     return request<SiteConfigView>('PUT', '/admin/config/comments', comments);
+  },
+
+  /** [Phase4-D3] links undefined = 清除还原主题默认；[] = 合法清空导航（破坏性语义） */
+  putNav(links: unknown[] | undefined): Promise<SiteConfigView> {
+    return request<SiteConfigView>(
+      'PUT',
+      '/admin/config/nav',
+      links === undefined ? {} : { links },
+    );
   },
 };

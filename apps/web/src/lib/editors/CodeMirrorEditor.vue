@@ -145,7 +145,23 @@ function getValue(): string {
   return viewRef.value?.state.doc.toString() ?? '';
 }
 
-defineExpose({ getValue });
+/**
+ * [Phase4-D2/T5 图片按钮回调接入面] 光标处插入文本（选区末尾 dispatch；
+ * 插入经 updateListener 正常走 emit，modelValue 同步不变）。
+ */
+function insertAtCursor(text: string): void {
+  const view = viewRef.value;
+  if (view === null) {
+    return;
+  }
+  const pos = view.state.selection.main.to;
+  view.dispatch({
+    changes: { from: pos, insert: text },
+    selection: { anchor: pos + text.length },
+  });
+}
+
+defineExpose({ getValue, insertAtCursor });
 </script>
 
 <template>

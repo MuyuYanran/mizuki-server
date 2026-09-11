@@ -15,7 +15,7 @@ export const DiaryItemSchema = z.object({
   images: z
     .array(z.string())
     .optional()
-    .describe('本地图片填媒体库回传的相对路径（public/images/uploads/…），外链直接粘贴 URL'),
+    .describe('本地图片填站点 URL（/images/uploads/…，上传/选择图片按钮自动回填），外链直接粘贴 http(s) URL'),
   location: z.string().optional(),
   mood: z.string().optional(),
   tags: z.array(z.string()).optional(),

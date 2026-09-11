@@ -38,6 +38,7 @@ export type WidgetKind =
   | 'number'
   | 'select'
   | 'tags'
+  | 'tags-text'
   | 'date'
   | 'group'
   | 'json';
@@ -209,12 +210,16 @@ function describeField(key: string, raw: ZodType, labels?: Record<string, string
     return { key, label, widget: 'select', required, options: rawOptions.map(String), description };
   }
 
-  // 数组（ZodArray<ZodString>）→ tags；元素为对象（如 timeline.links）→
-  // [C2b] JSON 文本框兜底（提示词 T4.2：mapper 扩展对象数组工程量过大时的兜底口径）
+  // 数组：元素为对象（如 timeline.links）→ [C2b] JSON 文本框兜底（提示词 T4.2：
+  // mapper 扩展对象数组工程量过大时的兜底口径）；[Phase4-D4/A5] 元素为字符串 →
+  // tags-text（逗号/顿号分隔文本框，提交 split、编辑 join 回显）；其余 → tags 兜底
   if (kind === 'ZodArray') {
     const element = (inner as unknown as { element?: ZodType }).element;
     if (element !== undefined && typeName(element) === 'ZodObject') {
       return { key, label, widget: 'json', required, description };
+    }
+    if (element !== undefined && typeName(element) === 'ZodString') {
+      return { key, label, widget: 'tags-text', required, description };
     }
     return { key, label, widget: 'tags', required, description };
   }
@@ -276,6 +281,27 @@ export function describeSchema(
     const fd = describeField(key, type, labels);
     return key === 'id' ? { ...fd, readOnly: true } : fd;
   });
+}
+
+/**
+ * [Phase4-D4/B3] 集合 id 是否字符串形：string id（projects/timeline/skills）新增态
+ * 可输入（服务端 slugify 白名单为准）；number id（diary/friends）恒自动生成、保持只读。
+ * 内省路径与 unwrapOptional 一致（optional/default 包装链解开后看构造器名）。
+ */
+export function hasStringId(schema: ZodObject<Record<string, ZodType>>): boolean {
+  const raw = schema.shape['id'];
+  if (raw === undefined) {
+    return false;
+  }
+  const ctor = (t: ZodType): string => t.constructor.name;
+  let inner = raw;
+  if (ctor(inner) === 'ZodOptional') {
+    inner = (inner as unknown as ZodOptional<ZodType>).unwrap();
+  }
+  if (ctor(inner) === 'ZodDefault') {
+    inner = (inner as unknown as ZodDefault<ZodType>).unwrap();
+  }
+  return ctor(inner) === 'ZodString';
 }
 
 /** 提交前用同一份 schema 在浏览器端 parse 一次，返回按字段路径索引的错误映射 */

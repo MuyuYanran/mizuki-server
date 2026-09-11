@@ -20,6 +20,8 @@ import { processApi, type ProcessTaskName, type TaskView, type PortProbeResult }
 import { previewApi } from '../../api/preview';
 import { ApiError } from '../../api/http';
 import LogTerminal from '../../components/LogTerminal.vue';
+import { notifyApiError } from '../../lib/notify';
+import { formatTime } from '../../lib/format';
 
 const TASK_OPTIONS: { value: ProcessTaskName; label: string }[] = [
   { value: 'install', label: '安装依赖' },
@@ -58,7 +60,7 @@ async function openPreview(): Promise<void> {
       '_blank',
     );
   } catch (e) {
-    handleError(e, '获取站点预览票据失败');
+    notifyApiError(e, '获取站点预览票据失败');
   } finally {
     previewOpening.value = false;
   }
@@ -70,7 +72,7 @@ async function startTask(task: ProcessTaskName): Promise<void> {
     currentTask.value = await processApi.startTask(task);
     ElMessage.success(`任务已启动：${task}（pid ${currentTask.value.pid}）`);
   } catch (e) {
-    handleError(e, '启动任务失败');
+    notifyApiError(e, '启动任务失败');
   } finally {
     starting.value = false;
   }
@@ -84,7 +86,7 @@ async function stopTask(): Promise<void> {
     currentTask.value = await processApi.stopTask(currentTask.value.id);
     ElMessage.success('停止请求已发出');
   } catch (e) {
-    handleError(e, '停止任务失败');
+    notifyApiError(e, '停止任务失败');
   }
 }
 
@@ -122,23 +124,13 @@ async function checkPort(): Promise<void> {
   try {
     portResult.value = await processApi.probePort(port);
   } catch (e) {
-    handleError(e, '端口检测失败');
+    notifyApiError(e, '端口检测失败');
   } finally {
     portChecking.value = false;
   }
 }
 
-function formatTime(iso: string): string {
-  return new Date(iso).toLocaleString('zh-CN');
-}
 
-function handleError(e: unknown, fallback: string): void {
-  if (e instanceof ApiError) {
-    ElMessage.error(e.message);
-  } else {
-    ElMessage.error(fallback);
-  }
-}
 </script>
 
 <template>

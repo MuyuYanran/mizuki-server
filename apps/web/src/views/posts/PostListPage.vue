@@ -71,8 +71,12 @@ function goEdit(slug: string): void {
   router.push(`/posts/${encodeURIComponent(slug)}/edit`);
 }
 
+/** [Phase4-D4/S4/B2b→C2] 文件形态删除限制提示（同构服务端规则③文案；置顶已随编辑解除放开） */
+const FILE_FORM_HINT = '文件形态文章不支持经面板删除，请在文件系统删除源文件（同步后索引自动软删）';
+
 /** 置顶切换 */
 async function togglePinned(row: PostListItem): Promise<void> {
+  // [Phase4-D4/C2] 原 B2b 置顶守卫已拆除（file-form 编辑解除，updatePost 可达）
   const current = row.frontmatter['pinned'] === true;
   const next = !current;
   try {
@@ -86,6 +90,11 @@ async function togglePinned(row: PostListItem): Promise<void> {
 
 /** 删除（二次确认 → 记入回收站） */
 async function onDelete(row: PostListItem): Promise<void> {
+  // [Phase4-D4/S4/B2b→C2] 删除守卫保留（服务端规则③ 400 同构；编辑解除不影响删除限制）
+  if (row.source === 'file') {
+    ElMessage.warning(FILE_FORM_HINT);
+    return;
+  }
   try {
     await ElMessageBox.confirm(`确认删除文章「${row.slug}」？（可从回收站恢复）`, '删除确认', {
       type: 'warning',
@@ -143,6 +152,12 @@ function pinnedOf(row: PostListItem): boolean {
   return row.frontmatter['pinned'] === true;
 }
 
+/** [Phase4-D4/C4] 状态标签 i18n（published/draft 英文裸值 → 中文；未知值回退原文） */
+const STATUS_LABELS: Record<string, string> = { published: '已发布', draft: '草稿' };
+function statusLabel(status: string): string {
+  return STATUS_LABELS[status] ?? status;
+}
+
 /** 取日期 */
 function dateOf(row: PostListItem): string {
   const d = row.frontmatter['pubDate'] ?? row.frontmatter['date'];
@@ -157,7 +172,7 @@ function dateOf(row: PostListItem): string {
 </script>
 
 <template>
-  <div class="post-list-page">
+  <div class="post-list-page panel-card">
     <div class="page-header">
       <h2>Markdown 文章</h2>
       <el-button type="primary" @click="goNew">新建文章</el-button>
@@ -175,7 +190,9 @@ function dateOf(row: PostListItem): string {
       <el-table-column label="标题">
         <template #default="{ row }">{{ titleOf(row) }}</template>
       </el-table-column>
-      <el-table-column prop="status" label="状态" width="100" />
+      <el-table-column label="状态" width="100">
+        <template #default="{ row }">{{ statusLabel(row.status) }}</template>
+      </el-table-column>
       <el-table-column label="置顶" width="80">
         <template #default="{ row }">
           <el-tag v-if="pinnedOf(row)" type="warning" size="small">置顶</el-tag>
@@ -184,13 +201,22 @@ function dateOf(row: PostListItem): string {
       <el-table-column label="日期" width="120">
         <template #default="{ row }">{{ dateOf(row) }}</template>
       </el-table-column>
-      <el-table-column label="操作" width="260" fixed="right">
+      <el-table-column label="操作" width="300" fixed="right">
         <template #default="{ row }">
+          <!-- [Phase4-D4/S4/B2b→C2] 文件形态（source==='file'）剩余限制：仅删除禁用
+               + 「文件」标志（title 提示同构服务端规则③文案）；置顶/编辑随编辑解除放开 -->
+          <el-tag v-if="row.source === 'file'" type="info" size="small" :title="FILE_FORM_HINT">文件</el-tag>
           <el-button size="small" @click="goEdit(row.slug)">编辑</el-button>
           <el-button size="small" @click="togglePinned(row)">
             {{ pinnedOf(row) ? '取消置顶' : '置顶' }}
           </el-button>
-          <el-button size="small" type="danger" @click="onDelete(row)">删除</el-button>
+          <el-button
+            size="small"
+            type="danger"
+            :disabled="row.source === 'file'"
+            :title="row.source === 'file' ? FILE_FORM_HINT : undefined"
+            @click="onDelete(row)"
+          >删除</el-button>
         </template>
       </el-table-column>
     </el-table>
@@ -218,7 +244,7 @@ function dateOf(row: PostListItem): string {
 
 <style scoped>
 .post-list-page {
-  padding: 16px;
+  /* [Phase4-D3] padding 由 .panel-card 统一提供 */
 }
 
 .page-header {

@@ -19,6 +19,7 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
+import { extractBearerToken } from '../http/bearer';
 import { logger } from '../logger';
 import { IS_PUBLIC_KEY } from '../decorators/public.decorator';
 
@@ -77,12 +78,4 @@ export class JwtAuthGuard implements CanActivate {
   }
 }
 
-/** 从 Authorization 头提取 Bearer token（格式不符返回 undefined） */
-function extractBearerToken(header: string | string[] | undefined): string | undefined {
-  const value = Array.isArray(header) ? header[0] : header;
-  if (!value) {
-    return undefined;
-  }
-  const match = /^Bearer\s+(.+)$/i.exec(value.trim());
-  return match ? match[1]!.trim() : undefined;
-}
+

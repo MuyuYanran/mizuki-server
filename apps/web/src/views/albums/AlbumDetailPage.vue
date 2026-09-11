@@ -20,6 +20,9 @@ import 'viewerjs/dist/viewer.css';
 import { albumsApi, type AlbumView, type AlbumInfo, type ExternalPhoto } from '../../api/albums';
 import { ApiError } from '../../api/http';
 import { imageSrc } from '../../lib/image-src';
+import MediaPicker, { type MediaPickResult } from '../../components/MediaPicker.vue';
+import { notifyApiError } from '../../lib/notify';
+import { dateOrEmpty } from '../../lib/format';
 
 const route = useRoute();
 const albumName = computed(() => decodeURIComponent(String(route.params['id'] ?? '')));
@@ -78,6 +81,10 @@ interface EditForm {
   columns: number | null;
   /** [Phase3-C2a] hidden:true 隐藏（不出现在公开列表，非访问控制） */
   hidden: boolean;
+  /** [Phase4-D2/#5] 相册模式（可切换；服务端双向 409 守卫：本地非空禁切外链、外链非空禁切本地） */
+  mode: 'local' | 'external';
+  /** [Phase4-D2/#5] 外链模式封面（主题渲染链必需；切换/维持外链时必填） */
+  cover: string;
 }
 
 const editVisible = ref(false);
@@ -90,6 +97,8 @@ const editForm = ref<EditForm>({
   layout: '',
   columns: null,
   hidden: false,
+  mode: 'local',
+  cover: '',
 });
 
 async function fetchDetail(): Promise<void> {
@@ -104,7 +113,7 @@ async function fetchDetail(): Promise<void> {
     failedThumbs.value = {};
     thumbFallback.value = {};
   } catch (e) {
-    handleError(e, '加载相册详情失败');
+    notifyApiError(e, '加载相册详情失败');
   } finally {
     loading.value = false;
   }
@@ -133,7 +142,7 @@ async function onUploadChange(event: Event): Promise<void> {
     ElMessage.success('上传完成');
     await fetchDetail();
   } catch (e) {
-    handleError(e, '上传图片失败');
+    notifyApiError(e, '上传图片失败');
   } finally {
     uploading.value = false;
     input.value = '';
@@ -142,7 +151,7 @@ async function onUploadChange(event: Event): Promise<void> {
 
 /** [B3.6] 编辑对话框日期选择回调：清空回调 null → 空串 */
 function onDatePick(value: unknown): void {
-  editForm.value.date = typeof value === 'string' ? value : '';
+  editForm.value.date = dateOrEmpty(value);
 }
 
 /** [R2-8] 打开灯箱：从点击图起播，可在全部图间左右切换 */
@@ -192,7 +201,7 @@ async function onDeleteImage(imageName: string): Promise<void> {
     ElMessage.success('已删除');
     await fetchDetail();
   } catch (e) {
-    handleError(e, '删除图片失败');
+    notifyApiError(e, '删除图片失败');
   }
 }
 
@@ -220,6 +229,17 @@ interface PhotoForm {
 }
 
 const externalPhotos = computed(() => album.value?.info.photos ?? []);
+
+/** [Phase4-D2/T4] 外链照片新增/编辑对话框的选图入口 */
+const photoPickerVisible = ref(false);
+
+/** 选图结果回填 src（URL 中心形态；media/album → 站点 URL，external → 原样） */
+function onPhotoPicked(results: MediaPickResult[]): void {
+  const first = results[0];
+  if (first !== undefined) {
+    photoForm.value.src = first.url;
+  }
+}
 
 const photoDialogVisible = ref(false);
 const photoEditingIndex = ref<number | null>(null);
@@ -334,7 +354,7 @@ async function onPhotoSave(): Promise<void> {
     photoDialogVisible.value = false;
     await fetchDetail();
   } catch (e) {
-    handleError(e, '保存照片失败');
+    notifyApiError(e, '保存照片失败');
   } finally {
     photoSaving.value = false;
   }
@@ -356,7 +376,7 @@ async function onPhotoDelete(index: number): Promise<void> {
     ElMessage.success('已删除');
     await fetchDetail();
   } catch (e) {
-    handleError(e, '删除照片失败');
+    notifyApiError(e, '删除照片失败');
   }
 }
 
@@ -373,6 +393,8 @@ function openEdit(): void {
     layout: info.layout ?? '',
     columns: info.columns ?? null,
     hidden: info.hidden === true,
+    mode: info.mode ?? 'local',
+    cover: info.cover ?? '',
   };
   editVisible.value = true;
 }
@@ -380,6 +402,11 @@ function openEdit(): void {
 async function onSaveEdit(): Promise<void> {
   if (editForm.value.title.trim() === '') {
     ElMessage.warning('请输入标题');
+    return;
+  }
+  // [Phase4-D2/#5] 切往（或维持）外链模式必须带 cover（服务端 external schema 必需）
+  if (editForm.value.mode === 'external' && editForm.value.cover.trim() === '') {
+    ElMessage.warning('外链模式相册必须填写封面地址（cover）');
     return;
   }
   saving.value = true;
@@ -391,26 +418,25 @@ async function onSaveEdit(): Promise<void> {
       location: editForm.value.location || undefined,
       layout: (editForm.value.layout || undefined) as AlbumInfo['layout'],
       columns: editForm.value.columns ?? undefined,
-      hidden: editForm.value.hidden ? true : undefined,
+      // [Phase4-D4/A1] hidden 双态显式入 PATCH body（走查①）：此前 false → undefined
+      // 被 JSON 序列化丢键，spread 合并保留既有 true → 隐藏开关只能开不能关。
+      // 服务端 AlbumInfoSchema.hidden 可空布尔，false 合法（公开语义 hidden !== true）。
+      hidden: editForm.value.hidden,
+      mode: editForm.value.mode,
+      cover: editForm.value.mode === 'external' ? editForm.value.cover.trim() : undefined,
     };
     await albumsApi.update(albumName.value, patch);
     ElMessage.success('已保存');
     editVisible.value = false;
     await fetchDetail();
   } catch (e) {
-    handleError(e, '保存失败');
+    // 模式切换守卫（本地非空 → 409 等）由服务端返回，消息含现存数量
+    notifyApiError(e, '保存失败');
   } finally {
     saving.value = false;
   }
 }
 
-function handleError(e: unknown, fallback: string): void {
-  if (e instanceof ApiError) {
-    ElMessage.error(e.message);
-  } else {
-    ElMessage.error(fallback);
-  }
-}
 
 onMounted(() => {
   void fetchDetail();
@@ -514,6 +540,18 @@ onMounted(() => {
 
     <el-dialog v-model="editVisible" title="编辑相册信息" width="500px">
       <el-form label-width="80px">
+        <!-- [Phase4-D2/#5] 模式切换入口（空本地相册可切外链后增补外链图；
+             非空相册切换由服务端 409 拒绝并提示现存数量——主题双路渲染契约） -->
+        <el-form-item label="模式">
+          <el-radio-group v-model="editForm.mode">
+            <el-radio value="local">本地上传</el-radio>
+            <el-radio value="external">外链图片</el-radio>
+          </el-radio-group>
+          <div class="field-hint">双向切换：本地目录非空禁切外链、外链照片非空禁切本地（409）</div>
+        </el-form-item>
+        <el-form-item v-if="editForm.mode === 'external'" label="封面" required>
+          <el-input v-model="editForm.cover" placeholder="https://... 或 /images/..." />
+        </el-form-item>
         <el-form-item label="标题" required>
           <el-input v-model="editForm.title" />
         </el-form-item>
@@ -563,7 +601,11 @@ onMounted(() => {
     >
       <el-form label-width="90px">
         <el-form-item label="链接(src)" required>
-          <el-input v-model="photoForm.src" placeholder="https://..." />
+          <div class="src-row">
+            <el-input v-model="photoForm.src" placeholder="https://... 或 /images/..." />
+            <!-- [Phase4-D2/T4] 从媒体库/相册/外链选图回填 src（增补选图入口） -->
+            <el-button @click="photoPickerVisible = true">选图</el-button>
+          </div>
         </el-form-item>
         <el-form-item label="ID">
           <el-input v-model="photoForm.id" />
@@ -611,6 +653,9 @@ onMounted(() => {
         <el-button type="primary" :loading="photoSaving" @click="onPhotoSave">保存</el-button>
       </template>
     </el-dialog>
+
+    <!-- [Phase4-D2/T4] 外链照片 src 选图入口（媒体库/相册/外链三 tab） -->
+    <MediaPicker v-model="photoPickerVisible" title="选择图片（回填 src）" @picked="onPhotoPicked" />
   </el-card>
 </template>
 
@@ -669,6 +714,12 @@ onMounted(() => {
 .wh-input {
   width: 120px;
   margin-right: 8px;
+}
+/* [Phase4-D2/T4] src 输入 + 选图按钮同行 */
+.src-row {
+  display: flex;
+  gap: 8px;
+  width: 100%;
 }
 .hint {
   margin-bottom: 12px;

@@ -21,6 +21,10 @@ import { initAndLogin, withAuth } from './helpers/admin-auth';
  * ⑤ 全字段保存往返一致；⑥ 非法值 → 400；⑦ 官方字段面零删减锚（15 键全往返）。
  * 禁蔓延：⑩ 受控子集外键 → 400（.strict()）。留档卫生：⑪ 重复覆盖不污染原文本留档。
  * ⑫⑬ [Phase3-F] siteLang 拆分锚：'zh_CN' 下划线形（C7 疑问①）与 'zh-Hans' 连字符形双兼容。
+ * ⑭⑮ [Phase4-D4/A4] 净态字节锚：设→清→siteConfig 声明段字节全等还原（=== 基线声明段；
+ * commentConfig 经 ⑤⑥⑦ valueToTsLiteral 合法重写、字节形态不同属 comments 面遗留态，
+ * 不属 lang 清除分支验收面）+ 侧车键消失 + originals 留档保留；
+ * 清除后 GET 呈现断言（lang=null + baselineLang 常量代入）。
  * ⑧ 掩码写回 → 判定注记替代（T1.1：commentConfig 无真 secret 性质键，脱敏义务不触发）。
  * 注：主题根用 mizuki fixture cpSync 后内联写入最小 src/config.ts（零 fixture 变更）；
  * 用例按文件序执行且共享状态（①②③④⑨ lang 面 → ⑤⑥⑦ comments 面 → ⑩⑪）。
@@ -63,6 +67,12 @@ export const commentConfig = {
   },
 };
 `;
+
+// 基线 siteConfig 声明字节段（⑭ 断言源：从基线全文切出，同源零漂移；含声明与尾随空行）
+const BASELINE_SITE_DECL = BASELINE_CONFIG_TS.slice(
+  BASELINE_CONFIG_TS.indexOf('export const siteConfig'),
+  BASELINE_CONFIG_TS.indexOf('export const commentConfig'),
+);
 
 const FIXTURE_DIR = path.resolve(__dirname, 'fixtures/mizuki');
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'mizuki-p7f-e2e-'));
@@ -287,5 +297,39 @@ describe('Phase3-C7：站点配置受控子集（override）e2e', () => {
       'zh-Hans',
     );
     expect(fs.readFileSync(configTsPath, 'utf8')).toContain('lang: "zh-Hans"'); // 物化
+  });
+
+  // ── ⑭⑮ [Phase4-D4/A4] 净态字节锚（清除分支收口） ──
+
+  it('⑭ [A4] 设→清→净态：siteConfig 声明段字节全等还原 + 侧车 siteConfig 键消失 + originals 留档保留', async () => {
+    // 先设非缺省值（离开 ⑬ 遗留态，构成完整 设→清 往返）
+    const set = await server().put('/api/v1/admin/config/lang').send({ lang: 'zh_TW' });
+    expect(set.status).toBe(200);
+    expect(fs.readFileSync(configTsPath, 'utf8')).toContain('lang: "zh_TW"'); // 已物化非基线态
+
+    const clear = await server().put('/api/v1/admin/config/lang').send({ lang: '' });
+    expect(clear.status).toBe(200);
+    expect((clear.body as { siteConfig: { lang: string | null } }).siteConfig.lang).toBeNull();
+
+    // A4 增量锚：siteConfig 声明字节级还原（既有 ③ 仅 contains 'lang:' 语义级；
+    // 此处含基线声明段逐字节）。commentConfig 已被 ⑤⑥⑦ comments 用例合法重写
+    // （valueToTsLiteral 序列化形态，语义等价但字节不同），不属 lang 清除分支验收面。
+    expect(fs.readFileSync(configTsPath, 'utf8')).toContain(BASELINE_SITE_DECL);
+
+    const carrier = readCarrier();
+    expect(carrier).not.toHaveProperty('siteConfig'); // 侧车 siteConfig 键消失（净态）
+    expect((carrier.originals as Record<string, string>)?.['siteConfig.lang']).toBe(
+      'SITE_LANG',
+    ); // 首次留档保留（不因清除丢失）
+  });
+
+  it('⑮ [A4] 清除后 GET /admin/config 呈现：lang=null + baselineLang 常量代入', async () => {
+    const get = await server().get('/api/v1/admin/config');
+    expect(get.status).toBe(200);
+    const view = get.body as {
+      siteConfig: { lang: string | null; baselineLang: string | null };
+    };
+    expect(view.siteConfig.lang).toBeNull(); // 净态呈现：无 override
+    expect(view.siteConfig.baselineLang).toBe('zh_CN'); // 还原后原文本探针求值（SITE_LANG 代入）
   });
 });

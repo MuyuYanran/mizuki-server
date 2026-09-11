@@ -1,5 +1,4 @@
 import 'reflect-metadata';
-import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -14,10 +13,11 @@ import { SQLITE_CONNECTION } from '../src/infra/db/db.module';
 import { initAndLogin, withAuth } from './helpers/admin-auth';
 
 /**
- * [B2.1/裁决 8] posts description 服务端必填（SPEC-ALIGNMENT-B4 T4-8）：
- * ① 创建缺 description → 400（ZodValidationPipe 写前校验），文章目录/文件零落盘；
- * ② PATCH description="" → 400，md 文件 sha256 前后相等（字节不变）。
- * 错误形态走既有 pipe → 400 {code, message, detail.issues}（P1 语义），无新造格式。
+ * [Phase4-D4/S5] posts description 可选（架构师裁定 supersede B2.1/裁决 8 = P5b，
+ * 2026-09-04，授权随批提交 + commit 明文披露）。文件名沿用 p5b-description-required
+ * 未改（历史必填裁定全案与翻转披露见 SESSIONS supersession 记录）：
+ * ① 创建缺 description → 201，读回无 description 键（缺省合法）；
+ * ② PATCH description="" → 200，读回 description === ''（空串为合法存储值）。
  */
 
 const FIXTURE_DIR = path.resolve(__dirname, 'fixtures/mizuki');
@@ -26,7 +26,7 @@ process.env['MIZUKI_DB_PATH'] = path.join(tmp, 'mizuki.db');
 process.env['MIZUKI_CONFIG_PATH'] = path.join(tmp, 'config.json');
 const mizukiRoot = path.join(tmp, 'mizuki');
 
-describe('B2.1 裁决 8：posts description 服务端必填 e2e', () => {
+describe('Phase4-D4/S5：posts description 可选（supersede P5b/B2.1 裁决 8）e2e', () => {
   let app: INestApplication;
   let accessToken: string | undefined;
 
@@ -55,19 +55,22 @@ describe('B2.1 裁决 8：posts description 服务端必填 e2e', () => {
   const server = (): request.SuperTest<request.Test> =>
     withAuth(request(app.getHttpServer()), () => accessToken);
 
-  it('创建缺 description → 400 且文章目录零落盘（写前校验）', async () => {
+  it('①创建缺 description → 201 且读回无 description 键（缺省合法）', async () => {
     const res = await server()
       .post('/api/v1/admin/posts')
       .send({ slug: 'no-desc', frontmatter: { title: '缺描述' }, content: 'x' });
-    expect(res.status).toBe(400);
-    // P1 语义错误形态：detail.issues 指向 frontmatter.description
-    const issues = (res.body as { detail?: { issues?: { path: string }[] } }).detail?.issues ?? [];
-    expect(issues.some((issue) => issue.path === 'frontmatter.description')).toBe(true);
-    // 写前校验：目录与文件均未落盘
-    expect(fs.existsSync(path.join(mizukiRoot, 'src/content/posts/no-desc'))).toBe(false);
+    expect(res.status).toBe(201);
+    // 可选语义下正常创建落盘
+    expect(fs.existsSync(path.join(mizukiRoot, 'src/content/posts/no-desc/index.md'))).toBe(true);
+
+    const read = await server().get('/api/v1/admin/posts/no-desc');
+    expect(read.status).toBe(200);
+    expect(
+      Object.keys((read.body as { frontmatter: Record<string, unknown> }).frontmatter),
+    ).not.toContain('description');
   });
 
-  it('PATCH description="" → 400 且 md 文件 sha256 前后相等（字节不变）', async () => {
+  it('②PATCH description="" → 200 且读回空串（空串为合法存储值）', async () => {
     const created = await server()
       .post('/api/v1/admin/posts')
       .send({
@@ -77,17 +80,13 @@ describe('B2.1 裁决 8：posts description 服务端必填 e2e', () => {
       });
     expect(created.status).toBe(201);
 
-    const fileAbs = path.join(mizukiRoot, 'src/content/posts/has-desc/index.md');
-    const before = createHash('sha256').update(fs.readFileSync(fileAbs), 'utf8').digest('hex');
-
     const patched = await server()
       .patch('/api/v1/admin/posts/has-desc')
       .send({ frontmatter: { description: '' } });
-    expect(patched.status).toBe(400);
-    const issues = (patched.body as { detail?: { issues?: { path: string }[] } }).detail?.issues ?? [];
-    expect(issues.some((issue) => issue.path === 'frontmatter.description')).toBe(true);
+    expect(patched.status).toBe(200);
 
-    const after = createHash('sha256').update(fs.readFileSync(fileAbs), 'utf8').digest('hex');
-    expect(after).toBe(before);
+    const read = await server().get('/api/v1/admin/posts/has-desc');
+    expect(read.status).toBe(200);
+    expect((read.body as { frontmatter: { description?: string } }).frontmatter.description).toBe('');
   });
 });

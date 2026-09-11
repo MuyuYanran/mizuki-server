@@ -24,6 +24,14 @@ export const ProjectsItemSchema = z
     image: z
       .string()
       .describe('本地图片填媒体库回传的相对路径（public/images/uploads/…），外链直接粘贴 URL'),
+    /**
+     * [Phase4-D4/S1/A5b] 官方形态实测（Mizuki v9.0 主题根，禁臆造）：
+     *   - 声明：src/components/features/projects/types.ts:18 `showImage?: boolean;`
+     *     （数据层 src/data/projects.ts:19 同型；实例 L67/82/98 均为 false）
+     *   - 消费语义：ProjectCard.astro:9 `project.showImage !== false && hasImage`
+     *     —— 缺省（undefined）= 显示图片区，显式 false = 隐藏；布尔可选、非三态。
+     */
+    showImage: z.boolean().optional(),
     category: ProjectCategorySchema,
     techStack: z.array(z.string()),
     status: ProjectStatusSchema,

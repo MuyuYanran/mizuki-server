@@ -4,6 +4,7 @@
  *   复用 src/api/http.ts 的 401 自动 refresh。
  * [状态] ACTIVE
  */
+import { backupsApi } from './backups';
 import { request } from './http';
 import { ApiError } from './http';
 
@@ -14,9 +15,17 @@ export interface PostView {
   content: string;
 }
 
-/** 列表项（listPosts 在 PostView 基础上加 status 派生） */
+/**
+ * [Phase4-D4/S4/B2b] 盘上形态标志（read/list 投影）：'dir' = 目录式（<slug>/index.md）、
+ * 'file' = 文件式（<slug>.md，API 只读）。字面量枚举，零路径/URL 面（与后端 R1 注记同源）；
+ * 仅 read/list 携带——create/update 写响应不含该键。
+ */
+export type PostSource = 'dir' | 'file';
+
+/** 列表项（listPosts 在 PostView 基础上加 status 派生 + [S4] source 形态标志） */
 export interface PostListItem extends PostView {
   status: 'draft' | 'published';
+  source: PostSource;
 }
 
 /** 创建 body（与后端 CreatePostBodySchema 对齐） */
@@ -59,8 +68,8 @@ export const postsApi = {
     return request<PostListItem[]>('GET', '/admin/posts');
   },
 
-  read(slug: string): Promise<PostView> {
-    return request<PostView>('GET', `/admin/posts/${encodeURIComponent(slug)}`);
+  read(slug: string): Promise<PostView & { source: PostSource }> {
+    return request<PostView & { source: PostSource }>('GET', `/admin/posts/${encodeURIComponent(slug)}`);
   },
 
   create(body: CreatePostBody): Promise<PostView> {
@@ -134,19 +143,14 @@ export const recycleStore = {
   },
 };
 
-/** 备份恢复（POST /admin/backups/:id/restore，需 confirm:true） */
-export async function restoreBackup(backupId: string): Promise<{ id: string; restoredFiles: number; safetyBackupId?: string }> {
-  return request<{ id: string; restoredFiles: number; safetyBackupId?: string }>(
-    'POST',
-    `/admin/backups/${encodeURIComponent(backupId)}/restore`,
-    { confirm: true },
-  );
-}
-
-/** 从回收站恢复文章：逐备份恢复 → sync 重建索引 → 清回收站条目 */
+/**
+ * 从回收站恢复文章：逐备份恢复 → sync 重建索引 → 清回收站条目。
+ * [Wave-4/F3] 原实现自带一份 restoreBackup（与 backupsApi.restore 逐字重复，
+ * 连返回类型都重复声明了一遍）；现直连 backups.ts 的单一实现。
+ */
 export async function restorePost(entry: RecycleEntry): Promise<void> {
   for (const id of entry.backupIds) {
-    await restoreBackup(id);
+    await backupsApi.restore(id);
   }
   await postsApi.sync();
   recycleStore.remove(entry.slug);

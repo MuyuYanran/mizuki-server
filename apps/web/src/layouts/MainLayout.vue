@@ -23,35 +23,46 @@ interface MenuItem {
   title: string;
   /** minimal（仅管理）模式下隐藏（[B2/裁决 7] 收窄后仅富文本文章） */
   minimalHidden?: boolean;
+  /** [Phase4-D3] 菜单分组（#9 归类；undefined = 组外直显，如仪表盘） */
+  group?: string;
 }
 
 /** 侧边栏菜单（§3.6 清单逐字；P10c 拆分文章为 Markdown / 富文本两项；
- * [B2/裁决 7] 六类集合在 manage 模式下保留，仅富文本文章隐藏） */
+ * [B2/裁决 7] 六类集合在 manage 模式下保留，仅富文本文章隐藏；
+ * [Phase4-D3] group 归类：过滤键 minimalHidden 在分组重构后保持 item 级不变） */
 const MENU: MenuItem[] = [
   { path: '/', title: '仪表盘' },
-  { path: '/posts', title: 'Markdown 文章' },
-  { path: '/articles', title: '富文本文章', minimalHidden: true },
-  { path: '/about', title: '关于页' },
-  { path: '/collections/diary', title: '日记' },
-  { path: '/collections/friends', title: '友链' },
-  { path: '/collections/projects', title: '项目' },
-  { path: '/collections/timeline', title: '时间线' },
-  { path: '/collections/skills', title: '技能' },
-  { path: '/collections/devices', title: '设备' },
-  { path: '/collections/anime', title: '番剧' },
-  { path: '/albums', title: '相册' },
-  { path: '/media', title: '媒体库' },
-  { path: '/backups', title: '备份' },
-  { path: '/console', title: '构建预览' },
-  { path: '/settings', title: '设置' },
+  { path: '/posts', title: 'Markdown 文章', group: '内容' },
+  { path: '/articles', title: '富文本文章', minimalHidden: true, group: '内容' },
+  { path: '/about', title: '关于页', group: '内容' },
+  { path: '/collections/diary', title: '日记', group: '集合' },
+  { path: '/collections/friends', title: '友链', group: '集合' },
+  { path: '/collections/projects', title: '项目', group: '集合' },
+  { path: '/collections/timeline', title: '时间线', group: '集合' },
+  { path: '/collections/skills', title: '技能', group: '集合' },
+  { path: '/collections/devices', title: '设备', group: '集合' },
+  { path: '/collections/anime', title: '番剧', group: '集合' },
+  { path: '/albums', title: '相册', group: '媒体' },
+  { path: '/media', title: '媒体库', group: '媒体' },
+  { path: '/backups', title: '备份', group: '运维' },
+  { path: '/console', title: '构建预览', group: '运维' },
+  { path: '/settings', title: '设置', group: '配置' },
   // [Phase3-C7] 站点配置受控子集（ADR-020）
-  { path: '/site-config', title: '站点配置' },
+  { path: '/site-config', title: '站点配置', group: '配置' },
 ];
+
+/** [Phase4-D3] 分组渲染顺序（固定；组内顺序随 MENU 声明序） */
+const MENU_GROUPS = ['内容', '集合', '媒体', '运维', '配置'] as const;
 
 /** 可见菜单：mode 未知（fail-open）时全量显示（R2-5） */
 const visibleMenu = computed<MenuItem[]>(() =>
   isMinimalMode() ? MENU.filter((item) => !item.minimalHidden) : MENU,
 );
+
+/** [Phase4-D3] 组内可见项；过滤后组空 → 组壳隐藏（模板 v-if，manage 收窄边界） */
+function menuByGroup(group: string): MenuItem[] {
+  return visibleMenu.value.filter((item) => item.group === group);
+}
 
 /** minimal 模式下需要重定向到仪表盘的路由前缀（[B2/裁决 7] 仅富文本文章） */
 const MINIMAL_HIDDEN_PREFIXES = ['/articles'];
@@ -118,9 +129,16 @@ async function logout(): Promise<void> {
     <el-container>
       <el-aside width="220px" class="layout-aside">
         <el-menu :default-active="activeMenu" router class="layout-menu">
-          <el-menu-item v-for="item in visibleMenu" :key="item.path" :index="item.path">
-            {{ item.title }}
-          </el-menu-item>
+          <el-menu-item index="/">{{ MENU[0]?.title ?? '仪表盘' }}</el-menu-item>
+          <!-- [Phase4-D3] 分组归类：组内全空（manage 收窄后）→ 组壳 v-if 隐藏 -->
+          <template v-for="group in MENU_GROUPS" :key="group">
+            <el-menu-item-group v-if="menuByGroup(group).length > 0">
+              <template #title>{{ group }}</template>
+              <el-menu-item v-for="item in menuByGroup(group)" :key="item.path" :index="item.path">
+                {{ item.title }}
+              </el-menu-item>
+            </el-menu-item-group>
+          </template>
         </el-menu>
       </el-aside>
       <el-main class="layout-main">
@@ -169,11 +187,49 @@ async function logout(): Promise<void> {
 .theme-label {
   font-size: 12px;
 }
+/* [Phase4-D4e/R2] 侧栏 Mizuki 化：卡片式容器 + 胶囊导航项 + MD3 hover/active 态。
+   token 全走 --mizuki-nav-* 变量族（theme.css，明暗两套；主题实测提取见 R1 对照表）。
+   MD3 比对裁定（冲突以主题实测为准）：卡片圆角 16px 与主题 --radius-large 同值采纳；
+   「大面 24px」主题无对应（面板容器实测一律 --radius-large 1rem）→ 采纳主题；
+   hover/active 状态层 = 主题 --btn-plain-bg-hover/-active 体系（main.css .dropdown-item
+   同构翻译），非 MD3 纯 overlay 层。菜单数据/路由/manage 过滤零触碰（仅样式层）。 */
 .layout-aside {
-  border-right: 1px solid var(--el-border-color);
+  border-right: none;
+  background: transparent;
+  padding: 12px 10px;
 }
 .layout-menu {
   border-right: none;
+  background: var(--mizuki-nav-panel-bg);
+  border: 1px solid var(--mizuki-nav-divider);
+  border-radius: var(--mizuki-radius-card);
+  box-shadow: var(--mizuki-card-shadow);
+  padding: 8px 10px;
+  overflow-y: auto;
+}
+.layout-menu :deep(.el-menu-item) {
+  height: 40px;
+  line-height: 40px;
+  margin: 2px 0;
+  border-radius: var(--mizuki-radius-control);
+  color: var(--mizuki-nav-item-color);
+  font-weight: 500;
+  transition: background-color 150ms ease, color 150ms ease;
+}
+.layout-menu :deep(.el-menu-item:hover) {
+  background: var(--mizuki-nav-item-bg-hover);
+  color: var(--mizuki-nav-item-color-active);
+}
+.layout-menu :deep(.el-menu-item.is-active) {
+  background: var(--mizuki-nav-item-bg-active);
+  color: var(--mizuki-nav-item-color-active);
+  font-weight: 600;
+}
+.layout-menu :deep(.el-menu-item-group__title) {
+  color: var(--mizuki-nav-item-color);
+  opacity: 0.65;
+  font-size: 12px;
+  padding: 10px 0 4px;
 }
 .layout-main {
   background: var(--mizuki-page-bg);

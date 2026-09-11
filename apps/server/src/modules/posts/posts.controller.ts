@@ -32,6 +32,7 @@ import {
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiBody, ApiConsumes, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { FileInterceptor } from '@nestjs/platform-express';
+import { type UploadedFileLike } from '../../common/http/uploaded-file';
 import { ZodValidationPipe } from '../../common/pipes/zod-validation.pipe';
 import {
   CreatePostBodySchema,
@@ -39,7 +40,6 @@ import {
   PostsService,
   UpdateAboutBodySchema,
   UpdatePostBodySchema,
-  type UploadedFileLike,
 } from './posts.service';
 
 @ApiTags('管理')

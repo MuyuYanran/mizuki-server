@@ -152,6 +152,46 @@ describe('P4 六类集合 CRUD e2e', () => {
     );
   });
 
+  // [Phase4-D4/S1/A5b] showImage 官方形态（主题 types.ts:18 boolean/optional；
+  // 消费语义 ProjectCard.astro:9 `!== false` —— 缺省=显示、false=隐藏，布尔可选非三态）
+  it('[Phase4-D4/S1] projects showImage：显式 false 创建/回读往返 + PATCH 翻转 true', async () => {
+    const created = await server()
+      .post('/api/v1/admin/collections/projects')
+      .send({
+        title: 'e2e showImage',
+        description: 'e2e 描述',
+        image: '/images/projects/e2e.png',
+        category: 'web',
+        techStack: ['NestJS'],
+        status: 'planned',
+        startDate: '2026-09-01',
+        showImage: false,
+      });
+    expect(created.status).toBe(201);
+    const id = created.body.id as string;
+    expect(typeof id).toBe('string');
+
+    let list = await server().get('/api/v1/admin/collections/projects');
+    expect(list.status).toBe(200);
+    const found = (list.body as Record<string, unknown>[]).find((item) => item['id'] === id);
+    expect(found).toBeDefined();
+    expect(found!['showImage']).toBe(false); // 显式 false 回读保真（不被缺省语义吞掉）
+
+    const patched = await server()
+      .patch(`/api/v1/admin/collections/projects/${id}`)
+      .send({ showImage: true });
+    expect(patched.status).toBe(200);
+    expect((patched.body as Record<string, unknown>)['showImage']).toBe(true);
+
+    list = await server().get('/api/v1/admin/collections/projects');
+    expect(
+      (list.body as Record<string, unknown>[]).find((item) => item['id'] === id)?.['showImage'],
+    ).toBe(true);
+
+    const deleted = await server().delete(`/api/v1/admin/collections/projects/${id}`);
+    expect(deleted.status).toBe(200);
+  });
+
   it('§6.1 timeline：全循环', async () => {
     await crudCycle(
       'timeline',

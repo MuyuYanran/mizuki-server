@@ -20,8 +20,9 @@ import {
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiBody, ApiConsumes, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { FileInterceptor } from '@nestjs/platform-express';
+import { type UploadedFileLike } from '../../common/http/uploaded-file';
 import { ZodValidationPipe } from '../../common/pipes/zod-validation.pipe';
-import { MediaIdSchema, MediaService, type UploadedFileLike } from './media.service';
+import { MediaIdSchema, MediaService } from './media.service';
 
 @ApiTags('管理')
 @ApiBearerAuth()

@@ -17,43 +17,34 @@ import path from 'node:path';
 import {
   BadRequestException,
   ConflictException,
-  ForbiddenException,
   Inject,
   Injectable,
   NotFoundException,
-  PayloadTooLargeException,
 } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { nanoid } from 'nanoid';
 import sharp from 'sharp';
 import { z } from 'zod';
 import { ContentChangedPayload, EVENTS, MediaChangedPayload, type MediaReference, type MediaReferenceContributor } from '@mizuki/shared';
+import { atomicReplace, atomicWriteFile, removeQuietly, tempPathFor } from '../../common/fs/atomic-write';
+import { toMizukiAbs } from '../../common/fs/mizuki-root';
+import { assertImageUpload, type UploadedFileLike } from '../../common/http/uploaded-file';
 import { logger } from '../../common/logger';
 import { MediaReferenceRegistry } from '../../common/registry/media-reference.registry';
-import { EXTENSION_FORMAT, sniffImageFormat } from '../../common/security/magic-sniff';
-import { ForbiddenPathError, safeJoin } from '../../common/security/safe-join';
+import { parseOrBadRequest } from '../../common/validation/zod-issues';
+import { singleSegmentName } from '../../common/validation/segment-name';
 import { getAppConfig } from '../../config/app-config';
 import { type BackupOptions, BACKUP_OPTIONS, BackupService } from '../../infra/backup/backup.service';
-
-/** multipart 上传文件（memory storage）的最小结构（不依赖 @types/multer；
- * 与 posts 的同构接口各自局部声明，避免 L2 互 import） */
-export interface UploadedFileLike {
-  buffer: Buffer;
-  originalname: string;
-  size: number;
-  mimetype: string;
-}
 
 /** 相册根目录（相对 Mizuki 根，REQUIREMENTS §6.9） */
 const ALBUMS_REL_DIR = 'public/images/albums';
 
-/** 相册名：目录名单段，禁路径分隔符与 '..' */
-export const AlbumNameSchema = z
-  .string()
-  .min(1)
-  .max(100)
-  .regex(/^[^\\/]+$/, '相册名不得包含路径分隔符')
-  .refine((value) => !value.includes('..') && value !== '.', '相册名非法');
+/** 相册名：目录名单段，禁路径分隔符与 '..'（穿越最小拒绝面单源） */
+export const AlbumNameSchema = singleSegmentName({
+  max: 100,
+  separatorMessage: '相册名不得包含路径分隔符',
+  invalidMessage: '相册名非法',
+});
 
 /** 相册内图片文件名（同相册名规则；实际产物恒为 .jpg） */
 export const AlbumImageNameSchema = AlbumNameSchema;
@@ -111,6 +102,33 @@ export const ExternalPhotoSchema = z
   })
   .strict();
 export type ExternalPhoto = z.infer<typeof ExternalPhotoSchema>;
+
+/**
+ * [Phase4-D2/ADR-022] 外链照片 src 写入口径（仅写路径，读路径维持
+ * ExternalPhotoSchema 原样——存量 info.json 宽容读取零破坏）：
+ * http/https 皆合法（https 部署下 http 外链图的混合内容拦截记 ADR-022 已知
+ * 限制）；站点绝对路径（/ 开头，如媒体库选择器回填的 /images/…）合法；
+ * 空串/空白经 trim 归一后按缺失拒绝；其余 scheme（ftp:、javascript: 等）拒绝。
+ */
+export const ExternalPhotoSrcSchema = z
+  .string()
+  .trim()
+  .min(1, '外链图片 src 不得为空')
+  .refine(
+    (value) => /^https?:\/\//i.test(value) || value.startsWith('/'),
+    '外链图片 src 须为 http(s) URL 或站点绝对路径（/ 开头）',
+  );
+
+/** 写路径用外链照片 schema（src 收紧；其余字段与读取面逐字一致） */
+export const ExternalPhotoWriteSchema = ExternalPhotoSchema.extend({
+  src: ExternalPhotoSrcSchema,
+});
+
+/** 外链 photos 数组写入校验（create/update 的 photos 批量面） */
+export const ExternalPhotosWriteSchema = z.array(ExternalPhotoWriteSchema);
+
+/** 外链照片写入口径失败文案（parseOrBadRequest 的顶层 message，逐字保留原文） */
+const EXTERNAL_PHOTO_WRITE_MESSAGE = '外链照片校验失败';
 
 /** 本地模式 info.json（mode 缺省或 "local"，其余与现状逐字一致） */
 export const AlbumInfoLocalSchema = z.object({
@@ -225,6 +243,10 @@ export class AlbumsService implements MediaReferenceContributor {
   async create(body: z.infer<typeof CreateAlbumBodySchema>): Promise<AlbumView> {
     const name = AlbumNameSchema.parse(body.name);
     const info = AlbumInfoSchema.parse(body.info);
+    // [Phase4-D2/ADR-022] 外链建册的 photos 批量面走写入口径（src 收紧，锚①）
+    if ((info.mode ?? 'local') === 'external') {
+      parseOrBadRequest(ExternalPhotosWriteSchema, (info as AlbumInfoExternal).photos, EXTERNAL_PHOTO_WRITE_MESSAGE);
+    }
     const dirAbs = this.albumDirAbs(name);
     if (fs.existsSync(dirAbs)) {
       throw new ConflictException(`相册已存在：${name}`);
@@ -232,7 +254,7 @@ export class AlbumsService implements MediaReferenceContributor {
     fs.mkdirSync(dirAbs, { recursive: true });
     const infoAbs = path.join(dirAbs, 'info.json');
     await this.backup.preWriteBackup(infoAbs, `album create: ${name}`); // 新文件 → 跳过
-    this.atomicWrite(infoAbs, JSON.stringify(info, null, 2));
+    atomicWriteFile(infoAbs, JSON.stringify(info, null, 2));
     this.emitAlbumChanged(name);
     logger.info({ album: name, mode: info.mode ?? 'local' }, '相册创建完成');
     return { name, info, images: [] };
@@ -261,9 +283,14 @@ export class AlbumsService implements MediaReferenceContributor {
     const merged = (
       targetMode === 'external' ? AlbumInfoExternalSchema : AlbumInfoLocalSchema
     ).parse(mergedRaw) as AlbumInfo;
+    // [Phase4-D2/ADR-022] 仅当本次写触达外链面（photos 批量或模式切外链）时走
+    // 写入口径——纯元信息 PATCH 不重校存量 photos，存量非规数据零打扰
+    if (targetMode === 'external' && (patch.photos !== undefined || patch.mode !== undefined)) {
+      parseOrBadRequest(ExternalPhotosWriteSchema, (merged as AlbumInfoExternal).photos, EXTERNAL_PHOTO_WRITE_MESSAGE);
+    }
     const infoAbs = path.join(this.albumDirAbs(validatedName), 'info.json');
     await this.backup.preWriteBackup(infoAbs, `album update: ${validatedName}`);
-    this.atomicWrite(infoAbs, JSON.stringify(merged, null, 2));
+    atomicWriteFile(infoAbs, JSON.stringify(merged, null, 2));
     this.emitAlbumChanged(validatedName);
     logger.info({ album: validatedName, mode: merged.mode ?? 'local' }, '相册元信息更新完成');
     return { name: validatedName, info: merged, images: this.listImages(validatedName) };
@@ -292,7 +319,8 @@ export class AlbumsService implements MediaReferenceContributor {
   async addExternalPhoto(name: string, photoInput: unknown): Promise<AlbumView> {
     const validatedName = AlbumNameSchema.parse(name);
     const external = this.readExternalOrThrow(validatedName);
-    const photo = ExternalPhotoSchema.parse(photoInput);
+    // [Phase4-D2/ADR-022] 写入口径（src 收紧，锚①）
+    const photo = parseOrBadRequest(ExternalPhotoWriteSchema, photoInput, EXTERNAL_PHOTO_WRITE_MESSAGE);
     const photos = [...external.photos, photo];
     await this.writeExternalPhotos(validatedName, photos);
     logger.info({ album: validatedName, index: external.photos.length }, '外链照片已追加');
@@ -311,7 +339,13 @@ export class AlbumsService implements MediaReferenceContributor {
     if (Object.keys(patch).length === 0) {
       throw new BadRequestException('至少提供一个待修改字段');
     }
-    const merged = ExternalPhotoSchema.parse({ ...existing, ...patch });
+    // [Phase4-D2/ADR-022] 合并结果走写入口径（src 收紧，锚①）；存量非规 src
+    // 条目在编辑任一字段时需一并修正 src（记 ADR-022 已知限制）
+    const merged = parseOrBadRequest(
+      ExternalPhotoWriteSchema,
+      { ...existing, ...patch },
+      EXTERNAL_PHOTO_WRITE_MESSAGE,
+    );
     const photos = [...external.photos];
     photos[index] = merged;
     await this.writeExternalPhotos(validatedName, photos);
@@ -338,7 +372,7 @@ export class AlbumsService implements MediaReferenceContributor {
     const existing = this.readInfoOrThrow(name) as AlbumInfoExternal;
     const merged: AlbumInfoExternal = { ...existing, photos };
     await this.backup.preWriteBackup(infoAbs, `album photos: ${name}`);
-    this.atomicWrite(infoAbs, JSON.stringify(merged, null, 2));
+    atomicWriteFile(infoAbs, JSON.stringify(merged, null, 2));
     this.emitAlbumChanged(name);
   }
 
@@ -377,20 +411,13 @@ export class AlbumsService implements MediaReferenceContributor {
       throw new NotFoundException(`相册不存在：${validatedName}`);
     }
 
-    // §3.1 校验复用：扩展名白名单 → 魔数嗅探 → 大小上限
+    // §3.1 校验复用（单源见 common/http/uploaded-file）：扩展名白名单 → 魔数嗅探 → 大小上限
     // [Phase3-C2a/ADR-017] 白名单 +bmp+tiff/tif（svg 维持排除）
-    const ext = path.extname(file.originalname).toLowerCase();
-    const expectedFormat = EXTENSION_FORMAT[ext];
-    if (!expectedFormat) {
-      throw new BadRequestException(`扩展名不在白名单：${ext || '(空)'}（允许 jpg/jpeg/png/gif/webp/avif/bmp/tiff）`);
-    }
-    if (sniffImageFormat(file.buffer) !== expectedFormat) {
-      throw new BadRequestException('文件内容与扩展名不符（魔数校验失败）');
-    }
-    const limitBytes = getAppConfig().uploadLimitMb * 1024 * 1024;
-    if (file.buffer.length > limitBytes) {
-      throw new PayloadTooLargeException(`文件超出上传上限 ${getAppConfig().uploadLimitMb}MB`);
-    }
+    const { ext, format: expectedFormat } = assertImageUpload(file, {
+      subject: '文件',
+      allowedText: 'jpg/jpeg/png/gif/webp/avif/bmp/tiff',
+      limitMb: getAppConfig().uploadLimitMb,
+    });
 
     // 解码兜底（仅校验，不转码）：嗅探通过但内容损坏在此拒绝。
     // [Phase3-C2a/ADR-017] bmp 跳过 sharp probe——sharp 0.35 预编译版无法解码 bmp
@@ -414,7 +441,7 @@ export class AlbumsService implements MediaReferenceContributor {
     const relPath = `${ALBUMS_REL_DIR}/${validatedName}/${fileName}`;
     const absPath = this.joinWithinRoot(relPath);
     await this.backup.preWriteBackup(absPath, `album image: ${validatedName}/${fileName}`); // 新文件 → 跳过
-    this.atomicWrite(absPath, file.buffer);
+    atomicWriteFile(absPath, file.buffer);
     // [Phase3-C4/ADR-019] 原图成功落盘后同步生成缩略图变体（fail-open 仅限变体：
     // 任何 sharp 异常仅记日志，原图照常返回，上传响应形状零变化）
     await this.generateThumbnail(validatedName, fileName, expectedFormat);
@@ -495,22 +522,9 @@ export class AlbumsService implements MediaReferenceContributor {
     this.emitter.emit(EVENTS.MediaChanged, payload);
   }
 
-  private requireRoot(): string {
-    if (this.options.mizukiRoot === '') {
-      throw new BadRequestException('Mizuki 项目根目录未配置（请先完成初始化）');
-    }
-    return path.resolve(this.options.mizukiRoot);
-  }
-
+  /** root 内相对路径 → 绝对路径（未配置 400 / 越界 403，单源见 common/fs/mizuki-root） */
   private joinWithinRoot(rel: string): string {
-    try {
-      return safeJoin(this.requireRoot(), rel);
-    } catch (error) {
-      if (error instanceof ForbiddenPathError) {
-        throw new ForbiddenException(`路径越界，已拒绝：${rel}`);
-      }
-      throw error;
-    }
+    return toMizukiAbs(this.options.mizukiRoot, rel);
   }
 
   private albumsDirAbs(): string {
@@ -594,7 +608,7 @@ export class AlbumsService implements MediaReferenceContributor {
     const dirAbs = this.albumDirAbs(album);
     const base = path.basename(fileName, path.extname(fileName));
     const thumbAbs = path.join(dirAbs, `${base}${THUMB_SUFFIX}`);
-    const tmp = path.join(dirAbs, `.tmp-${nanoid(8)}`);
+    const tmp = tempPathFor(thumbAbs);
     try {
       const image = sharp(path.join(dirAbs, fileName)).rotate();
       const meta = await image.metadata();
@@ -609,28 +623,15 @@ export class AlbumsService implements MediaReferenceContributor {
         image.resize({ height: THUMB_SHORT_EDGE, withoutEnlargement: true });
       }
       await image.webp().toFile(tmp);
-      fs.renameSync(tmp, thumbAbs);
+      atomicReplace(tmp, thumbAbs);
       logger.info({ album, fileName, thumb: path.basename(thumbAbs) }, '缩略图变体生成完成');
     } catch (error) {
-      try {
-        if (fs.existsSync(tmp)) {
-          fs.rmSync(tmp);
-        }
-      } catch {
-        // 清理尽力而为
-      }
+      removeQuietly(tmp); // 清理尽力而为（原子写单源）
       logger.warn(
         { album, fileName, error: error instanceof Error ? error.message : String(error) },
         '缩略图变体生成失败（fail-open：原图不受影响，上传响应形状不变）',
       );
     }
-  }
-
-  /** 原子写：同目录临时文件 → rename（统一写管线第 7 步模式） */
-  private atomicWrite(absPath: string, data: string | Buffer): void {
-    const tmp = path.join(path.dirname(absPath), `.tmp-${nanoid(8)}`);
-    fs.writeFileSync(tmp, data);
-    fs.renameSync(tmp, absPath);
   }
 }
 

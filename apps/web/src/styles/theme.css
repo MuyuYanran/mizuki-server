@@ -29,10 +29,19 @@
   --mizuki-page-bg: linear-gradient(165deg, #fdeff5 0%, #f5f7fa 55%);
   --mizuki-card-shadow: 0 4px 18px rgba(232, 115, 158, 0.1);
 
-  /* 大圆角（卡片 14px / 控件 8px，element 默认 4px） */
-  --el-card-border-radius: 14px;
-  --el-border-radius-base: 8px;
+  /* [Phase4-D3] 分级圆角三档（#9，ADR-023 token 映射）：卡片档 = 主题
+     --radius-large 1rem 实测同值；控件档 = 主题派生档 0.5rem（main.css
+     calc(var(--radius-large)-0.5rem)）同值 8px；pill 档主题无对应 → 惯例
+     999px（偏差登记 ADR-023）。element 变量全部引用本层，禁页面硬编码。 */
+  --mizuki-radius-card: 1rem;
+  --mizuki-radius-control: 8px;
+  --mizuki-radius-pill: 999px;
+  --el-card-border-radius: var(--mizuki-radius-card);
+  --el-border-radius-base: var(--mizuki-radius-control);
   --el-border-radius-small: 6px;
+
+  /* [Phase4-D3] 页面底色变量化（原 body 硬编码 #f5f7fa 收敛入变量层） */
+  --mizuki-body-bg: #f5f7fa;
 
   /* 终端配色（亮色：浅灰底 + 深字；分级：stdout 灰白 / stderr 淡红 / exit 高亮） */
   --mizuki-terminal-bg: #f6f8fa;
@@ -57,6 +66,17 @@
   --mizuki-vditor-block-border: transparent;
   --mizuki-vditor-inline-code-bg: rgba(27, 31, 35, 0.05);
   --mizuki-vditor-kbd-border: #d1d5da;
+
+  /* [Phase4-D4e/R2] 侧栏导航变量族（亮）：token 来源 = 真实主题实测提取
+     （R1 对照表见 D4e 交付报告，每行 file:line provenance）；oklch 字面量 =
+     主题 var(--hue) 以用户域 config.ts hue=240 具体化（--hue 系运行时注入，
+     HeadTags.astro:137 / setting-utils.ts:32）。 */
+  --mizuki-nav-panel-bg: #ffffff;                        /* 主题 --card-bg 亮（variables.styl:28） */
+  --mizuki-nav-item-color: oklch(0.55 0.12 240);         /* 主题 --btn-content 亮（variables.styl:33） */
+  --mizuki-nav-item-color-active: oklch(0.7 0.14 240);   /* 主题 --primary 亮（variables.styl:26） */
+  --mizuki-nav-item-bg-hover: oklch(0.95 0.025 240);     /* 主题 --btn-plain-bg-hover 亮（variables.styl:37） */
+  --mizuki-nav-item-bg-active: oklch(0.98 0.01 240);     /* 主题 --btn-plain-bg-active 亮（variables.styl:39） */
+  --mizuki-nav-divider: rgba(0, 0, 0, 0.08);             /* 主题 --line-divider 亮 black(0.08)（variables.styl:47） */
 }
 
 /* ── 暗色（Element Plus 官方 dark 变量 + Mizuki 主色阶重设） ────── */
@@ -74,6 +94,9 @@ html.dark {
 
   --mizuki-page-bg: linear-gradient(165deg, #181015 0%, #0a0a0a 55%);
   --mizuki-card-shadow: 0 4px 18px rgba(240, 145, 183, 0.08);
+
+  /* [Phase4-D3] 页面底色暗态 */
+  --mizuki-body-bg: #0a0a0a;
 
   /* 终端暗色基调 #0d1117（避免刺眼纯黑，R2-1） */
   --mizuki-terminal-bg: #0d1117;
@@ -97,19 +120,32 @@ html.dark {
   --mizuki-vditor-block-border: #444c56;
   --mizuki-vditor-inline-code-bg: rgba(66, 133, 244, 0.36);
   --mizuki-vditor-kbd-border: #141414;
+
+  /* [Phase4-D4e/R2] 侧栏导航变量族（暗）：同族暗值（provenance 同上） */
+  --mizuki-nav-panel-bg: oklch(0.23 0.015 240);          /* 主题 --card-bg 暗（variables.styl:28） */
+  --mizuki-nav-item-color: oklch(0.75 0.1 240);          /* 主题 --btn-content 暗（variables.styl:33） */
+  --mizuki-nav-item-color-active: oklch(0.75 0.14 240);  /* 主题 --primary 暗（variables.styl:26） */
+  --mizuki-nav-item-bg-hover: oklch(0.3 0.035 240);      /* 主题 --btn-plain-bg-hover 暗（variables.styl:37） */
+  --mizuki-nav-item-bg-active: oklch(0.27 0.025 240);    /* 主题 --btn-plain-bg-active 暗（variables.styl:39） */
+  --mizuki-nav-divider: rgba(255, 255, 255, 0.08);       /* 主题 --line-divider 暗 white(0.08)（variables.styl:47） */
 }
 
 /* ── 全局观感（卡片柔化投影 / 页面背景由布局层引用变量） ───────── */
 
 body {
   margin: 0;
-  background: #f5f7fa;
-}
-
-html.dark body {
-  background: #0a0a0a;
+  background: var(--mizuki-body-bg);
 }
 
 .el-card {
+  box-shadow: var(--mizuki-card-shadow);
+}
+
+/* [Phase4-D3] 卡片化通用容器类（#9；页面容器套用，取自有卡片类之简——
+   圆角/阴影全部走变量层，禁逐页硬编码） */
+.panel-card {
+  padding: 20px;
+  border-radius: var(--mizuki-radius-card);
+  background: var(--el-bg-color);
   box-shadow: var(--mizuki-card-shadow);
 }

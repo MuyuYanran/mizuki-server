@@ -8,9 +8,11 @@
 import { onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { ElMessage } from 'element-plus';
-import { albumsApi, type AlbumView, type AlbumInfo } from '../../api/albums';
+import { albumsApi, type AlbumView, type AlbumInfo, type ExternalPhoto } from '../../api/albums';
 import { todayString } from '../../lib/schema-form/mapper';
 import { ApiError } from '../../api/http';
+import { notifyApiError } from '../../lib/notify';
+import { dateOrEmpty } from '../../lib/format';
 
 const router = useRouter();
 const list = ref<AlbumView[]>([]);
@@ -28,6 +30,12 @@ interface CreateForm {
   columns: number | null;
   /** [Phase3-C2a] hidden:true 隐藏（不出现在公开列表，非访问控制） */
   hidden: boolean;
+  /** [Phase4-D2/#6] 相册模式（local 缺省 / external 外链——主题渲染契约双路，ADR-022） */
+  mode: 'local' | 'external';
+  /** [Phase4-D2/#6] 外链模式封面（主题 album-scanner 对 external 相册必需） */
+  cover: string;
+  /** [Phase4-D2/#6] 批量外链图 URL（每行一个，空行忽略 → photos[{src}]） */
+  photoUrls: string;
 }
 
 const createVisible = ref(false);
@@ -41,6 +49,9 @@ const createForm = ref<CreateForm>({
   layout: '',
   columns: null,
   hidden: false,
+  mode: 'local',
+  cover: '',
+  photoUrls: '',
 });
 
 async function fetchList(): Promise<void> {
@@ -48,7 +59,7 @@ async function fetchList(): Promise<void> {
   try {
     list.value = await albumsApi.list();
   } catch (e) {
-    handleError(e, '加载相册列表失败');
+    notifyApiError(e, '加载相册列表失败');
   } finally {
     loading.value = false;
   }
@@ -64,8 +75,20 @@ function openCreate(): void {
     layout: '',
     columns: null,
     hidden: false,
+    mode: 'local',
+    cover: '',
+    photoUrls: '',
   };
   createVisible.value = true;
+}
+
+/** 批量外链 URL 行 → photos[{src}]（空行忽略；[Phase4-D2/#6]） */
+function parsePhotoUrls(lines: string): ExternalPhoto[] {
+  return lines
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => line !== '')
+    .map((src) => ({ src }));
 }
 
 function buildInfo(form: CreateForm): AlbumInfo {
@@ -76,12 +99,22 @@ function buildInfo(form: CreateForm): AlbumInfo {
   if (form.layout !== '') info.layout = form.layout as AlbumInfo['layout'];
   if (form.columns !== null) info.columns = form.columns;
   if (form.hidden) info.hidden = true;
+  // [Phase4-D2/#6] 外链模式：mode + cover（主题必需）+ 批量 photos（src 写入口径
+  // 由服务端收紧校验，http(s)/站点绝对路径合法）
+  // [Phase4-D4/A2] photos **恒键**（走查②）：AlbumInfoExternalSchema.photos 为必键
+  // （可为空数组），空 URL 时省键 → union 双分支全挂 400。按 mode 分支构造 body，
+  // 外链分支恒发 photos（空数组 = 建册后经详情页增补的合法空态）。
+  if (form.mode === 'external') {
+    info.mode = 'external';
+    info.cover = form.cover.trim();
+    info.photos = parsePhotoUrls(form.photoUrls);
+  }
   return info;
 }
 
 /** [B3.6] 日期选择回调：el-date-picker 清空回调 null → 空串（保持 string 语义） */
 function onDatePick(value: unknown): void {
-  createForm.value.date = typeof value === 'string' ? value : '';
+  createForm.value.date = dateOrEmpty(value);
 }
 
 async function onCreate(): Promise<void> {
@@ -93,6 +126,11 @@ async function onCreate(): Promise<void> {
     ElMessage.warning('请输入相册标题');
     return;
   }
+  // [Phase4-D2/#6] 外链模式前端必填面（服务端 schema 亦校验）
+  if (createForm.value.mode === 'external' && createForm.value.cover.trim() === '') {
+    ElMessage.warning('外链模式相册必须填写封面地址（cover）');
+    return;
+  }
   creating.value = true;
   try {
     await albumsApi.create({ name: createForm.value.name, info: buildInfo(createForm.value) });
@@ -100,7 +138,7 @@ async function onCreate(): Promise<void> {
     createVisible.value = false;
     await fetchList();
   } catch (e) {
-    handleError(e, '创建相册失败');
+    notifyApiError(e, '创建相册失败');
   } finally {
     creating.value = false;
   }
@@ -110,13 +148,6 @@ function openDetail(name: string): void {
   void router.push(`/albums/${encodeURIComponent(name)}`);
 }
 
-function handleError(e: unknown, fallback: string): void {
-  if (e instanceof ApiError) {
-    ElMessage.error(e.message);
-  } else {
-    ElMessage.error(fallback);
-  }
-}
 
 onMounted(() => {
   void fetchList();
@@ -140,7 +171,23 @@ onMounted(() => {
             <el-tag v-if="album.info.hidden === true" type="warning" size="small">已隐藏</el-tag>
           </div>
           <div class="album-desc">{{ album.info.description ?? '无描述' }}</div>
-          <div class="album-meta">{{ album.images.length }} 张图片</div>
+          <!-- [Phase4-D4/配套3→C4 批⑧改靶 2026-09-08] 缺封面警示真靶 = 本地半边：
+               主题 album-scanner 对本地相册要求 cover.webp/cover.jpg（两者皆缺 →
+               构建期剔除整个相册不上站）；外链半边 cover 系 schema 必填（缺失已被
+               服务端校验剔除，警示不可达，原外链 tag 撤除——剔除系设计行为） -->
+          <div class="album-meta">
+            <template v-if="album.info.mode === 'external'">
+              外链 · {{ album.info.photos?.length ?? 0 }} 张图片
+            </template>
+            <template v-else>
+              {{ album.images.length }} 张图片
+              <el-tag
+                v-if="!album.images.includes('cover.webp') && !album.images.includes('cover.jpg')"
+                type="danger"
+                size="small"
+              >缺封面</el-tag>
+            </template>
+          </div>
         </el-card>
       </el-col>
       <el-col v-if="list.length === 0" :span="24">
@@ -152,6 +199,26 @@ onMounted(() => {
       <el-form label-width="80px">
         <el-form-item label="目录名" required>
           <el-input v-model="createForm.name" placeholder="相册目录名（不含路径分隔符）" />
+        </el-form-item>
+        <!-- [Phase4-D2/#6] 相册模式：外链模式 = 语义结果（mode + cover + photos），
+             与主题 special-gallery 双路渲染契约对齐（ADR-022 实证） -->
+        <el-form-item label="模式">
+          <el-radio-group v-model="createForm.mode">
+            <el-radio value="local">本地上传</el-radio>
+            <el-radio value="external">外链图片</el-radio>
+          </el-radio-group>
+        </el-form-item>
+        <el-form-item v-if="createForm.mode === 'external'" label="封面" required>
+          <el-input v-model="createForm.cover" placeholder="https://... 或 /images/..." />
+          <div class="field-hint">外链模式相册必须提供封面地址（主题渲染链必需）</div>
+        </el-form-item>
+        <el-form-item v-if="createForm.mode === 'external'" label="图片链接">
+          <el-input
+            v-model="createForm.photoUrls"
+            type="textarea"
+            :rows="4"
+            placeholder="每行一个图片地址（http(s) URL 或 /images/...），创建后也可在详情页继续增补"
+          />
         </el-form-item>
         <el-form-item label="标题" required>
           <el-input v-model="createForm.title" />

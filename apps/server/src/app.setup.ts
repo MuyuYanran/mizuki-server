@@ -11,19 +11,16 @@ function serverPort(): number {
 
 /**
  * CORS 白名单：默认仅 localhost 面板端口（REQUIREMENTS §9 第 8 条）。
- * 扩展通道：AppConfig 若声明 corsOrigins（string[]）将自动并入——P1 时点
- * AppConfig 尚无该字段（P0b 定型的 schema 未包含，属规格歧义的保守解释，
- * 见 P1 交付报告偏差说明），因此当前实际生效的只有默认 localhost。
+ * 扩展通道：config.json 的 corsOrigins（string[]）并入本白名单。
+ *   [Wave-2/B3] 该通道此前因 AppConfigSchema 未声明该键（zod 默认 strip）而
+ *   恒不生效；现已纳入 schema，扩展通道真实生效（见 docs/audits/…§3.2 B3）。
  * 非白名单 origin 的请求不携带 Access-Control-Allow-Origin 头（浏览器侧拒绝）。
  */
 function corsWhitelist(): string[] {
   const whitelist = [`http://localhost:${serverPort()}`];
-  const extra = (getAppConfig() as Record<string, unknown>)['corsOrigins'];
-  if (Array.isArray(extra)) {
-    for (const origin of extra) {
-      if (typeof origin === 'string' && origin !== '') {
-        whitelist.push(origin);
-      }
+  for (const origin of getAppConfig().corsOrigins) {
+    if (origin !== '') {
+      whitelist.push(origin);
     }
   }
   return whitelist;

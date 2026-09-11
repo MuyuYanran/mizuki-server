@@ -20,6 +20,7 @@ import { PreviewModule } from './modules/preview/preview.module';
 import { BackupModule } from './modules/backup/backup.module';
 import { SettingsModule } from './modules/settings/settings.module';
 import { SiteConfigModule } from './modules/site-config/site-config.module';
+import { ThemeModule } from './modules/theme/theme.module';
 
 /**
  * [阶段 P0a] 应用根模块
@@ -64,6 +65,8 @@ import { SiteConfigModule } from './modules/site-config/site-config.module';
     SettingsModule,
     // [Phase3-C7] 站点配置受控子集管理（lang + commentConfig，ADR-020）
     SiteConfigModule,
+    // [Phase4-E3a] 主题注册表（theme-lock 双轴：漂移/探针，ADR-024）
+    ThemeModule,
   ],
   providers: [
     // [P1] 全局 ThrottlerGuard（配合上方 ThrottlerModule 的 60 次/分/IP 配置）

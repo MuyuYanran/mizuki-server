@@ -8,6 +8,7 @@
 import { onMounted, ref } from 'vue';
 import { ElMessage } from 'element-plus';
 import { fetchDashboardData, type DashboardData } from '../api/dashboard';
+import { formatTime } from '../lib/format';
 
 const data = ref<DashboardData | null>(null);
 const loading = ref(false);
@@ -23,9 +24,6 @@ async function refresh(): Promise<void> {
   }
 }
 
-function formatTime(iso: string): string {
-  return new Date(iso).toLocaleString('zh-CN');
-}
 
 function latestBackupTime(): string {
   const latest = data.value?.recentBackups[0];
@@ -46,7 +44,7 @@ onMounted(() => {
 </script>
 
 <template>
-  <div v-loading="loading">
+  <div v-loading="loading" class="panel-card">
     <div class="page-header">
       <span>仪表盘</span>
       <el-button size="small" @click="refresh">刷新</el-button>

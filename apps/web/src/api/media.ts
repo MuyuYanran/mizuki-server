@@ -30,11 +30,21 @@ export interface DeleteMediaResult {
   path: string;
 }
 
-/** 媒体引用明细（409 时 detail.references 元素） */
-export interface MediaReference {
+/**
+ * 媒体引用明细（409 时 detail.references 元素）。
+ * ⚠️ 与 `@mizuki/shared` 的 `MediaReference`（注册表契约）**不是同一个类型**：
+ *   注册表契约含 `mediaPath`（被引用的媒体相对路径，供删除检查比对），
+ *   而 409 响应**有意不下发** mediaPath（删除请求方已知目标路径，无需回显，
+ *   避免额外暴露站点目录结构）。故此处独立声明两字段摘要类型，
+ *   不要合并到 shared——那会迫使服务端回显路径或前端伪造字段。
+ */
+export interface MediaReferenceSummary {
   refType: string;
   targetLabel: string;
 }
+
+/** @deprecated 旧名保留别名（语义同 MediaReferenceSummary） */
+export type MediaReference = MediaReferenceSummary;
 
 /** 从 ApiError.detail.references 提取引用明细（非该形状返回空） */
 export function extractMediaReferences(detail: unknown): MediaReference[] {

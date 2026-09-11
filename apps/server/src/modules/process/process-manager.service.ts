@@ -27,8 +27,8 @@ import { nanoid } from 'nanoid';
 import treeKill from 'tree-kill';
 import { z } from 'zod';
 import { EVENTS, ProcessFinishedPayload } from '@mizuki/shared';
+import { toMizukiAbs } from '../../common/fs/mizuki-root';
 import { logger } from '../../common/logger';
-import { ForbiddenPathError, safeJoin } from '../../common/security/safe-join';
 import { type BackupOptions, BACKUP_OPTIONS } from '../../infra/backup/backup.service';
 import { PackageManagerResolver, type ResolverOptions, type SpawnPlan } from './pm-resolver';
 
@@ -101,6 +101,7 @@ export interface TaskView {
 export interface PortProbeResult {
   port: number;
   inUse: boolean;
+  /** 保留字段：当前任务表未记录监听端口，故暂无取值（不删除——响应形状冻结） */
   byCurrentTask?: string;
 }
 
@@ -211,12 +212,22 @@ export class ProcessManagerService implements OnApplicationShutdown {
     };
   }
 
-  /** 端口占用检测（探测法：尝试绑定，失败即占用，取舍记报告） */
+  /**
+   * 端口占用检测（探测法：尝试绑定，失败即占用，取舍记报告）。
+   * [Wave-2/E6] 修复前把**任何**监听失败都报为占用（EACCES 等权限类错误会
+   *   被误读为「端口被占」）。现按错误码区分：EADDRINUSE 才是占用，其余
+   *   错误视为占用以保守处理（宁可误报占用也不谎报空闲），但日志带上 code
+   *   便于诊断。
+   */
   probePort(port: number): Promise<PortProbeResult> {
     return new Promise((resolve) => {
       const server = net.createServer();
-      server.once('error', () => {
-        logger.info({ port, inUse: true }, '端口检测：占用');
+      server.once('error', (error: NodeJS.ErrnoException) => {
+        const addressInUse = error.code === 'EADDRINUSE';
+        logger.info(
+          { port, inUse: true, code: error.code, addressInUse },
+          addressInUse ? '端口检测：占用' : '端口检测：监听失败（非 EADDRINUSE，按占用保守处理）',
+        );
         resolve({ port, inUse: true });
       });
       server.listen(port, () => {
@@ -345,20 +356,12 @@ export class ProcessManagerService implements OnApplicationShutdown {
     return instance;
   }
 
-  /** 工作目录锁定 mizukiRoot（safeJoin 校验；未配置 → 400） */
+  /** 工作目录锁定 mizukiRoot（未配置 → 400 / 路径非法 → 400，单源见 common/fs/mizuki-root） */
   private requireMizukiRoot(): string {
-    if (this.options.mizukiRoot === '') {
-      throw new BadRequestException('Mizuki 项目根目录未配置（请先完成初始化）');
-    }
-    const root = path.resolve(this.options.mizukiRoot);
-    try {
-      return safeJoin(root, '.');
-    } catch (error) {
-      if (error instanceof ForbiddenPathError) {
-        throw new BadRequestException('Mizuki 项目根目录非法');
-      }
-      throw error;
-    }
+    return toMizukiAbs(this.options.mizukiRoot, '.', {
+      forbidden: 'bad-request',
+      forbiddenMessage: 'Mizuki 项目根目录非法',
+    });
   }
 
   private toView(instance: TaskInstance): TaskView {
@@ -408,7 +411,7 @@ export function taskArgs(task: ProcessTaskName, packageManager: 'pnpm' | 'yarn' 
   return ['run', task];
 }
 
-/** env 仅透传 PATH / HOME / APPDATA（MASTER-PLAN §7） */
+/** env 仅透传 PATH / HOME / APPDATA（MASTER-PLAN §7），并恒定注入 CI=true（Phase4-D4 配套1） */
 export function childEnv(): Record<string, string> {
   const env: Record<string, string> = {};
   const passthrough = ['PATH', 'HOME', 'APPDATA'] as const;
@@ -418,6 +421,13 @@ export function childEnv(): Record<string, string> {
       env[key] = value;
     }
   }
+  // [Phase4-D4 / 配套1] CI=true 为**固定字面量**注入，非宿主 env 透传：
+  //   · 目的：包管理器与构建脚本在 CI 模式下关闭交互式提示（pnpm install 询问、
+  //     vite build 的 TTY 探测等），避免托管任务在无 TTY 的托管环境挂起。
+  //   · 边界：取宿主 env 会破坏「env 仅白名单透传」的泄漏防线（P9 §6.7），
+  //     故恒写常量而非透传；宿主是否处于 CI 与托管子进程无关。
+  //   · 覆盖：buildSpawnOptions 与 pm-resolver 两处探测均经 childEnv()，单点生效。
+  env['CI'] = 'true';
   return env;
 }
 

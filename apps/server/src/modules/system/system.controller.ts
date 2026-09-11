@@ -12,6 +12,7 @@ import { Body, Controller, Get, HttpCode, HttpStatus, Inject, Patch, Post, Query
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { desc, sql } from 'drizzle-orm';
 import { Public } from '../../common/decorators/public.decorator';
+import { clampIntParam } from '../../common/http/pagination';
 import { ZodValidationPipe } from '../../common/pipes/zod-validation.pipe';
 import { getAppConfig, mergeAndPersistConfig, resetAppConfigCache } from '../../config/app-config';
 import { type DrizzleDb, DRIZZLE_DB } from '../../infra/db/db.module';
@@ -111,8 +112,9 @@ export class SystemController {
   @ApiOperation({ summary: '操作日志分页（?page=&limit=，limit 上限 100，created_at 倒序）' })
   @Get('admin/system/logs')
   async getLogs(@Query('page') pageRaw?: string, @Query('limit') limitRaw?: string) {
-    const page = clampInt(pageRaw, 1, 1, Number.MAX_SAFE_INTEGER);
-    const limit = clampInt(limitRaw, 20, 1, LOGS_MAX_LIMIT);
+    // clamp 口径（管理面，静默截断）——口径单源见 common/http/pagination
+    const page = clampIntParam(pageRaw, 1, 1, Number.MAX_SAFE_INTEGER);
+    const limit = clampIntParam(limitRaw, 20, 1, LOGS_MAX_LIMIT);
     const rows = await this.db
       .select()
       .from(operationLog)
@@ -157,11 +159,4 @@ function readServerVersion(): string {
   return 'unknown';
 }
 
-/** 分页参数解析与收敛（非法/缺省 → 默认值） */
-function clampInt(raw: string | undefined, fallback: number, min: number, max: number): number {
-  const parsed = raw === undefined ? Number.NaN : Number(raw);
-  if (!Number.isInteger(parsed)) {
-    return fallback;
-  }
-  return Math.min(Math.max(parsed, min), max);
-}
+

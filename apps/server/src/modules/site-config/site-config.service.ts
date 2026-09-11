@@ -28,27 +28,26 @@ import {
   type CommentConfigValue,
   type ConfigOverrideFile,
   ConfigOverrideFileSchema,
+  type NavConfigValue,
 } from '@mizuki/shared';
-import {
-  AsExpression,
-  Node,
-  ObjectLiteralExpression,
-  ParenthesizedExpression,
-  PrefixUnaryExpression,
-  SatisfiesExpression,
-  StringLiteral,
-  SyntaxKind,
-  type SourceFile,
-} from 'ts-morph';
+import { Node } from 'ts-morph';
+import { atomicWriteFile } from '../../common/fs/atomic-write';
+import { requireMizukiRoot } from '../../common/fs/mizuki-root';
+
+/** 配置源在对外错误信息中的投影（相对形态，不泄露磁盘绝对路径——E1 纪律） */
+const CONFIG_TS_DISPLAY = '<mizukiRoot>/src/config.ts';
 import { logger } from '../../common/logger';
 import { getAppConfig } from '../../config/app-config';
 import { BackupService } from '../../infra/backup/backup.service';
 import {
   UnsupportedLiteralError,
+  astToValueWithConsts,
+  extractSimpleConsts,
   getVariableDeclarationOrThrow,
   loadSourceFile,
 } from '../data-files/evaluator';
 import { valueToTsLiteral } from '../data-files/serializer';
+import { ThemeRegistryService } from '../theme/theme-registry.service';
 
 /** GET /admin/config 响应视图（override 态优先，基线作对照展示） */
 export interface AdminSiteConfigView {
@@ -60,126 +59,44 @@ export interface AdminSiteConfigView {
   };
   /** override 存在 → override 值；否则基线有效值；均不可得 → null */
   commentConfig: CommentConfigValue | null;
+  /** [Phase4-D3] nav：override 存在 → override 值（空数组 = 清空导航合法态）；否则基线；均不可得 → null */
+  nav: NavConfigValue | null;
+  /** [Phase4-D3] 基线 nav 解析值（真实主题含 LinkPreset 标识符 → 不可得 null，降级分支） */
+  baselineNav: NavConfigValue | null;
 }
 
-/** override 侧车默认位置：apps/server/data/config-override.json（env 可覆盖，测试注入钩子） */
+/** override 侧车位置（[Phase4-D4/C3] 三级优先，事故根因加固 2026-09-07/08）：
+ * ① 显式 MIZUKI_CONFIG_OVERRIDE_PATH（最优先，测试注入钩子）；
+ * ② MIZUKI_CONFIG_PATH 注入（非缺省）→ 侧车随其所在目录派生（config-override.json
+ *    同目录落位）——隔离实例/自托管把 config.json 指到自定义目录时，侧车必须跟着走，
+ *    否则将误写**真实 data 目录**的侧车（2026-09-07 走查侧车事故根因，见 SESSIONS）；
+ * ③ 缺省 → apps/server/data/config-override.json（原行为不变）。
+ * ②③ 自洽性：env 显式设为缺省同值时 dirname 与 ③ 相同，零行为分歧。 */
 export function defaultOverridePath(): string {
-  return (
-    process.env['MIZUKI_CONFIG_OVERRIDE_PATH'] ??
-    path.resolve(__dirname, '../../../data/config-override.json')
-  );
+  if (process.env['MIZUKI_CONFIG_OVERRIDE_PATH']) {
+    return process.env['MIZUKI_CONFIG_OVERRIDE_PATH'];
+  }
+  if (process.env['MIZUKI_CONFIG_PATH']) {
+    return path.join(path.dirname(process.env['MIZUKI_CONFIG_PATH']), 'config-override.json');
+  }
+  return path.resolve(__dirname, '../../../data/config-override.json');
 }
 
-/** 主题 config.ts 绝对路径（mizukiRoot 活取值，init 后免重启生效） */
+/** 主题 config.ts 绝对路径（mizukiRoot 活取值，init 后免重启生效；
+ * 未配置 400——文案与异常类型逐字保留，root 判定单源见 common/fs/mizuki-root） */
 function configTsPath(): string {
-  const root = getAppConfig().mizukiRoot;
-  if (!root) {
-    throw new BadRequestException('mizukiRoot 未配置（初始化向导完成后生效）');
-  }
+  const root = requireMizukiRoot(getAppConfig().mizukiRoot, {
+    missingMessage: 'mizukiRoot 未配置（初始化向导完成后生效）',
+  });
   return path.join(root, 'src', 'config.ts');
-}
-
-/** 简单常量值判定：字符串字面量 / 无插值模板 / 数字字面量 → 值；其余 → undefined */
-function constValueOf(init: Node): string | number | undefined {
-  switch (init.getKind()) {
-    case SyntaxKind.StringLiteral:
-    case SyntaxKind.NoSubstitutionTemplateLiteral:
-      return (init as StringLiteral).getLiteralText();
-    case SyntaxKind.NumericLiteral: {
-      const num = Number(init.getText());
-      return Number.isFinite(num) ? num : undefined;
-    }
-    default:
-      return undefined;
-  }
-}
-
-/** 顶层非导出简单常量表（config.ts 的 SITE_LANG / SITE_TIMEZONE 类，代入标识符引用） */
-function extractSimpleConsts(sf: SourceFile): Map<string, string | number> {
-  const map = new Map<string, string | number>();
-  for (const stmt of sf.getVariableStatements()) {
-    if (stmt.hasExportKeyword()) {
-      continue; // 导出的业务对象不走常量表（siteConfig/commentConfig 本体）
-    }
-    for (const decl of stmt.getDeclarations()) {
-      const init = decl.getInitializer();
-      if (init === undefined) {
-        continue;
-      }
-      const value = constValueOf(init);
-      if (value !== undefined) {
-        map.set(decl.getName(), value);
-      }
-    }
-  }
-  return map;
-}
-
-/**
- * AST → JS 值（data-files/evaluator astToValue 的常量代入变体）：
- * 分派表同型（自包含字面量），唯一差异——Identifier 节点查常量表代入
- * （config.ts 允许 `lang: SITE_LANG` 式引用）；常量表未命中的标识符与其他
- * 未支持节点 → UnsupportedLiteralError（调用方按「基线不可得」处置）。
- */
-function astToValueWithConsts(node: Node, filePath: string, consts: Map<string, string | number>): unknown {
-  switch (node.getKind()) {
-    case SyntaxKind.ObjectLiteralExpression: {
-      const obj = node as ObjectLiteralExpression;
-      const result: Record<string, unknown> = {};
-      for (const property of obj.getProperties()) {
-        if (!Node.isPropertyAssignment(property)) {
-          throw new UnsupportedLiteralError(filePath, property.getStartLineNumber(), property.getKindName());
-        }
-        const key = property.getNameNode();
-        const name = Node.isStringLiteral(key) ? key.getLiteralText() : key.getText();
-        result[name] = astToValueWithConsts(property.getInitializerOrThrow(), filePath, consts);
-      }
-      return result;
-    }
-    case SyntaxKind.StringLiteral:
-    case SyntaxKind.NoSubstitutionTemplateLiteral:
-      return (node as StringLiteral).getLiteralText();
-    case SyntaxKind.NumericLiteral:
-      return Number(node.getText());
-    case SyntaxKind.TrueKeyword:
-      return true;
-    case SyntaxKind.FalseKeyword:
-      return false;
-    case SyntaxKind.NullKeyword:
-      return null;
-    case SyntaxKind.AsExpression:
-    case SyntaxKind.SatisfiesExpression:
-    case SyntaxKind.ParenthesizedExpression:
-      return astToValueWithConsts(
-        (node as AsExpression | SatisfiesExpression | ParenthesizedExpression).getExpression(),
-        filePath,
-        consts,
-      );
-    case SyntaxKind.PrefixUnaryExpression: {
-      const expr = node as PrefixUnaryExpression;
-      if (expr.getOperatorToken() === SyntaxKind.MinusToken) {
-        const operand = astToValueWithConsts(expr.getOperand(), filePath, consts);
-        if (typeof operand === 'number') {
-          return -operand;
-        }
-      }
-      throw new UnsupportedLiteralError(filePath, node.getStartLineNumber(), node.getKindName());
-    }
-    case SyntaxKind.Identifier: {
-      const value = consts.get(node.getText());
-      if (value === undefined) {
-        throw new UnsupportedLiteralError(filePath, node.getStartLineNumber(), node.getKindName());
-      }
-      return value;
-    }
-    default:
-      throw new UnsupportedLiteralError(filePath, node.getStartLineNumber(), node.getKindName());
-  }
 }
 
 @Injectable()
 export class SiteConfigService {
-  constructor(private readonly backup: BackupService) {}
+  constructor(
+    private readonly backup: BackupService,
+    private readonly themeRegistry: ThemeRegistryService,
+  ) {}
 
   // ── 读 ──
 
@@ -193,6 +110,8 @@ export class SiteConfigService {
         baselineLang: baseline.siteLang,
       },
       commentConfig: carrier.commentConfig ?? baseline.commentConfig,
+      nav: carrier.nav ?? baseline.nav,
+      baselineNav: baseline.nav,
     };
   }
 
@@ -204,6 +123,8 @@ export class SiteConfigService {
    * 校验已在管道层完成（PutLangBodySchema，C5 口径共享终行）。
    */
   async putLang(lang: string | undefined): Promise<AdminSiteConfigView> {
+    // [Phase4-E3a] 物化前置探针门禁（T4，ADR-024）：探针失败 → 409 零物化
+    await this.themeRegistry.assertProbesPass(['siteConfig', 'siteConfig.lang']);
     const configPath = configTsPath();
     const carrier = this.readOverride();
     if (lang === undefined || lang === '') {
@@ -226,6 +147,8 @@ export class SiteConfigService {
 
   /** PUT /admin/config/comments：全量覆盖写入（无敏感键 → 无脱敏/占位符语义） */
   async putComments(comments: CommentConfigValue): Promise<AdminSiteConfigView> {
+    // [Phase4-E3a] 物化前置探针门禁（T4，ADR-024）：探针失败 → 409 零物化
+    await this.themeRegistry.assertProbesPass(['commentConfig']);
     const configPath = configTsPath();
     const text = this.readConfigTs(configPath);
     const next = this.spliceCommentConfig(configPath, text, comments);
@@ -235,6 +158,33 @@ export class SiteConfigService {
     carrier.commentConfig = comments;
     this.writeOverride(carrier);
     logger.info({ configPath }, 'commentConfig override 已物化');
+    return this.getConfig();
+  }
+
+  /**
+   * PUT /admin/config/nav（Phase4-D3，#8）：
+   * - links undefined → 归一缺省（清除 override：config.ts 还原留档原文本 + 侧车移除
+   *   nav 键，lang 清除路径同构）；
+   * - links 数组（含 [] = 合法清空导航，破坏性语义面板层二次确认）→ 声明级全量
+   *   置换物化（valueToTsLiteral 序列化，转义由 JSON.stringify 保证）+ 侧车记录；
+   *   首次覆盖前将 navBarConfig 原初始化器文本留档 originals（仅首次，清除还原依赖）。
+   * 基线不可得（LinkPreset 标识符等未支持节点）不影响物化/留档——留档为原文本，
+   * 与求值无关；首次物化直接落盘（baselineNav null + 空表单起步，ADR-020 追加节）。
+   */
+  async putNav(links: NavConfigValue['links'] | undefined): Promise<AdminSiteConfigView> {
+    // [Phase4-E3a] 物化前置探针门禁（T4，ADR-024）：探针失败 → 409 零物化
+    await this.themeRegistry.assertProbesPass(['navBarConfig', 'navBarConfig.links']);
+    const configPath = configTsPath();
+    const carrier = this.readOverride();
+    await this.spliceNavBarConfig(configPath, carrier, links);
+    if (links === undefined) {
+      delete carrier.nav;
+      logger.info({ configPath }, 'nav override 已清除（归一缺省）');
+    } else {
+      carrier.nav = { links };
+      logger.info({ configPath, count: links.length }, 'nav override 已物化');
+    }
+    this.writeOverride(carrier);
     return this.getConfig();
   }
 
@@ -264,14 +214,8 @@ export class SiteConfigService {
   }
 
   private writeOverride(carrier: ConfigOverrideFile): void {
-    const overridePath = defaultOverridePath();
-    fs.mkdirSync(path.dirname(overridePath), { recursive: true });
-    const tmp = path.join(
-      path.dirname(overridePath),
-      `.tmp-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-    );
-    fs.writeFileSync(tmp, JSON.stringify(carrier, null, 2));
-    fs.renameSync(tmp, overridePath);
+    // 原子写单源（common/fs/atomic-write）
+    atomicWriteFile(defaultOverridePath(), JSON.stringify(carrier, null, 2), { ensureDir: true });
   }
 
   // ── 内部：config.ts 读取与定点置换 ──
@@ -306,7 +250,7 @@ export class SiteConfigService {
 
   private readConfigTs(configPath: string): string {
     if (!fs.existsSync(configPath)) {
-      throw new NotFoundException(`主题 config.ts 不存在（${configPath}）`);
+      throw new NotFoundException(`主题 config.ts 不存在（${CONFIG_TS_DISPLAY}）`);
     }
     return fs.readFileSync(configPath, 'utf8');
   }
@@ -319,10 +263,11 @@ export class SiteConfigService {
   private readBaseline(originals: Record<string, string> | undefined): {
     siteLang: string | null;
     commentConfig: CommentConfigValue | null;
+    nav: NavConfigValue | null;
   } {
     const configPath = configTsPath();
     if (!fs.existsSync(configPath)) {
-      throw new NotFoundException(`主题 config.ts 不存在（${configPath}）`);
+      throw new NotFoundException(`主题 config.ts 不存在（${CONFIG_TS_DISPLAY}）`);
     }
     const sf = loadSourceFile(configPath);
     const consts = extractSimpleConsts(sf);
@@ -366,7 +311,28 @@ export class SiteConfigService {
         }
       }
     }
-    return { siteLang, commentConfig };
+    let nav: NavConfigValue | null = null;
+    const navDecl = sf.getVariableDeclaration('navBarConfig');
+    const navInit = navDecl?.getInitializer();
+    if (navInit !== undefined) {
+      try {
+        // T1.1 实测：真实主题 links 含 LinkPreset.Home/Archive 标识符（PropertyAccess
+        // 节点）且 astToValueWithConsts 无数组字面量分支 → 恒抛 UnsupportedLiteralError
+        // → 降级分支（baselineNav null + 面板空表单起步），ADR-020 追加节已知限制。
+        const value = astToValueWithConsts(navInit, configPath, consts);
+        nav = (value ?? null) as NavConfigValue | null;
+      } catch (error) {
+        if (error instanceof UnsupportedLiteralError) {
+          logger.warn(
+            { configPath, line: error.line },
+            'navBarConfig 基线含未支持节点（LinkPreset 标识符等），基线视为不可得',
+          );
+        } else {
+          throw error;
+        }
+      }
+    }
+    return { siteLang, commentConfig, nav };
   }
 
   /**
@@ -382,14 +348,14 @@ export class SiteConfigService {
   ): Promise<void> {
     const text = this.readConfigTs(configPath);
     const sf = loadSourceFile(configPath, text);
-    const decl = getVariableDeclarationOrThrow(sf, 'siteConfig');
+    const decl = getVariableDeclarationOrThrow(sf, 'siteConfig', CONFIG_TS_DISPLAY);
     const init = decl.getInitializer();
     if (init === undefined || !Node.isObjectLiteralExpression(init)) {
-      throw new NotFoundException(`siteConfig 初始化器形态不符（${configPath}）`);
+      throw new NotFoundException(`siteConfig 初始化器形态不符（${CONFIG_TS_DISPLAY}）`);
     }
     const prop = init.getProperty('lang');
     if (prop === undefined || !Node.isPropertyAssignment(prop)) {
-      throw new NotFoundException(`siteConfig 缺 lang 属性（${configPath}）`);
+      throw new NotFoundException(`siteConfig 缺 lang 属性（${CONFIG_TS_DISPLAY}）`);
     }
     if (value === undefined) {
       const original = carrier.originals?.['siteConfig.lang'];
@@ -411,9 +377,47 @@ export class SiteConfigService {
   /** 定点置换 commentConfig 声明初始化器（valueToTsLiteral 序列化，其余声明零触碰） */
   private spliceCommentConfig(configPath: string, text: string, value: CommentConfigValue): string {
     const sf = loadSourceFile(configPath, text);
-    const decl = getVariableDeclarationOrThrow(sf, 'commentConfig');
+    const decl = getVariableDeclarationOrThrow(sf, 'commentConfig', CONFIG_TS_DISPLAY);
     decl.setInitializer(valueToTsLiteral(value));
     return sf.getFullText();
+  }
+
+  /**
+   * 定点置换 navBarConfig 声明初始化器（Phase4-D3，声明级全量置换 commentConfig 同构
+   * + 清除还原 lang 同构）：
+   * - value 有（含 []）：首次覆盖前将原初始化器文本留档 originals['navBarConfig']
+   *   （仅首次，避免 override 文本污染原文本），声明初始化器置换为 valueToTsLiteral
+   *   序列化文本（字符串值经 JSON.stringify 转义——引号/反斜杠/换行保证语法有效）；
+   * - value 无（清除）：留档存在 → 还原原文本；不存在 → 不动作（等价 no-op）。
+   * 声明缺失/初始化器形态不符 → 404（C7 对齐基线源被破坏语义）。
+   */
+  private async spliceNavBarConfig(
+    configPath: string,
+    carrier: ConfigOverrideFile,
+    value: NavConfigValue['links'] | undefined,
+  ): Promise<void> {
+    const text = this.readConfigTs(configPath);
+    const sf = loadSourceFile(configPath, text);
+    const decl = getVariableDeclarationOrThrow(sf, 'navBarConfig', CONFIG_TS_DISPLAY);
+    const init = decl.getInitializer();
+    if (init === undefined) {
+      throw new NotFoundException(`navBarConfig 初始化器形态不符（${CONFIG_TS_DISPLAY}）`);
+    }
+    if (value === undefined) {
+      const original = carrier.originals?.['navBarConfig'];
+      if (original === undefined) {
+        return; // 无留档 = 基线态，无需还原
+      }
+      decl.setInitializer(original);
+    } else {
+      const originals = { ...(carrier.originals ?? {}) };
+      if (originals['navBarConfig'] === undefined) {
+        originals['navBarConfig'] = init.getText();
+      }
+      carrier.originals = originals;
+      decl.setInitializer(valueToTsLiteral({ links: value }));
+    }
+    await this.persistConfigTs(configPath, text, sf.getFullText(), 'navBarConfig');
   }
 
   /** 备份 + 原子写（文本与现读一致时跳过写入——清除还原至原文即等价 no-op） */
@@ -430,13 +434,8 @@ export class SiteConfigService {
     this.atomicWrite(configPath, after);
   }
 
-  /** 原子写（同目录临时文件 → rename，mergeAndPersistConfig 同型） */
+  /** 原子写（单源见 common/fs/atomic-write；mergeAndPersistConfig 同型） */
   private atomicWrite(absPath: string, text: string): void {
-    const tmp = path.join(
-      path.dirname(absPath),
-      `.tmp-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-    );
-    fs.writeFileSync(tmp, text);
-    fs.renameSync(tmp, absPath);
+    atomicWriteFile(absPath, text);
   }
 }

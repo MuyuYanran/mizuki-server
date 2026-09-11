@@ -26,6 +26,7 @@ import {
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { Public } from '../../common/decorators/public.decorator';
+import { parseStrictLimit, parseStrictPage } from '../../common/http/pagination';
 import { ZodValidationPipe } from '../../common/pipes/zod-validation.pipe';
 import {
   ArticleSlugSchema,
@@ -93,8 +94,9 @@ export class PublicArticlesController {
   @ApiOperation({ summary: '公开文章混合分页（?page=&limit=，默认 1/10，limit 上限 50）' })
   @Get()
   async list(@Query('page') pageRaw?: string, @Query('limit') limitRaw?: string) {
-    const page = parsePageParam(pageRaw, 1);
-    const limit = parseLimitParam(limitRaw, 10);
+    // strict 口径（公开面，limit 超 50 → 400）——口径单源见 common/http/pagination
+    const page = parseStrictPage(pageRaw, 1);
+    const limit = parseStrictLimit(limitRaw, 10, 50);
     return this.articles.publicList(page, limit);
   }
 
@@ -108,25 +110,4 @@ export class PublicArticlesController {
 
 // ── 纯工具 ──
 
-function parsePageParam(raw: string | undefined, fallback: number): number {
-  const parsed = raw === undefined ? Number.NaN : Number(raw);
-  if (!Number.isInteger(parsed) || parsed < 1) {
-    return fallback;
-  }
-  return parsed;
-}
 
-/** limit：默认 10，上限 50（超限 400，P8 §3.4） */
-function parseLimitParam(raw: string | undefined, fallback: number): number {
-  if (raw === undefined) {
-    return fallback;
-  }
-  const parsed = Number(raw);
-  if (!Number.isInteger(parsed) || parsed < 1) {
-    return fallback;
-  }
-  if (parsed > 50) {
-    throw new BadRequestException('limit 超出上限 50');
-  }
-  return parsed;
-}

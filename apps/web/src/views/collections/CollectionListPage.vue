@@ -34,7 +34,10 @@ import { ApiError } from '../../api/http';
 import { SchemaForm, describeSchema, emptyValueFromSchema, type FieldDescriptor } from '../../lib/schema-form';
 import ImageUploader from '../../components/ImageUploader.vue';
 import CropperUploader from '../../components/CropperUploader.vue';
+import MediaPicker, { type MediaPickResult } from '../../components/MediaPicker.vue';
+import { toSiteReference } from '../../lib/media-ref';
 import type { MediaInfo } from '../../api/media';
+import { notifyApiError } from '../../lib/notify';
 
 /** 单类集合的渲染配置（与后端 registry 对齐，schema 实例复用 shared 导出） */
 interface CollectionConfig {
@@ -142,7 +145,7 @@ async function fetchList(): Promise<void> {
       list.value = Array.isArray(data) ? (data as CollectionItem[]) : [];
     }
   } catch (e) {
-    handleError(e, '加载列表失败');
+    notifyApiError(e, '加载列表失败');
   } finally {
     loading.value = false;
   }
@@ -186,27 +189,55 @@ function openEdit(item: CollectionItem): void {
  * [P10d] 快速上传图片：上传后按字段回填（diary.images 追加、
  * projects/devices.image 设置；无图片字段的 type 提示复制路径）。
  * 不改 SchemaForm 既有交互（文本输入仍在，上传为辅助入口）。
+ * [Phase4-D2/ADR-022 #3 断点修复] 回填形态由 `media.path`（public/... 文件
+ * 系统路径）改为**站点 URL 形态**（/images/...）：主题 MomentCard 等消费链把
+ * 该值原样当 src 渲染（实证），public/ 形态 404 即「上传了但不引用」；
+ * 上传失败不插（ImageUploader 仅成功时 emit，语义不变）。
  */
 function onImageUploaded(media: MediaInfo): void {
-  const fm = formValue.value;
-  if (Array.isArray(fm['images'])) {
-    formValue.value = { ...fm, images: [...(fm['images'] as string[]), media.path] };
-    ElMessage.success(`已添加到图片列表：${media.path}`);
-  } else if ('image' in fm) {
-    formValue.value = { ...fm, image: media.path };
-    ElMessage.success(`已设置图片：${media.path}`);
-  } else {
-    ElMessage.info(`图片已上传：${media.path}（请手动填入对应字段）`);
+  backfillImageRef(toSiteReference(media.path), `已添加到图片列表`);
+}
+
+/** [Phase4-D2] 从媒体库/相册/外链选图 → 与上传同一回填出口（选图入口，#4） */
+function onPicked(results: MediaPickResult[]): void {
+  for (const result of results) {
+    backfillImageRef(result.url, '已添加到图片列表');
   }
 }
+
+/** 引用回填唯一出口：images[] 追加 / image 字段设置 / imgurl（友链头像）。
+ * [Phase4-D2 走查修正] 数组判定以 schema shape 为真相而非当前值——optional
+ * images 在新增态初值为 undefined（emptyValueFromSchema）、编辑态存量条目可无
+ * 该键，按值判定会落空到手动提示分支（走查实锤：新增日记选图不回填）。 */
+function backfillImageRef(url: string, successLabel: string): void {
+  const fm = formValue.value;
+  const hasImagesField = config.value !== null && 'images' in config.value.schema.shape;
+  if (hasImagesField) {
+    const current = Array.isArray(fm['images']) ? (fm['images'] as string[]) : [];
+    formValue.value = { ...fm, images: [...current, url] };
+    ElMessage.success(`${successLabel}：${url}`);
+  } else if (config.value?.type === 'friends' && 'imgurl' in fm) {
+    formValue.value = { ...fm, imgurl: url };
+    ElMessage.success(`已设置头像：${url}`);
+  } else if ('image' in fm) {
+    formValue.value = { ...fm, image: url };
+    ElMessage.success(`已设置图片：${url}`);
+  } else {
+    ElMessage.info(`图片引用：${url}（请手动填入对应字段）`);
+  }
+}
+
+/** [Phase4-D2] 选择器可见性 */
+const pickerVisible = ref(false);
 
 /**
  * [Phase2-B1 / R2-6] 友链头像裁切上传：CropperUploader（圆形 1:1）
  * 上传后回填 imgurl 字段（手动粘贴外链 URL 的输入仍保留）。
+ * [Phase4-D2] 回填形态与 onImageUploaded 同步修正为站点 URL 形态。
  */
 function onAvatarUploaded(media: MediaInfo): void {
-  formValue.value = { ...formValue.value, imgurl: media.path };
-  ElMessage.success(`已设置头像：${media.path}`);
+  formValue.value = { ...formValue.value, imgurl: toSiteReference(media.path) };
+  ElMessage.success(`已设置头像：${toSiteReference(media.path)}`);
 }
 
 /** 提交：SchemaForm 内部已跑过 schema.parse，此处只发请求 */
@@ -242,7 +273,7 @@ async function onSubmit(value: Record<string, unknown>): Promise<void> {
         ElMessage.error(e.message);
       }
     } else {
-      handleError(e, isEdit.value ? '保存失败' : '新增失败');
+      notifyApiError(e, isEdit.value ? '保存失败' : '新增失败');
     }
   } finally {
     submitting.value = false;
@@ -267,18 +298,11 @@ async function onDelete(item: CollectionItem): Promise<void> {
     ElMessage.success('已删除');
     await fetchList();
   } catch (e) {
-    handleError(e, '删除失败');
+    notifyApiError(e, '删除失败');
   }
 }
 
 /** 统一错误提示（非 400 字段错误的兜底） */
-function handleError(e: unknown, fallback: string): void {
-  if (e instanceof ApiError) {
-    ElMessage.error(e.message);
-  } else {
-    ElMessage.error(fallback);
-  }
-}
 
 /** 路由参数变化时重新拉取 */
 watch(
@@ -355,6 +379,8 @@ function goHome(): void {
       <div class="quick-upload">
         <span class="quick-label">快速上传图片：</span>
         <ImageUploader label="上传" @uploaded="onImageUploaded" />
+        <!-- [Phase4-D2] 媒体库/相册/外链选图入口（#4：引用功能补媒体库选图） -->
+        <el-button @click="pickerVisible = true">选择图片…</el-button>
         <!-- [R2-6] 友链头像：裁切（圆形 1:1）→ 上传 → 回填 imgurl -->
         <CropperUploader
           v-if="config.type === 'friends'"
@@ -364,6 +390,7 @@ function goHome(): void {
           @uploaded="onAvatarUploaded"
         />
       </div>
+      <MediaPicker v-model="pickerVisible" @picked="onPicked" />
       <SchemaForm
         v-if="drawerVisible"
         :schema="config.schema"
@@ -371,6 +398,7 @@ function goHome(): void {
         :submit-label="isEdit ? '保存' : '新增'"
         :loading="submitting"
         :server-errors="serverErrors"
+        :id-editable="!isEdit"
         @submit="onSubmit"
         @cancel="drawerVisible = false"
       />

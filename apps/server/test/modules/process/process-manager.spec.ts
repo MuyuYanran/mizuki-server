@@ -25,11 +25,11 @@ describe('P9 ProcessManagerService 纯工具（安全断言）', () => {
     expect(options.detached).toBe(process.platform !== 'win32');
   });
 
-  it('§6.7 env 白名单：仅透传 PATH / HOME / APPDATA', () => {
+  it('§6.7 env 白名单：仅透传 PATH / HOME / APPDATA（+ 恒定注入 CI，见下例）', () => {
     process.env['MIZUKI_P9_LEAK_TEST'] = 'should-not-pass-through';
     try {
       const env = childEnv();
-      const allowed = new Set(['PATH', 'HOME', 'APPDATA']);
+      const allowed = new Set(['PATH', 'HOME', 'APPDATA', 'CI']);
       for (const key of Object.keys(env)) {
         expect(allowed.has(key)).toBe(true);
       }
@@ -37,6 +37,24 @@ describe('P9 ProcessManagerService 纯工具（安全断言）', () => {
       expect(typeof env['PATH']).toBe('string');
     } finally {
       delete process.env['MIZUKI_P9_LEAK_TEST'];
+    }
+  });
+
+  it('[Phase4-D4/配套1] CI=true 为恒定注入字面量，不取宿主 env（泄漏边界不破）', () => {
+    const prevCI = process.env['CI'];
+    process.env['CI'] = 'false'; // 宿主声称非 CI
+    process.env['MIZUKI_P9_CI_LEAK_TEST'] = 'should-not-pass-through';
+    try {
+      const env = childEnv();
+      expect(env['CI']).toBe('true'); // 恒写常量，不被宿主 env 覆盖
+      expect(env['MIZUKI_P9_CI_LEAK_TEST']).toBeUndefined();
+    } finally {
+      if (prevCI === undefined) {
+        delete process.env['CI'];
+      } else {
+        process.env['CI'] = prevCI;
+      }
+      delete process.env['MIZUKI_P9_CI_LEAK_TEST'];
     }
   });
 

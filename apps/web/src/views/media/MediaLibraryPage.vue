@@ -16,6 +16,8 @@ import { ApiError } from '../../api/http';
 import { imageSrc } from '../../lib/image-src';
 import ImageUploader from '../../components/ImageUploader.vue';
 import ReferenceDetailDialog from '../../components/ReferenceDetailDialog.vue';
+import { notifyApiError } from '../../lib/notify';
+import { formatSize, formatTime } from '../../lib/format';
 
 const list = ref<MediaInfo[]>([]);
 const loading = ref(false);
@@ -27,7 +29,7 @@ async function fetchList(): Promise<void> {
   try {
     list.value = await mediaApi.list();
   } catch (e) {
-    handleError(e, '加载媒体列表失败');
+    notifyApiError(e, '加载媒体列表失败');
   } finally {
     loading.value = false;
   }
@@ -52,7 +54,7 @@ async function onDelete(media: MediaInfo): Promise<void> {
       refList.value = extractMediaReferences(e.detail);
       refDialogVisible.value = true;
     } else {
-      handleError(e, '删除失败');
+      notifyApiError(e, '删除失败');
     }
   }
 }
@@ -66,23 +68,8 @@ async function copyPath(media: MediaInfo): Promise<void> {
   }
 }
 
-function formatSize(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
-}
 
-function formatTime(iso: string): string {
-  return new Date(iso).toLocaleString('zh-CN');
-}
 
-function handleError(e: unknown, fallback: string): void {
-  if (e instanceof ApiError) {
-    ElMessage.error(e.message);
-  } else {
-    ElMessage.error(fallback);
-  }
-}
 
 onMounted(() => {
   void fetchList();

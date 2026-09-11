@@ -27,9 +27,12 @@ import http from 'node:http';
 import path from 'node:path';
 import { Inject, Injectable, OnApplicationBootstrap, OnApplicationShutdown } from '@nestjs/common';
 import express, { type NextFunction, type Request, type Response } from 'express';
+import { readCookie } from '../../common/http/cookie';
+import { respond401, respond404, respond405 } from '../../common/http/json-error';
 import { logger } from '../../common/logger';
 import { ACCESS_TOKEN_VERIFIER, type AccessTokenVerifier } from '../../common/guards/jwt-auth.guard';
 import { ForbiddenPathError, safeRealJoin } from '../../common/security/safe-join';
+import { decodePathSegments } from '../../common/security/url-path';
 import { getAppConfig } from '../../config/app-config';
 
 /** preview cookie 专用名（与管理会话 cookie 命名空间隔离） */
@@ -79,34 +82,6 @@ const GUIDE_HTML = `<!doctype html>
 </body>
 </html>
 `;
-
-/** 从 cookie 头解析指定键值（零依赖手写；仅认本名，其余 cookie 一律忽略） */
-function readCookie(header: string | undefined, name: string): string | undefined {
-  if (!header) {
-    return undefined;
-  }
-  for (const part of header.split(';')) {
-    const eq = part.indexOf('=');
-    if (eq <= 0) {
-      continue;
-    }
-    if (part.slice(0, eq).trim() !== name) {
-      continue;
-    }
-    const value = part.slice(eq + 1).trim();
-    try {
-      return decodeURIComponent(value);
-    } catch {
-      return undefined;
-    }
-  }
-  return undefined;
-}
-
-/** 统一 JSON 错误体（与 /site-assets 守卫链同构） */
-function respondJson(res: Response, status: number, code: string, message: string): void {
-  res.status(status).json({ code, message, detail: null });
-}
 
 @Injectable()
 export class PreviewService implements OnApplicationBootstrap, OnApplicationShutdown {
@@ -180,7 +155,7 @@ export class PreviewService implements OnApplicationBootstrap, OnApplicationShut
     try {
       // ── 边界 0：GET-only（先于认证，口径从严；405 不泄露内容面信息） ──
       if (req.method !== 'GET') {
-        respondJson(res, 405, 'MethodNotAllowedException', 'preview 通道仅允许 GET');
+        respond405(res, 'preview 通道仅允许 GET');
         return;
       }
 
@@ -188,7 +163,7 @@ export class PreviewService implements OnApplicationBootstrap, OnApplicationShut
       // 仅读取固定 cookie 名；外来 cookie（含管理会话 cookie）不产生任何行为差异
       const token = readCookie(req.headers.cookie, PREVIEW_COOKIE);
       if (!token) {
-        respondJson(res, 401, 'UnauthorizedException', '缺少预览凭据（请先在管理面板获取站点预览票据）');
+        respond401(res, '缺少预览凭据（请先在管理面板获取站点预览票据）');
         return;
       }
       try {
@@ -196,7 +171,7 @@ export class PreviewService implements OnApplicationBootstrap, OnApplicationShut
       } catch {
         // 不记录 token 内容（P6 §3.7 同纪律）
         logger.warn({ path: req.path }, 'preview 拒绝：预览凭据无效或已过期');
-        respondJson(res, 401, 'UnauthorizedException', '预览凭据无效或已过期（请重新获取站点预览票据）');
+        respond401(res, '预览凭据无效或已过期（请重新获取站点预览票据）');
         return;
       }
 
@@ -210,9 +185,9 @@ export class PreviewService implements OnApplicationBootstrap, OnApplicationShut
       }
 
       // ── 边界 3：路径安全（逐段解码 + 走私拒绝 + 隐藏文件禁） ──
-      const segments = this.parseSegments(req.path);
+      const segments = decodePathSegments(req.path, { empty: 'skip', rejectHidden: true });
       if (segments === null) {
-        respondJson(res, 404, 'NotFoundException', '预览资源不存在');
+        respond404(res, '预览资源不存在');
         return;
       }
       let rel = segments.join('/');
@@ -221,7 +196,7 @@ export class PreviewService implements OnApplicationBootstrap, OnApplicationShut
         targetAbs = safeRealJoin(distRoot, rel);
       } catch (error) {
         if (error instanceof ForbiddenPathError) {
-          respondJson(res, 404, 'NotFoundException', '预览资源不存在');
+          respond404(res, '预览资源不存在');
           return;
         }
         throw error;
@@ -230,7 +205,7 @@ export class PreviewService implements OnApplicationBootstrap, OnApplicationShut
       try {
         stat = statSync(targetAbs);
       } catch {
-        respondJson(res, 404, 'NotFoundException', '预览资源不存在');
+        respond404(res, '预览资源不存在');
         return;
       }
       // 目录请求自动补 index.html（Astro 扁平结构）+ 尾斜杠归一（/a/ 与 /a 同段集）
@@ -241,7 +216,7 @@ export class PreviewService implements OnApplicationBootstrap, OnApplicationShut
       // ── 边界 4：扩展名白名单（作用于最终目标文件；非白名单统一 404 存在性隐藏） ──
       const ext = path.basename(rel).split('.').pop()?.toLowerCase() ?? '';
       if (!PREVIEW_EXTS.has(ext)) {
-        respondJson(res, 404, 'NotFoundException', '预览资源不存在');
+        respond404(res, '预览资源不存在');
         return;
       }
 
@@ -261,7 +236,7 @@ export class PreviewService implements OnApplicationBootstrap, OnApplicationShut
       // 静态直出（sendFile 以 root 收口相对路径；错误收敛 404；无 SSR/代理/rewrite）
       res.sendFile(rel, { root: distRoot, headers }, (error) => {
         if (error !== undefined) {
-          respondJson(res, 404, 'NotFoundException', '预览资源不存在');
+          respond404(res, '预览资源不存在');
         }
       });
     } catch (error) {
@@ -279,34 +254,4 @@ export class PreviewService implements OnApplicationBootstrap, OnApplicationShut
     return mizukiRoot ? path.join(path.resolve(mizukiRoot), 'dist') : undefined;
   }
 
-  /**
-   * 逐段解码（同 ADR-012）：空段跳过；任一段为 '.'/'..'/含分隔符/NUL/以点开头
-   * （隐藏文件禁）→ null（404）。req.path 已剥 query（express 路由层语义）。
-   */
-  private parseSegments(requestPath: string): string[] | null {
-    const segments: string[] = [];
-    for (const seg of requestPath.split('/')) {
-      if (seg === '') {
-        continue; // 尾斜杠/重复斜杠归一
-      }
-      let decoded: string;
-      try {
-        decoded = decodeURIComponent(seg);
-      } catch {
-        return null;
-      }
-      if (
-        decoded === '.' ||
-        decoded === '..' ||
-        decoded.includes('/') ||
-        decoded.includes('\\') ||
-        decoded.includes('\0') ||
-        decoded.startsWith('.')
-      ) {
-        return null;
-      }
-      segments.push(decoded);
-    }
-    return segments;
-  }
 }

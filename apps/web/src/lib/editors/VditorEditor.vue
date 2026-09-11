@@ -63,6 +63,19 @@ let inputTimer: ReturnType<typeof setTimeout> | null = null;
 /** 图片预览重写 MutationObserver */
 let imgObserver: MutationObserver | null = null;
 
+/**
+ * [Phase4-D1] Vditor after() 完成标记。vditor 初始化为异步：lute（markdown↔DOM
+ * 转换的 wasm 模块）由 cdn 异步加载，就绪前调用实例的 getValue/setValue 会抛
+ * TypeError: Cannot read properties of undefined (reading 'VditorDOM2Md')，
+ * 且异常发生在组件 update flush 中会中断后续更新（编辑页 v-loading 遮罩滞留、
+ * 整页不可交互——走查实证，DevTools 控制台栈：VditorEditor.vue modelValue watch
+ * → vditor.js getValue → lute 未定义）。after() 仅在内部资源就绪后触发，
+ * 故以其为就绪门。
+ */
+let vditorReady = false;
+/** [Phase4-D1/缺陷二] 块工具条误显守卫的 style 观测器（见 setupBlockToolbarGuard） */
+let blockToolbarObserver: MutationObserver | null = null;
+
 /** Vditor 主题名映射（classic=亮，dark=暗） */
 function vditorTheme(theme: 'light' | 'dark'): 'classic' | 'dark' {
   return theme === 'dark' ? 'dark' : 'classic';
@@ -158,6 +171,33 @@ function setupImagePreviewRewrite(): void {
   imgObserver.observe(container, { childList: true, subtree: true });
 }
 
+/**
+ * [Phase4-D1/缺陷二] 块工具条误显守卫。
+ * 现象（走查取证）：vditor wysiwyg 的块工具条（上移/下移/删除，`.vditor-panel--none`，
+ * 删除键 aria-label「删除<Ctrl+Shift+X>」）在普通段落获得选区时也会被上游置为
+ * `display:block` 且不再复位——面板常驻浮于正文（用户侧呈「自动出现的空白提示框，
+ * 悬停才显内容」）。上游 hide 逻辑仅在有块上下文时收尾，普通文本路径漏藏。
+ * 处置：观测该面板的 style 写入——变为可见但当前选区不在 `.vditor-wysiwyg__block`
+ * （代码块/数学块的块容器类，与上游 hasClosestByClassName 判定同源）时回写隐藏。
+ * 块编辑态下工具条功能（移块/删块）原样保留，非 CSS 一刀强藏。
+ */
+function setupBlockToolbarGuard(): void {
+  const container = containerRef.value;
+  if (container === null) return;
+  const panel = container.querySelector<HTMLElement>('.vditor-panel--none');
+  if (panel === null) return;
+  blockToolbarObserver?.disconnect();
+  blockToolbarObserver = new MutationObserver(() => {
+    if (panel.style.display !== 'block') return;
+    const anchor = document.getSelection()?.anchorNode;
+    const el = anchor instanceof Element ? anchor : (anchor?.parentElement ?? null);
+    if (el === null || el.closest('.vditor-wysiwyg__block') === null) {
+      panel.style.display = 'none';
+    }
+  });
+  blockToolbarObserver.observe(panel, { attributes: true, attributeFilter: ['style'] });
+}
+
 onMounted(() => {
   initVditor();
 });
@@ -173,8 +213,11 @@ function destroyVditor(): void {
   }
   imgObserver?.disconnect();
   imgObserver = null;
+  blockToolbarObserver?.disconnect();
+  blockToolbarObserver = null;
   vditorRef.value?.destroy?.();
   vditorRef.value = null;
+  vditorReady = false;
 }
 
 function initVditor(): void {
@@ -210,11 +253,15 @@ function initVditor(): void {
        * [B3.6 修复] 初始化完成后重放最新 modelValue：Vditor 初始化为异步，
        * 父级内容若在 after 前到达，watch 里的 setValue 会因内部状态未就绪
        * 被吞（编辑页正文不渲染）。此处以 props 现值为准补同步。
+       * [Phase4-D1] after 即就绪门开启点（lute 已加载），此后 watch/getValue 才
+       * 允许触碰实例（就绪前调用会抛 VditorDOM2Md TypeError）。
        */
-      if (vditorRef.value && vditorRef.value.getValue() !== props.modelValue) {
+      vditorReady = true;
+      if (vditorRef.value && restoreValue(vditorRef.value.getValue()) !== props.modelValue) {
         vditorRef.value.setValue(props.modelValue);
       }
       setupImagePreviewRewrite();
+      setupBlockToolbarGuard();
     },
   });
   vditorRef.value = vditor;
@@ -230,8 +277,17 @@ watch(resolvedTheme, (next) => {
 watch(
   () => props.modelValue,
   (next) => {
+    // [Phase4-D1] 就绪门：lute 加载完成前实例 getValue/setValue 会抛错并中断
+    // 组件 update（编辑页 v-loading 遮罩滞留、整页不可交互——侦查实证）——
+    // 直接跳过，after() 的重放机制会补同步。
+    // [Phase4-D1/侦查留档] 缺陷一「按空格光标跳至文章开头」复现协议 20/20 未复现
+    // （IME 开/关双态各 10 次）， setValue 回环防御（回声抑制）按批次协议不启用，
+    // 待架构师裁决；机制假说与取证见 SESSIONS Phase4-D1 报告 T1.1。
+    if (!vditorReady || vditorRef.value === null) {
+      return;
+    }
     // [B3.6 修复] 比对前先还原预览层路径，避免仅因预览改写触发无谓 setValue
-    if (vditorRef.value && restoreValue(vditorRef.value.getValue()) !== next) {
+    if (restoreValue(vditorRef.value.getValue()) !== next) {
       vditorRef.value.setValue(next);
     }
   },
@@ -247,15 +303,32 @@ watch(
 
 // 暴露 getValue，供引擎切换时父组件读取最新值
 // [B3.6 修复] 返回前反向还原预览层泄漏路径
+// [Phase4-D1] 未就绪时返回 props 现值（内部 getValue 依赖 lute，就绪前调用会抛错）
 function getValue(): string {
-  return restoreValue(vditorRef.value?.getValue() ?? '');
+  const vditor = vditorRef.value;
+  if (!vditorReady || vditor === null) {
+    return props.modelValue;
+  }
+  return restoreValue(vditor.getValue());
 }
 
 function setValue(value: string): void {
   vditorRef.value?.setValue(value);
 }
 
-defineExpose({ getValue, setValue });
+/**
+ * [Phase4-D2/T5 图片按钮回调接入面（ADR-022）] 光标处插入文本
+ * （vditor.insertValue；就绪门与 watch 同源——lute 未就绪时实例方法不可用）。
+ * 仅暴露调用入口，包装层核心逻辑（输入回环/主题/图片改写）冻结不动。
+ */
+function insertAtCursor(text: string): void {
+  if (!vditorReady || vditorRef.value === null) {
+    return;
+  }
+  vditorRef.value.insertValue(text);
+}
+
+defineExpose({ getValue, setValue, insertAtCursor });
 </script>
 
 <template>
@@ -265,6 +338,10 @@ defineExpose({ getValue, setValue });
 <style scoped>
 .vditor-editor {
   width: 100%;
+  /* [Phase4-D1/缺陷三] 支持视口填充布局：父容器为弹性列时由外部 :deep 覆盖为
+     flex:1；父容器高度 auto（如关于页）时百分比回退 auto，既有固定 height prop
+     （inline 样式在 .vditor 上）不受影响。 */
+  height: 100%;
 }
 
 /* 让 Vditor 容器跟随 Element 边框变量，避免硬编码 */

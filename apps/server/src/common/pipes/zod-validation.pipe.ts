@@ -8,25 +8,15 @@
  *   { code, message, detail }，detail 携带 zod issues（字段路径 + 错误信息）。
  * [状态] ACTIVE
  */
-import { BadRequestException, type PipeTransform } from '@nestjs/common';
+import { type PipeTransform } from '@nestjs/common';
 import { z } from 'zod';
+import { parseOrBadRequest } from '../validation/zod-issues';
 
 export class ZodValidationPipe implements PipeTransform<unknown, unknown> {
   constructor(private readonly schema: z.ZodType) {}
 
   transform(value: unknown): unknown {
-    const result = this.schema.safeParse(value);
-    if (!result.success) {
-      throw new BadRequestException({
-        message: '请求体校验失败',
-        detail: {
-          issues: result.error.issues.map((issue) => ({
-            path: issue.path.join('.'),
-            message: issue.message,
-          })),
-        },
-      });
-    }
-    return result.data;
+    // 400 + detail.issues 形状单源（common/validation/zod-issues）
+    return parseOrBadRequest(this.schema, value, '请求体校验失败');
   }
 }

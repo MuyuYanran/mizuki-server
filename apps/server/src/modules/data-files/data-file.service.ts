@@ -11,20 +11,19 @@
  * - 事件发射不在本模块（引擎保持纯粹）：content.changed 由调用方（P4）
  *   在成功出口负责；本服务返回写入后的新值供调用方组装事件。
  */
-import { createHash } from 'node:crypto';
 import fs from 'node:fs';
-import path from 'node:path';
 import {
   BadRequestException,
   ConflictException,
-  ForbiddenException,
   Inject,
   Injectable,
 } from '@nestjs/common';
-import { nanoid } from 'nanoid';
 import type { z } from 'zod';
+import { sha256Text } from '../../common/crypto/hash';
+import { atomicWriteFile } from '../../common/fs/atomic-write';
+import { toMizukiAbs } from '../../common/fs/mizuki-root';
 import { logger } from '../../common/logger';
-import { ForbiddenPathError, safeJoin } from '../../common/security/safe-join';
+import { safeParseIssues } from '../../common/validation/zod-issues';
 import { type BackupOptions, BACKUP_OPTIONS, BackupService } from '../../infra/backup/backup.service';
 import { astToValue, getVariableDeclarationOrThrow, loadSourceFile } from './evaluator';
 import { valueToTsLiteral } from './serializer';
@@ -53,10 +52,11 @@ export class DataFileService {
     const abs = this.resolveAbs(relFile);
     return this.cache.get<T>(abs, () => {
       const sf = loadSourceFile(abs);
-      const decl = getVariableDeclarationOrThrow(sf, varName);
+      // displayPath = relFile：错误信息投影相对路径，响应体不泄露磁盘绝对路径（E1）
+      const decl = getVariableDeclarationOrThrow(sf, varName, relFile);
       const initializer = decl.getInitializer();
       if (!initializer) {
-        throw new BadRequestException(`导出 ${varName} 缺少初始化表达式：${abs}`);
+        throw new BadRequestException(`导出 ${varName} 缺少初始化表达式：${relFile}`);
       }
       return astToValue(initializer, abs) as T;
     });
@@ -91,21 +91,31 @@ export class DataFileService {
   ): Promise<T> {
     // 1. 读盘 + 记录原文哈希
     const original = fs.readFileSync(absFile, 'utf8');
-    const originalHash = sha256Hex(original);
+    const originalHash = sha256Text(original);
 
     // 2. AST 求值 → 深拷贝 → 用户变更
     const sourceFile = loadSourceFile(absFile, original);
-    const decl = getVariableDeclarationOrThrow(sourceFile, varName);
+    const decl = getVariableDeclarationOrThrow(sourceFile, varName, relFile);
     const initializer = decl.getInitializer();
     if (!initializer) {
-      throw new BadRequestException(`导出 ${varName} 缺少初始化表达式：${absFile}`);
+      throw new BadRequestException(`导出 ${varName} 缺少初始化表达式：${relFile}`);
     }
     const current = astToValue(initializer, absFile) as T;
     const next = await mutate(structuredClone(current));
 
     // 3. zod 整体校验（未传 schema 则跳过）
+    //    [Wave-2/E2] 失败由「ZodError 直达 500」改为 400 + detail.issues：
+    //    整体校验失败源于用户提交的条目组合，属可自助修正问题；前端消费
+    //    detail.issues[].{path,message} 做字段级提示（形状与路由级管道一致）。
     if (schema) {
-      schema.parse(next);
+      const checked = safeParseIssues(schema, next);
+      if (!checked.ok) {
+        logger.warn({ file: relFile, var: varName }, '数据文件整体校验失败（400）');
+        throw new BadRequestException({
+          message: `数据文件整体校验失败：${relFile}`,
+          detail: { issues: checked.issues },
+        });
+      }
       logger.debug({ file: relFile, var: varName }, 'zod 校验通过');
     }
 
@@ -114,11 +124,11 @@ export class DataFileService {
     //    会对多行文本追加缩进（已由 golden 字节测试验证，见 P3 交付报告）。
     initializer.replaceWithText(valueToTsLiteral(next));
     const text = sourceFile.getFullText();
-    assertSyntaxValid(text, absFile);
+    assertSyntaxValid(text, relFile);
 
     // 5. 陈旧检测：重读磁盘哈希 ≠ 原文哈希 → 整体重试 1 次，仍冲突 409
     const diskNow = fs.readFileSync(absFile, 'utf8');
-    if (sha256Hex(diskNow) !== originalHash) {
+    if (sha256Text(diskNow) !== originalHash) {
       if (retry < MAX_RETRY) {
         logger.warn({ file: relFile, attempt: retry + 1 }, '检测到外部修改，整体重试写入');
         return this.attempt<T>(absFile, relFile, varName, mutate, schema, retry + 1);
@@ -130,10 +140,8 @@ export class DataFileService {
     // 6. 备份原文件（pre_write 快照；新文件首写无物可备时返回 undefined，属正常）
     await this.backup.preWriteBackup(absFile);
 
-    // 7. 原子写入：同目录临时文件 + rename 覆盖
-    const tmp = path.join(path.dirname(absFile), `.tmp-${nanoid(8)}`);
-    fs.writeFileSync(tmp, text, 'utf8');
-    fs.renameSync(tmp, absFile);
+    // 7. 原子写入：同目录临时文件 + rename 覆盖（common/fs/atomic-write 单源）
+    atomicWriteFile(absFile, text);
 
     // 8. 失效 value-cache，返回新值
     this.cache.invalidate(absFile);
@@ -141,22 +149,10 @@ export class DataFileService {
     return next;
   }
 
-  /** relFile → 绝对路径（safeJoin 校验；mizukiRoot 未配置 400） */
+  /** relFile → 绝对路径（root 未配置 400 / 越界 403，见 common/fs/mizuki-root） */
   private resolveAbs(relFile: string): string {
-    if (this.options.mizukiRoot === '') {
-      throw new BadRequestException('Mizuki 项目根目录未配置，无法读写数据文件（请先完成初始化）');
-    }
-    try {
-      return safeJoin(this.options.mizukiRoot, relFile);
-    } catch (error) {
-      if (error instanceof ForbiddenPathError) {
-        throw new ForbiddenException(`路径越界，已拒绝：${relFile}`);
-      }
-      throw error;
-    }
+    return toMizukiAbs(this.options.mizukiRoot, relFile, {
+      missingMessage: 'Mizuki 项目根目录未配置，无法读写数据文件（请先完成初始化）',
+    });
   }
-}
-
-function sha256Hex(text: string): string {
-  return createHash('sha256').update(text, 'utf8').digest('hex');
 }

@@ -13,18 +13,20 @@
  *   - 所有涉及 Mizuki 根的路径解析一律经 safeJoin（P1 路径监狱）；
  *   - 备份成功出口恰好一次发射 backup.completed（payload 先过 zod parse）。
  */
-import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import { BadRequestException, ForbiddenException, Inject, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { nanoid } from 'nanoid';
 import { asc, desc, eq } from 'drizzle-orm';
 import Database from 'better-sqlite3';
 import { z } from 'zod';
 import { BackupCompletedPayload, EVENTS } from '@mizuki/shared';
+import { sha256File } from '../../common/crypto/hash';
+import { atomicReplace, tempPathFor } from '../../common/fs/atomic-write';
+import { requireMizukiRoot, toMizukiAbs, tryToMizukiAbs } from '../../common/fs/mizuki-root';
+import { toPosixPath } from '../../common/fs/posix';
 import { logger } from '../../common/logger';
-import { ForbiddenPathError, safeJoin } from '../../common/security/safe-join';
 import { type DrizzleDb, DRIZZLE_DB, SQLITE_CONNECTION } from '../db/db.module';
 import { backupRecord } from '../db/schema';
 
@@ -92,7 +94,7 @@ export class BackupService {
       logger.info({ target: targetAbsPath }, 'pre_write：目标文件不存在，跳过备份');
       return undefined;
     }
-    return this.createFileBackup('pre_write', [{ abs: verified, rel: toPosix(rel) }], note);
+    return this.createFileBackup('pre_write', [{ abs: verified, rel: toPosixPath(rel) }], note);
   }
 
   /**
@@ -206,9 +208,10 @@ export class BackupService {
         const target = this.joinWithinRoot(entry.path);
         fs.mkdirSync(path.dirname(target), { recursive: true });
         const product = this.productPath(backupRoot, record.scope, entry.path);
-        const tmp = path.join(path.dirname(target), `.restore-${nanoid(8)}`);
+        // 原子覆盖（单源）：临时文件与目标同目录 → rename 即原子提交
+        const tmp = tempPathFor(target, '.restore-');
         fs.copyFileSync(product, tmp);
-        fs.renameSync(tmp, target); // 原子覆盖
+        atomicReplace(tmp, target);
       }
     }
 
@@ -244,32 +247,23 @@ export class BackupService {
     return path.join(backupRoot, entryPath);
   }
 
+  /** 未配置 root → 400（备份专属文案，逐字保留） */
   private requireMizukiRoot(): string {
-    if (this.options.mizukiRoot === '') {
-      throw new BadRequestException('Mizuki 项目根目录未配置，无法创建文件备份（请先完成初始化）');
-    }
-    return path.resolve(this.options.mizukiRoot);
+    return requireMizukiRoot(this.options.mizukiRoot, {
+      missingMessage: 'Mizuki 项目根目录未配置，无法创建文件备份（请先完成初始化）',
+    });
   }
 
-  /** safeJoin 包装：越界抛 ForbiddenException（REST 层 403） */
+  /** safeJoin 包装：越界抛 ForbiddenException（REST 层 403）；单源见 common/fs/mizuki-root */
   private joinWithinRoot(rel: string): string {
-    try {
-      return safeJoin(this.requireMizukiRoot(), rel);
-    } catch (error) {
-      if (error instanceof ForbiddenPathError) {
-        throw new ForbiddenException(`路径越界，已拒绝：${rel}`);
-      }
-      throw error;
-    }
+    return toMizukiAbs(this.options.mizukiRoot, rel, {
+      missingMessage: 'Mizuki 项目根目录未配置，无法创建文件备份（请先完成初始化）',
+    });
   }
 
-  /** 同上，但不抛错：路径非法时返回 null（用于恢复前快照的现存文件收集） */
+  /** 同上，但不抛错：路径非法或 root 未配置时返回 null（用于恢复前快照的现存文件收集） */
   private tryJoinWithinRoot(rel: string): string | null {
-    try {
-      return safeJoin(this.requireMizukiRoot(), rel);
-    } catch {
-      return null;
-    }
+    return tryToMizukiAbs(this.options.mizukiRoot, rel);
   }
 
   /** 收集 REST scope 对应的源文件（相对 Mizuki 根，POSIX 风格） */
@@ -282,7 +276,7 @@ export class BackupService {
       if (fs.existsSync(dataDir)) {
         for (const name of fs.readdirSync(dataDir)) {
           if (name.endsWith('.ts') && fs.statSync(path.join(dataDir, name)).isFile()) {
-            rels.add(toPosix(path.join('src', 'data', name)));
+            rels.add(toPosixPath(path.join('src', 'data', name)));
           }
         }
       }
@@ -301,7 +295,7 @@ export class BackupService {
   private walkFiles(absDir: string, relDir: string, out: Set<string>): void {
     for (const entry of fs.readdirSync(absDir, { withFileTypes: true })) {
       const abs = path.join(absDir, entry.name);
-      const rel = toPosix(path.join(relDir, entry.name));
+      const rel = toPosixPath(path.join(relDir, entry.name));
       if (entry.isDirectory()) {
         this.walkFiles(abs, rel, out);
       } else if (entry.isFile()) {
@@ -444,7 +438,9 @@ export class BackupService {
   private readManifestOrThrow(manifestPath: string): Manifest {
     const manifest = this.tryReadManifest(manifestPath);
     if (!manifest) {
-      throw new BadRequestException(`manifest 缺失或损坏：${manifestPath}`);
+      // [Wave-2/E1] 对外只给定位线索（备份目录绝对路径仅入日志）
+      logger.warn({ manifestPath }, '备份 manifest 缺失或损坏');
+      throw new BadRequestException(`manifest 缺失或损坏（备份目录：${path.basename(path.dirname(manifestPath))}）`);
     }
     return manifest;
   }
@@ -461,16 +457,6 @@ export class BackupService {
 }
 
 // ── 纯工具 ──
-
-/** sha256（hex） */
-function sha256File(filePath: string): string {
-  return createHash('sha256').update(fs.readFileSync(filePath)).digest('hex');
-}
-
-/** 路径分隔符 → POSIX 风格（manifest 内统一） */
-function toPosix(p: string): string {
-  return p.split(path.sep).join('/');
-}
 
 /** 目录名时间戳：本地时间 YYYYMMDDTHHmmssSSS（字典序可排序） */
 function formatTimestamp(date: Date): string {

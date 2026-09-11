@@ -11,7 +11,13 @@
  */
 import { Body, Controller, Get, HttpCode, HttpStatus, Put } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
-import { CommentConfigSchema, PutLangBodySchema, type CommentConfigValue } from '@mizuki/shared';
+import {
+  CommentConfigSchema,
+  PutLangBodySchema,
+  PutNavBodySchema,
+  type CommentConfigValue,
+  type NavConfigValue,
+} from '@mizuki/shared';
 import { ZodValidationPipe } from '../../common/pipes/zod-validation.pipe';
 import { AdminSiteConfigView, SiteConfigService } from './site-config.service';
 
@@ -43,5 +49,15 @@ export class SiteConfigController {
     @Body(new ZodValidationPipe(CommentConfigSchema)) body: CommentConfigValue,
   ): Promise<AdminSiteConfigView> {
     return this.siteConfig.putComments(body);
+  }
+
+  /** [Phase4-D3] nav 受控子集（#8）：links 缺键 = 清除还原；[] = 合法清空（破坏性语义）；非法 400 */
+  @ApiOperation({ summary: '覆盖写入导航（全量，links 缺键 = 还原主题默认，空数组 = 清空导航）' })
+  @Put('nav')
+  @HttpCode(HttpStatus.OK)
+  async putNav(
+    @Body(new ZodValidationPipe(PutNavBodySchema)) body: { links?: NavConfigValue['links'] },
+  ): Promise<AdminSiteConfigView> {
+    return this.siteConfig.putNav(body.links);
   }
 }

@@ -2,6 +2,8 @@
  * [Phase2-B1.5 / ADR-012] 站点资产统一拼源工具
  * [职责] 全前端唯一的图片 src 拼接出口：
  *  - http(s) 开头原样返回（外部相册 URL 项不经 /site-assets 通道，裁决原文）；
+ *  - data:/blob: URI 原样返回（编辑器粘贴的内联图像源，不是相对路径——
+ *    [Phase4-D2/缺陷五] 修复：此前被当相对路径拆段改写成 /site-assets 破图）；
  *  - 其余输入视为 Mizuki 相对路径，规范化后拼 /site-assets/<相对段>：
  *      · 去首尾空白与多余斜杠 / 忽略空段与 '.'；
  *      · 允许 'public/images/uploads/x.jpg'（API 原始 path 形态）与
@@ -14,6 +16,9 @@
  */
 export function imageSrc(relOrUrl: string): string {
   if (/^https?:\/\//i.test(relOrUrl)) {
+    return relOrUrl;
+  }
+  if (/^(data|blob):/i.test(relOrUrl.trim())) {
     return relOrUrl;
   }
   const segments = relOrUrl
@@ -45,6 +50,8 @@ export function imageSrc(relOrUrl: string): string {
  * 不改写（返回 null）的输入：
  *  - slug 为空串（新建未定名文章无基准目录）；
  *  - http(s) 外链（外链不经通道，ADR-012 语义）；
+ *  - data:/blob: 内联图像 URI（编辑器粘贴产物，非文件引用；
+ *    [Phase4-D2/缺陷五] 修复）；
  *  - '/' 开头的站内绝对路径与 'public/' 首段的站内图形态（走 imageSrc 既有管线）。
  */
 export function contentPostSrc(slug: string, raw: string): string | null {
@@ -52,6 +59,9 @@ export function contentPostSrc(slug: string, raw: string): string | null {
     return null;
   }
   if (/^https?:\/\//i.test(raw)) {
+    return null;
+  }
+  if (/^(data|blob):/i.test(raw.trim())) {
     return null;
   }
   const trimmed = raw.trim();

@@ -18,6 +18,7 @@ describe('P0b config.json zod 校验加载（§6.2）', () => {
       backupDir: 'data/backups',
       uploadLimitMb: 10,
       swagger: true, // [B2/裁决 6] 新增默认字段
+      corsOrigins: [], // [Wave-2/B3] 纳入 schema 的 CORS 扩展白名单（原为被 strip 的死代码）
     });
   });
 
@@ -40,6 +41,7 @@ describe('P0b config.json zod 校验加载（§6.2）', () => {
       backupDir: 'data/my-backups',
       uploadLimitMb: 5,
       swagger: true, // [B2/裁决 6] 缺省补默认 true
+      corsOrigins: [], // [Wave-2/B3] 缺省补默认空数组
     });
   });
 
