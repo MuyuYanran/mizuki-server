@@ -2656,3 +2656,103 @@ Q3/Q4/Q5 判据覆盖）。处置建议：无需处置；本核查全程 SELECT 
 - override 载体：跟踪树外缺省态（当前不存在；如手动走查项 1 产生，按 §9 项 7 还原）。
 - 三期收官终态：批次总表与基线链见 REQUIREMENTS-PHASE3 §4；流程规则权威载体
   docs/PROCESS-RULES.md；本表人工确认列回填后收官终态成立。
+
+---
+
+# Phase4-D4f 交付报告 — file-form 全生命周期补齐（2026-09-11）
+
+> [授权] 架构师微批次授权 2026-09-08（F1~F5 + 验证 + 台账纪律）；基线 HEAD = `fcb06bb`
+> （fix(web/init-wizard) W4-A，工作树净态起步）。
+> [结论] F1~F5 全部落地；vue-tsc 0 / test 475→479（+4）/ build 0 / lint 本批 0 新增
+> （8 条 HEAD 既有，见 §5）；e2e ≥3 达成（p5e 新文件 4 用例 + p5 C2-② 锚翻写 +
+> 封面 400 既有锚回归）；面板截图三张入档 docs/audits/phase4-d4/。
+
+## §1 任务表（F1~F5）
+
+| # | 任务 | 载体 | 终态 |
+|---|---|---|---|
+| F1 | 现状侦查（禁臆断）：create 仅目录形态确认、双向冲突检测已在位、delete/cover 400 拒绝点定位 | `docs/audits/phase4-d4/d4f-f1-recon.md`（现行分支逐字摘录） | ✓ |
+| F2 | 创建支持：CreatePostBodySchema 增可选 form（'dir' 缺省 \| 'file'，zod 枚举）；file 分支写 posts/<slug>.md 同管线（safeJoin+zod+preWriteBackup+原子写+post.changed/content.changed）；slug 双向 409 | `posts.service.ts`（createPost 形态分派 + postFileFormRelPath） | ✓ |
+| F3 | 删除解除（supersede D4c/C2 删除限制项）：单文件 preWriteBackup + unlink，backupIds 语义同目录删除；面板撤 delete 禁用守卫、「文件」徽标保留 | `posts.service.ts` deletePost 单文件分支 + `PostListPage.vue` | ✓ |
+| F4 | 封面守卫维持 + 文案修正：cover 对 file-form 维持 400，文案改「单文件文章无同目录，请在 image 字段填写 public 路径或外链」；面板封面区块显同文案指引而非简单隐藏 | `posts.service.ts` uploadCover + `PostEditPage.vue` 封面区块 | ✓ |
+| F5 | 图片指引（轻量文案）：编辑页 file-form 一行灰字「单文件文章请用 /images/... 公共路径引用图片（含 image 封面字段与正文内图片——相对路径会破坏 RSS）」，不做路径强制校验 | `PostEditPage.vue`（file-form-image-hint） | ✓ |
+
+纪律核验：**PostFrontmatterSchema 零改动**（两形态共用，F1 摘录 + 实现双向确认）；
+C2 编辑链零回退（updatePost 未触碰，p5 C2-① 原样全绿）；目录形态删除/创建管线零变化
+（F2/F3 分派仅在 file 分支新增，dir 分支逐字保留）；真实域零触碰（截图环境 =
+fixture 副本 + 独立端口 21555 + `.test-tmp/` 运行时，已清理）。
+
+## §2 规格判读摘要（授权要求记录）
+
+1. **frontmatter 零差异**：官方 press-file.md 与 press-folder.md 的 frontmatter 字段面
+   完全同构（title/description/published/pinned/tags/category/author/draft/date/image/
+   pubDate/permalink——两快照示例逐键对齐）；两形态差异纯在**资源语义**（封面/图片的
+   存放位置），Server 侧 PostFrontmatterSchema 因此两形态共用零改动（纪律成立的技术
+   依据）。
+2. **资源语义分叉**：目录式有同目录可存 cover.jpg（封面上传端点 + 相对图片）；单文件
+   无同目录 → 封面走 `image` frontmatter 字段（public 路径或外链），正文图片用
+   `/images/...` 公共路径。落地面：F4 封面 400 文案 + F5 灰字指引（文案级，不做路径
+   强制校验——授权明示「轻量，文案修订」）。
+3. **RSS 警示出处**：docs/refs/mizuki-docs/press-file.md（快照 2026-08-28）开篇粗体——
+   「单文件方案会导致 RSS 无法正常构建图片的路径（指本地；如果使用图床则不会有这个
+   问题），如果需要使用 RSS 功能请使用文件夹写作方案」。F5 文案与「添加图片」节
+   `![图片描述](/images/my-image.webp)`（public 目录 + 绝对路径）口径一致。
+
+## §3 e2e 数账（475 → 479，+4）与锚翻写
+
+| 文件 | 增量 | 内容 |
+|---|---|---|
+| `p5e-file-form-lifecycle.e2e-spec.ts` | +4（新增） | F2-① 创建往返（.md 落盘/无影子目录/source=file/索引与事件 .md 实路径投影）；F2-② slug 双向 409（目录占用→file 409、.md 占用→dir 409 与 file 409、缺省 form=dir 锚）；F3-① 删除可恢复（backupIds≥1/盘上消失/404/软删/restore+sync 复位往返）；F4-① 封面 400 + 新文案 + 零副作用 |
+| `p5-posts.e2e-spec.ts` | 0（锚翻写） | C2-②「删除 400 + 零副作用」→「删除 200 + 备份恢复往返」（supersede 翻写，standalone 经 restore 复位故后续 S4 锚原样全绿；26 用例数不变）；B2-③ 封面 400 既有锚原样通过（文案断言移交 p5e F4-①） |
+| 全量 | **+4** | 475 → 479；并行全量 474/479 + 5 条环境性失败（p9 进程管理 spawn 类 + p11 worker 崩溃，Wave-1~4 报告 §4.1-4.3 已归档的既有现象）→ 两文件单独复跑 **13/13 全绿**（非本批引入，据实申报） |
+
+## §4 验证记录（vue-tsc + 沙箱三连）
+
+- vue-tsc（apps/web 全量）：**0 错误**；tsc --noEmit（apps/server）：**0 错误**。
+- test：p5e 4/4、p5 26/26、全量 479（+4），环境性失败单独复跑全绿（§3）。
+- build（pnpm -r build，shared/server/web）：**exit 0**。
+- lint：本批改动文件 **0 error/0 warning**；全仓 8 条 error 均为 HEAD（fcb06bb）既有
+  ——articles.controller.ts / articles.service.ts / site-config.service.ts（各 1 条
+  未用导入）+ theme-registry.service.ts（5 条未用导入），git status 证明四文件相对
+  HEAD 零改动（Phase4 恢复合并遗留，非本批引入、未越权代修）。
+
+## §5 偏差与判读（显式记录）
+
+1. **「新建对话框」实为新建页**：面板无新建对话框，/posts/new 为路由页；形态切换控件
+   （el-radio-button 组「目录式（slug/index.md）/ 单文件（slug.md）」）落位于 slug
+   输入区正下（授权验证项「type 逐字符手验新建对话框形态切换」即此控件，截图
+   d4f-panel-new-form-switch.png 已证选中态与提示行）。
+2. **F5 灰字提示的显示面微扩**：除编辑页 isFileForm 外，新建页选中「单文件」时同款
+   灰字提示同步显示（同文案；防创建时即踩 RSS 坑，与 F5 意图同向）。轻量文案级扩展，
+   无行为/校验变化，如实登记。
+3. **p5 C2-② 锚翻写**（授权 F3 supersede 的必然连带）：删除 400 断言与新语义冲突，
+   翻写为「删除 200 + 软删 + restore + sync 复位」往返；深度断言（404/哈希/恢复）在
+   p5e F3-①，p5 侧保最小翻写。
+4. **lint 基线污染**（§4）：8 条既有 error 属 Phase4 恢复合并（1fb04b0）遗留，本批
+   仅据实申报不越权代修（越权面：4 个与本批零关联的模块文件）。
+5. **截图环境**：preview 通道缺省端口 4173 被占，以 MIZUKI_PREVIEW_PORT=0 启动（测试
+   setup-env 同款口径）；服务经 fixture 副本驱动（真实域零触碰）。
+
+## §6 截图入档（docs/audits/phase4-d4/）
+
+| 文件 | 内容 | 核验 |
+|---|---|---|
+| d4f-panel-new-form-switch.png | 新建页形态切换（「单文件」选中 + 灰字提示行） | 浏览器代理逐元素核验 + 双向切换行为验证 |
+| d4f-panel-list-badge.png | 列表「文件」徽标（standalone 行）+ 删除按钮已启用（disabled=false） | 同上 |
+| d4f-panel-edit-hint.png | 编辑页提示条 + 灰字图片指引 + 封面区块指引文案（无上传按钮） | 执行侧重读图像抽检复核 |
+| d4f-f1-recon.md | F1 现状侦查留档（现行分支逐字摘录） | 本报告 §1 |
+
+## §7 手动走查清单（人工核验项）
+
+| # | 操作 | 预期 |
+|---|---|---|
+| 1 | 新建页选「单文件」→ 填 slug/标题 → 保存 | 201；盘上仅 posts/<slug>.md（无目录）；编辑页出现文件形态提示条 |
+| 2 | 列表对「文件」徽标行点删除 → 确认 | 删除成功入回收站；恢复（restore+sync）后文章完整回来 |
+| 3 | 单文件文章封面上传（若残留旧入口） | 400「单文件文章无同目录，请在 image 字段填写 public 路径或外链：<slug>」 |
+| 4 | 单文件文章 image 字段填 /images/xx.webp 保存 | 保存成功，frontmatter.image 原样落盘（无路径校验拦截） |
+| 5 | 用已存在目录式 slug 以「单文件」再建 | 409「文章已存在」；反向（.md 占用建目录式）同 409 |
+
+## §8 commit
+
+- `feat(Phase4-D4f): file-form 全生命周期补齐（创建 form 字段/删除解除/封面文案，架构师授权 2026-09-08）`
+

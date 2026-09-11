@@ -3,9 +3,14 @@
  * [职责] 文章目录管理（创建/读取/修改/删除+恢复）、封面上传（sharp 转 JPG）、
  *   about 页读写、`article` 表 `source_type='markdown'` 索引同步（幂等）；
  *   写管线成功出口发射 post.changed / article.published / content.changed。
- * [Phase4-D4/B2] 扩文件形态：`<slug>.md` 单文件文章 = 只读 + 索引同步
- *   （规则① slug 去扩展名直取；② 同名冲突目录式优先 + warn；③ 删除 400 指引；
- *   ④ 封面上传 400 指引；filePath/filePaths 投影实际盘上路径）。
+ * [Phase4-D4/B2] 扩文件形态：`<slug>.md` 单文件文章（规则① slug 去扩展名直取；
+ *   ② 同名冲突目录式优先 + warn；filePath/filePaths 投影实际盘上路径）。
+ * [Phase4-D4/C2] 编辑解除（supersede B2「只读」分派）：file-form 走与目录式相同
+ *   的读写管线（写回定位 = resolvePostFile 既有产物）。
+ * [Phase4-D4f/F2~F4] 全生命周期补齐（架构师授权 2026-09-08）：
+ *   F2 创建支持（form 字段 'dir' 缺省 | 'file'，单文件同管线落盘 + slug 双向 409）；
+ *   F3 删除解除（supersede B2 规则③：单文件备份 + unlink，backupIds 语义同目录删除）；
+ *   F4 封面维持 400（文案改「单文件文章无同目录，请在 image 字段填写 public 路径或外链」）。
  * [状态] ACTIVE
  *
  * 纪律（P5 §3.3）：
@@ -143,11 +148,16 @@ function stripNullDeleteKeys(frontmatter: Record<string, unknown>): Record<strin
   return result;
 }
 
-/** POST /admin/posts body（[S5] description 可选，写入口与读取面同 schema） */
+/**
+ * POST /admin/posts body（[S5] description 可选，写入口与读取面同 schema）。
+ * [Phase4-D4f/F2] 增可选 form 字段：'dir' 缺省（目录式 `<slug>/index.md`）|
+ * 'file'（单文件 `<slug>.md`）——两形态共用 PostFrontmatterSchema（零改动）。
+ */
 export const CreatePostBodySchema = z.object({
   slug: PostSlugSchema,
   frontmatter: PostFrontmatterSchema,
   content: z.string(),
+  form: z.enum(['dir', 'file']).optional(),
 });
 
 /** PATCH /admin/posts/:slug body（frontmatter 为增量合并，合并后整体过 schema） */
@@ -252,7 +262,11 @@ export class PostsService {
     return { slug, frontmatter: parsed.frontmatter, content: parsed.content, source: toSource(parsed.form) };
   }
 
-  /** 创建文章：目录已存在 → 409；写入后经统一管线（备份 + 原子写） */
+  /**
+   * 创建文章（[Phase4-D4f/F2] 增 form 分派：'dir' 缺省 | 'file'）：
+   * 同名目录或同名 `.md` 任一存在 → 409（slug 即 URL 命名空间，两形态共享）；
+   * 写入后经统一管线（备份 + 原子写），事件 filePaths 投影实际盘上形态路径。
+   */
   async createPost(body: z.infer<typeof CreatePostBodySchema>): Promise<PostView> {
     const slug = validateSlug(body.slug);
     // [Phase4-D4/S5] description 可选（supersede B2.1/裁决 8，原「必填纵深防御」注释随
@@ -262,26 +276,33 @@ export class PostsService {
     if (fs.existsSync(dirAbs)) {
       throw new ConflictException(`文章已存在：${slug}`);
     }
-    // [Phase4-D4/B2] 文件形态同名占用同样构成 slug 冲突（slug 即身份，与盘上形态无关）
+    // [Phase4-D4/B2] 文件形态同名占用同样构成 slug 冲突（slug 即身份，与盘上形态无关）；
+    // [Phase4-D4f/F2] 双向检测：dir/file 两分支共用（存在同名目录或同名 .md 均 409）
     const fileFormAbs = this.postFileFormAbs(slug);
     if (fs.existsSync(fileFormAbs)) {
       throw new ConflictException(`文章已存在（文件形态）：${slug}`);
     }
     // [Wave-2/B2] 库内 slug 占用（富文本）必须在落盘前拦截，否则文件已写而索引插入失败
     await this.assertMarkdownSlugFree(slug);
-    fs.mkdirSync(dirAbs, { recursive: true });
-    const fileAbs = this.postFileAbs(slug);
+    // [Phase4-D4f/F2] 形态分派：'file' → 单文件 posts/<slug>.md（同管线：safeJoin +
+    // zod + preWriteBackup + 原子写 + post.changed/content.changed）；缺省 'dir' 原管线零变化
+    const isFileForm = body.form === 'file';
+    const fileAbs = isFileForm ? fileFormAbs : this.postFileAbs(slug);
+    const relPath = isFileForm ? this.postFileFormRelPath(slug) : this.postRelFilePath(slug);
+    if (!isFileForm) {
+      fs.mkdirSync(dirAbs, { recursive: true });
+    }
     const text = stringifyPostMarkdown(frontmatter, body.content);
     await this.backup.preWriteBackup(fileAbs, `post create: ${slug}`); // 新文件 → 跳过（无物可备）
     this.atomicWrite(fileAbs, text);
 
     const fileHash = sha256Text(text);
-    const articleId = await this.upsertArticleRow(slug, frontmatter, fileHash, this.postRelFilePath(slug));
-    this.emitPostWrite(slug, frontmatter, fileHash, false, this.postRelFilePath(slug));
+    const articleId = await this.upsertArticleRow(slug, frontmatter, fileHash, relPath);
+    this.emitPostWrite(slug, frontmatter, fileHash, false, relPath);
     if (deriveStatus(frontmatter) === 'published') {
       this.emitPublished(articleId, slug, frontmatter);
     }
-    logger.info({ slug, status: deriveStatus(frontmatter) }, '文章创建完成');
+    logger.info({ slug, status: deriveStatus(frontmatter), form: isFileForm ? 'file' : 'dir' }, '文章创建完成');
     return { slug, frontmatter, content: body.content };
   }
 
@@ -327,20 +348,33 @@ export class PostsService {
     return { slug, frontmatter, content };
   }
 
-  /** 删除文章：目录逐文件备份 → 删除目录（可经备份恢复）→ 索引行软删 */
+  /**
+   * 删除文章（[Phase4-D4f/F3] 删除解除，supersede D4c/C2 删除限制项，架构师授权
+   * 2026-09-08）：file-form 走单文件删除分支（preWriteBackup 单文件 + unlink，
+   * backupIds 语义同目录删除——可经备份恢复回滚）；目录形态原管线零变化。
+   */
   async deletePost(slug: string): Promise<{ deleted: true; backupIds: string[] }> {
     const existing = this.readPostOrThrow(slug);
-    // [Phase4-D4/B2] 规则③：文件形态删除 → 400 指引（禁服务端删源文件）。
-    // 用户在文件系统移除源文件后，sync 对「表有盘无」自然软删索引行，不产生僵尸复活。
+    const backupIds: string[] = [];
+
     if (existing.form === 'file') {
-      throw new BadRequestException(
-        `文件形态文章不支持经 API 删除：${slug}（请在文件系统删除源文件 ${existing.relPath}）`,
-      );
+      // [Phase4-D4f/F3] 单文件分支：先备份后 unlink（先读哈希供删除事件）
+      const fileHash = sha256Text(fs.readFileSync(existing.fileAbs, 'utf8'));
+      const info = await this.backup.preWriteBackup(existing.fileAbs, `post delete: ${slug}`);
+      if (info) {
+        backupIds.push(info.id);
+      }
+      fs.unlinkSync(existing.fileAbs);
+
+      await this.softDeleteArticleRow(slug);
+      this.emitPostWrite(slug, existing.frontmatter, fileHash, true, existing.relPath);
+      logger.info({ slug, backupIds }, '文章删除完成（单文件已备份，可恢复）');
+      return { deleted: true, backupIds };
     }
+
     const fileHash = sha256Text(fs.readFileSync(this.postFileAbs(slug), 'utf8'));
     const dirAbs = this.postDirAbs(slug);
 
-    const backupIds: string[] = [];
     for (const name of fs.readdirSync(dirAbs)) {
       const abs = path.join(dirAbs, name);
       if (!fs.statSync(abs).isFile()) {
@@ -367,10 +401,11 @@ export class PostsService {
     const existing = this.readPostOrThrow(slug);
     // [Wave-2/B2] 库内 slug 占用守卫（落盘前；同 createPost）
     await this.assertMarkdownSlugFree(slug);
-    // [Phase4-D4/B2] 规则④：文件形态无同名目录可存放 cover.jpg → 400 指引
+    // [Phase4-D4/B2] 规则④：文件形态无同名目录可存放 cover.jpg → 400 指引（守卫维持）。
+    // [Phase4-D4f/F4] 文案修正：「单文件文章无同目录，请在 image 字段填写 public 路径或外链」
     if (existing.form === 'file') {
       throw new BadRequestException(
-        `文件形态文章不支持封面上传：${slug}（无目录可存放 cover.jpg，请在源文件 frontmatter.image 直接引用图片路径）`,
+        `单文件文章无同目录，请在 image 字段填写 public 路径或外链：${slug}`,
       );
     }
     // 上传前三步校验单源（common/http/uploaded-file）：① 扩展名白名单 ② 大小上限；
@@ -712,6 +747,11 @@ export class PostsService {
   /** [Phase4-D4/B2] 文件形态绝对路径：<posts>/<slug>.md */
   private postFileFormAbs(slug: string): string {
     return this.resolveWithinRoot(`${POSTS_REL_DIR}/${slug}.md`);
+  }
+
+  /** [Phase4-D4f/F2] 文件形态相对路径（POSIX 风格；与 scanPosts/resolvePostFile 投影同值） */
+  private postFileFormRelPath(slug: string): string {
+    return `${POSTS_REL_DIR}/${slug}.md`;
   }
 
   /** [Phase4-D4/B2] 目录形态相对路径（POSIX 风格；article.filePath / 事件 filePaths 投影源） */

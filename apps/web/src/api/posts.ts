@@ -28,11 +28,16 @@ export interface PostListItem extends PostView {
   source: PostSource;
 }
 
-/** 创建 body（与后端 CreatePostBodySchema 对齐） */
+/**
+ * 创建 body（与后端 CreatePostBodySchema 对齐）。
+ * [Phase4-D4f/F2] 增可选 form：'dir' 缺省（目录式 slug/index.md）| 'file'
+ * （单文件 posts/slug.md；封面走 image 字段，正文图片请用 /images 公共路径）。
+ */
 export interface CreatePostBody {
   slug: string;
   frontmatter: Record<string, unknown>;
   content: string;
+  form?: 'dir' | 'file';
 }
 
 /** 更新 body（与后端 UpdatePostBodySchema 对齐：frontmatter 增量合并 + content 可选） */

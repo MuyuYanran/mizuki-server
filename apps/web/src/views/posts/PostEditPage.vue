@@ -37,11 +37,20 @@ const loading = ref(false);
 const saving = ref(false);
 
 /** [Phase4-D4/C2] 盘上形态标志（read 投影）：'file' = 文件形态 → 编辑已解除
- * （supersede B2b 只读分派，产品裁定 2026-09-08）；仅封面上传/删除受限（服务端规则③④保留） */
+ * （supersede B2b 只读分派，产品裁定 2026-09-08）；[D4f/F3] 删除已解除（单文件备份 + unlink），
+ * 剩余限制仅封面上传（服务端规则④ 400 维持） */
 const postSource = ref<PostSource | null>(null);
 const isFileForm = computed(() => postSource.value === 'file');
-/** 同构服务端规则④文案（封面上传限制；删除限制提示见 PostListPage） */
-const FILE_FORM_HINT = '文件形态文章不支持封面上传（无目录可存放 cover.jpg），请在源文件 frontmatter.image 直接引用图片路径';
+/** [D4f/F4] 同构服务端规则④新文案（封面区块对 file-form 显示指引，非简单隐藏） */
+const FILE_FORM_HINT = '单文件文章无同目录，请在 image 字段填写 public 路径或外链';
+/** [D4f/F5] file-form 图片指引（轻量文案，不做路径强制校验；出处 docs/refs/mizuki-docs/press-file.md
+ *  ——单文件方案 RSS 无法构建本地图片路径，须用 /images/... 公共路径或图床外链） */
+const FILE_FORM_IMAGE_HINT =
+  '单文件文章请用 /images/... 公共路径引用图片（含 image 封面字段与正文内图片——相对路径会破坏 RSS）';
+
+/** [D4f/F2] 新建形态选择：'dir' 缺省（目录式 slug/index.md）| 'file'（单文件 posts/slug.md） */
+type NewPostForm = 'dir' | 'file';
+const newForm = ref<NewPostForm>('dir');
 
 /** 正文 */
 const content = ref('');
@@ -255,6 +264,7 @@ async function onSave(): Promise<void> {
         slug: newSlug.value,
         frontmatter: buildFrontmatter(),
         content: content.value,
+        form: newForm.value, // [D4f/F2] 形态随创建体下发（'dir' 缺省 | 'file'）
       });
       ElMessage.success('创建成功');
       router.replace(`/posts/${encodeURIComponent(result.slug)}/edit`);
@@ -395,22 +405,30 @@ function formatValue(value: unknown): string {
       </div>
     </div>
 
-    <!-- [Phase4-D4/S4/B2b→C2] 文件形态提示条（编辑已解除，supersede B2b 只读分派；
-         剩余限制仅封面/删除，服务端规则③④保留同构） -->
+    <!-- [Phase4-D4f] 文件形态提示条（编辑/删除均已解除；封面经 image 字段，见下方灰字指引） -->
     <el-alert
       v-if="isFileForm"
       type="info"
       :closable="false"
       show-icon
       class="file-form-alert"
-      title="文件形态文章（<slug>.md）：可直接编辑保存；封面上传与删除请在文件系统/源文件操作"
+      title="文件形态文章（.md 单文件）：可编辑保存与删除（删除经备份可恢复）；封面请在 image 字段填写"
     />
+    <!-- [D4f/F5] file-form 图片指引（一行灰字；出处 docs press-file：相对路径会破坏 RSS） -->
+    <div v-if="isFileForm" class="file-form-image-hint">{{ FILE_FORM_IMAGE_HINT }}</div>
 
     <div class="edit-layout">
       <!-- 正文 -->
       <div class="content-area">
         <div v-if="!isEdit" class="slug-input">
-          <el-input v-model="newSlug" placeholder="slug（目录名）" />
+          <el-input v-model="newSlug" placeholder="slug（目录名 / 文件名）" />
+          <!-- [D4f/F2] 创建形态切换：'dir' 缺省（目录式 slug/index.md）| 'file'（单文件
+               posts/slug.md；封面走 image 字段，图片请用 /images 公共路径） -->
+          <el-radio-group v-model="newForm" size="small" class="form-switch">
+            <el-radio-button value="dir">目录式（slug/index.md）</el-radio-button>
+            <el-radio-button value="file">单文件（slug.md）</el-radio-button>
+          </el-radio-group>
+          <div v-if="newForm === 'file'" class="file-form-image-hint">{{ FILE_FORM_IMAGE_HINT }}</div>
         </div>
         <VditorEditor
           v-if="engine === 'vditor'"
@@ -481,6 +499,8 @@ function formatValue(value: unknown): string {
           </el-form-item>
           <el-form-item label="封面">
             <el-input v-model="fm.image" placeholder="cover.jpg 或路径" />
+            <!-- [D4f/F4] file-form：封面区块显示指引文案（服务端 400 同构），而非简单隐藏 -->
+            <div v-if="isFileForm" class="field-hint">{{ FILE_FORM_HINT }}</div>
             <label v-if="isEdit && !isFileForm" class="upload-btn" :class="{ disabled: coverUploading }">
               <span>{{ coverUploading ? '上传中...' : '上传封面图' }}</span>
               <input type="file" accept=".jpg,.jpeg,.png,.webp,.gif" hidden @change="onCoverUpload" :disabled="coverUploading" />
@@ -590,6 +610,31 @@ function formatValue(value: unknown): string {
 .file-form-alert {
   margin-bottom: 12px;
   flex-shrink: 0;
+}
+
+/* [D4f/F5] file-form 图片指引（一行灰字；新建态 'file' 选中时同款） */
+.file-form-image-hint {
+  color: var(--el-text-color-secondary);
+  font-size: 12px;
+  line-height: 1.6;
+  margin-bottom: 12px;
+  flex-shrink: 0;
+}
+
+.slug-input .file-form-image-hint {
+  margin: 6px 0 0;
+}
+
+/* [D4f/F4] 封面区块指引文案（灰字，同 field-error 体积） */
+.field-hint {
+  color: var(--el-text-color-secondary);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+/* [D4f/F2] 新建形态切换按钮组 */
+.form-switch {
+  margin-top: 6px;
 }
 
 .header-actions {

@@ -411,10 +411,11 @@ describe('P5 Markdown 文章 e2e', () => {
     expect(String(detail.body.content)).toContain('文件形态正文');
   });
 
-  it('B2-③ 文件形态写面限制（C2 后剩余）：封面上传 400 指引（规则④；删除拒绝移交 C2-②）', async () => {
+  it('B2-③ 文件形态写面限制（D4f 后剩余）：封面上传 400 指引（规则④；删除已随 F3 解除）', async () => {
     // [Phase4-D4/C2] 原本锚的「PATCH 400 指引请直接编辑源文件」与「删除 400」两段：
     // PATCH 随编辑解除（supersede B2 只读分派）翻转为 200 往返（见 C2-①）；删除 400
-    // 保留并扩断言（见 C2-②）。本锚剩余职责 = 规则④ 封面上传拒绝。
+    // 亦随 [Phase4-D4f/F3] 删除解除翻写为删除可恢复往返（见 C2-②）。本锚剩余职责 =
+    // 规则④ 封面上传拒绝（守卫维持，F4 仅改文案——新文案断言见 p5e F4-①）。
     const cover = await server()
       .post('/api/v1/admin/posts/standalone/cover')
       .attach('file', Buffer.from('fake-image-bytes'), 'cover.png');
@@ -464,21 +465,38 @@ describe('P5 Markdown 文章 e2e', () => {
     expect(String(detail.body.content)).toContain('C2 往返正文（file-form 编辑解除验证）');
   });
 
-  it('C2-② [Phase4-D4/C2] 文件形态删除仍拒：400 指引 + 源文件/索引行零副作用（规则③保留）', async () => {
+  it('C2-② [Phase4-D4f/F3] 文件形态删除解除（supersede 规则③ 400）：单文件删除可恢复往返', async () => {
+    // [Phase4-D4f/F3] 删除限制解除（架构师授权 2026-09-08，supersede D4c/C2 删除限制项）：
+    // 原「删除 400 指引 + 零副作用」锚翻写为删除成功语义——单文件 preWriteBackup + unlink，
+    // backupIds 返回语义同目录删除；恢复往返（restore + sync）后 standalone 复位，
+    // 后续 S4 锚（source 投影）不受影响。深度锚（404/软删/恢复断言）见 p5e F3-①。
     const del = await server().delete('/api/v1/admin/posts/standalone');
-    expect(del.status).toBe(400);
-    expect(JSON.stringify(del.body)).toContain('请在文件系统删除源文件');
+    expect(del.status).toBe(200);
+    expect(del.body.deleted).toBe(true);
+    const backupIds = del.body.backupIds as string[];
+    expect(backupIds.length).toBeGreaterThanOrEqual(1);
+    expect(fs.existsSync(path.join(mizukiRoot, 'src/content/posts/standalone.md'))).toBe(false);
 
-    // 零副作用：盘上源文件仍在、索引行未软删
-    expect(fs.existsSync(path.join(mizukiRoot, 'src/content/posts/standalone.md'))).toBe(true);
+    // 索引行软删（回收站语义）
     const sqlite = app.get<Database.Database>(SQLITE_CONNECTION);
-    const row = sqlite
+    const softRow = sqlite
       .prepare(
         "SELECT deleted_at FROM article WHERE slug = 'standalone' AND source_type = 'markdown'",
       )
       .get() as { deleted_at: string | null } | undefined;
-    expect(row).toBeDefined();
-    expect(row!.deleted_at).toBeNull();
+    expect(softRow).toBeDefined();
+    expect(softRow!.deleted_at).not.toBeNull();
+
+    // 恢复：备份还原 + sync → 文件与索引复位（C2-① 改写内容经恢复保留）
+    for (const id of backupIds) {
+      const restored = await server().post(`/api/v1/admin/backups/${id}/restore`).send({ confirm: true });
+      expect(restored.status).toBe(200);
+    }
+    await server().post('/api/v1/admin/posts/sync');
+    const detail = await server().get('/api/v1/admin/posts/standalone');
+    expect(detail.status).toBe(200);
+    expect(detail.body.frontmatter['description']).toBe('C2 编辑解除改写样例');
+    expect(String(detail.body.content)).toContain('C2 往返正文（file-form 编辑解除验证）');
   });
 
   it('B2-④ 同名冲突：目录式优先、文件式跳过（规则②），读取面恒解析到目录式', async () => {

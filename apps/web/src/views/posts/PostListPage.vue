@@ -71,8 +71,8 @@ function goEdit(slug: string): void {
   router.push(`/posts/${encodeURIComponent(slug)}/edit`);
 }
 
-/** [Phase4-D4/S4/B2b→C2] 文件形态删除限制提示（同构服务端规则③文案；置顶已随编辑解除放开） */
-const FILE_FORM_HINT = '文件形态文章不支持经面板删除，请在文件系统删除源文件（同步后索引自动软删）';
+/** [Phase4-D4f/F3] 删除限制解除：原 B2b/C2 删除守卫（FILE_FORM_HINT + 禁用）撤除，
+ * 「文件」徽标保留（title 转为形态说明）；file-form 与目录式删除同走「备份 → 回收站恢复」 */
 
 /** 置顶切换 */
 async function togglePinned(row: PostListItem): Promise<void> {
@@ -88,13 +88,8 @@ async function togglePinned(row: PostListItem): Promise<void> {
   }
 }
 
-/** 删除（二次确认 → 记入回收站） */
+/** 删除（二次确认 → 记入回收站）；[D4f/F3] file-form 守卫撤除（服务端删除已解除） */
 async function onDelete(row: PostListItem): Promise<void> {
-  // [Phase4-D4/S4/B2b→C2] 删除守卫保留（服务端规则③ 400 同构；编辑解除不影响删除限制）
-  if (row.source === 'file') {
-    ElMessage.warning(FILE_FORM_HINT);
-    return;
-  }
   try {
     await ElMessageBox.confirm(`确认删除文章「${row.slug}」？（可从回收站恢复）`, '删除确认', {
       type: 'warning',
@@ -203,20 +198,14 @@ function dateOf(row: PostListItem): string {
       </el-table-column>
       <el-table-column label="操作" width="300" fixed="right">
         <template #default="{ row }">
-          <!-- [Phase4-D4/S4/B2b→C2] 文件形态（source==='file'）剩余限制：仅删除禁用
-               + 「文件」标志（title 提示同构服务端规则③文案）；置顶/编辑随编辑解除放开 -->
-          <el-tag v-if="row.source === 'file'" type="info" size="small" :title="FILE_FORM_HINT">文件</el-tag>
+          <!-- [Phase4-D4f/F3] 「文件」徽标保留（title = 形态说明）；删除禁用守卫撤除
+               （file-form 单文件删除已解除，backupIds 回收站语义同目录式） -->
+          <el-tag v-if="row.source === 'file'" type="info" size="small" :title="`${row.slug}.md 单文件文章`">文件</el-tag>
           <el-button size="small" @click="goEdit(row.slug)">编辑</el-button>
           <el-button size="small" @click="togglePinned(row)">
             {{ pinnedOf(row) ? '取消置顶' : '置顶' }}
           </el-button>
-          <el-button
-            size="small"
-            type="danger"
-            :disabled="row.source === 'file'"
-            :title="row.source === 'file' ? FILE_FORM_HINT : undefined"
-            @click="onDelete(row)"
-          >删除</el-button>
+          <el-button size="small" type="danger" @click="onDelete(row)">删除</el-button>
         </template>
       </el-table-column>
     </el-table>
