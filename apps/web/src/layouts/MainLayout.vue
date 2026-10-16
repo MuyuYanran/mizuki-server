@@ -49,6 +49,8 @@ const MENU: MenuItem[] = [
   { path: '/settings', title: '设置', group: '配置' },
   // [Phase3-C7] 站点配置受控子集（ADR-020）
   { path: '/site-config', title: '站点配置', group: '配置' },
+  // [主题外观] 面板主题管理（预设 + 自定义 CSS，纯前端自包含）
+  { path: '/theme', title: '主题外观', group: '配置' },
 ];
 
 /** [Phase4-D3] 分组渲染顺序（固定；组内顺序随 MENU 声明序） */

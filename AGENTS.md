@@ -60,6 +60,13 @@ docs/            规格、决策、台账、阶段提示词（见 §10）
   否则 server 报 `Cannot find module '@mizuki/shared'`。
 - vitest 全并行在本机不可用（30 个 worker 异常退出）：分批 ≤6 个文件 + `--maxWorkers=1`；vitest 4 已无 `--reporter=basic`。
 - Windows 非 ASCII 用户名会让 `pm-resolver.spec.ts` 的 3 个用例失败（环境性，不是代码缺陷）。
+- **本机 DSH 运行时不含包管理器**（2026-10-16 实测）：`runtime/…/node/bin` 只有 `node.exe`，`where npm`
+  无结果，pnpm 仅以 `pnpm.cjs` 形式存在（`shell:false` 下 `.cmd` 不可 spawn）⇒ 本机 `pnpm test` 必现
+  **484/490**，失败全在 `p9-process.e2e-spec.ts`（5）与 `p9b-pm-resolver.e2e-spec.ts`（1）；
+  要拿 490 基线须换到具备 npm/pnpm 的终端。本机 `MIZUKI_PM_<NAME>_PATH` 无对象可指。
+- **web 构建一度被 esbuild 大输入临时文件拒绝**（`vite:esbuild-transpile` remove `Access is denied`）——
+  已按 **ADR-027** 绕开（`build: { target: 'esnext', minify: false, cssMinify: 'esbuild' }`），`pnpm build`
+  现可全绿；**改回默认压缩或给 element-plus 加 `manualChunks` 之前先读 ADR-027（后者实测运行期 TDZ 崩）**。
 - **验收三连 = test + build + lint 全绿**；数账只认全绿轮（流程规则候选 R6）。
 
 ## 4. 硬性红线（改动前必读）
@@ -164,8 +171,21 @@ docs/            规格、决策、台账、阶段提示词（见 §10）
 
 ## 9. 工作树现状与未清项（进仓先看一眼）
 
-- HEAD `bd3b1fa`（Phase5-E1b + D4h 收尾，基线 490 用例 / lint 0/0）。**未提交改动**：
-  `M docs/SESSIONS.md`（活跃卷瘦身，正文已拆到 `docs/SESSIONS-ARCHIVE.md`）、`M pnpm-lock.yaml`、`M README.md`（媒体白名单订正，见下）。
+- HEAD 收录本批：**面板自定义主题（ADR-026）+ 本机 web 构建打通（ADR-027）**，一笔提交（**未 push**）。
+  工作树干净——仅 gitignored 的 `data/`、`.test-tmp/`、`.vite` 等，以及下面「非本仓产物」例外。
+  本批**未引入任何依赖变更**：`pnpm-lock.yaml` 与 `apps/web/package.json` 均与 `bd3b1fa` 一致
+  （早前 §9 记的 `M pnpm-lock.yaml` 与 `M docs/SESSIONS.md` 已随本批入库/回退，原记载作废）。
+  （`M README.md` 媒体白名单订正已随 `bd3b1fa` 入库。）
+- **本机构建状态（2026-10-16 实测，已解决）**：`pnpm build` = `shared → server → web` **exit 0**
+  （1903 modules / 18.71s），构建前后 `<system-temp>` 的 `esbuild-*` 残渣均为 0。此前的失败
+  （`vite:esbuild-transpile` 大输入临时文件 `Access is denied`；dev 的 `.vite/deps_temp_*` 写出被拒）
+  经五组对照钉死为**环境侧对 esbuild 子进程大输入临时文件清理的拒绝**，已按 **ADR-027** 在
+  `apps/web/vite.config.ts` 绕开（`build: { target: 'esnext', minify: false, cssMinify: 'esbuild' }`）：
+  不再对 chunk 做语法降级与 JS 压缩，>1 MiB 链路不触发。代价＝未压缩产物（JS 6.08 MB / gzip 1.35 MB，
+  部署侧需 gzip/br），一行可回退。**勿用 `manualChunks` 拆 element-plus 去复现「绿色 build」——
+  实测运行期 TDZ 崩溃（环形 chunk 破坏 ESM 求值序）。** 见 ADR-027 与 `docs/SESSIONS.md` 本轮记录。
+- **本机 `pnpm test` = 484/490**（55/57 文件绿）：6 例失败全在 p9 进程与解析链，根因是本机运行时
+  无 npm/pnpm 可执行文件（见 §3）；本批改动只在 `apps/web/**` 与 docs，**不构成回归**。
 - **非本仓产物**（2026-10-06 落盘，均未跟踪）：`.acl-recovery/`、`.mnemosyne-test/`、`dump-config-final.txt`、
   `junction-snapshot-20261006.txt`。别当项目内容，也**不要在未确认前删除**。
   （同期的 `cordis.patch.yml` 与 `README.zh.md`——DSH 插件脚手架残留——已于 2026-10-15 经确认删除。）
@@ -209,7 +229,7 @@ docs/            规格、决策、台账、阶段提示词（见 §10）
 |---|---|
 | 技术栈与六条架构决策、表结构、安全白名单、AI 编码规则 | `docs/MASTER-PLAN.md` |
 | 功能字段与行为（一/二/三期） | `docs/REQUIREMENTS.md`、`REQUIREMENTS-PHASE2.md`、`REQUIREMENTS-PHASE3.md` |
-| 每条取舍的来龙去脉 | `docs/decisions/ADR-000-template.md` … `ADR-020-config-override.md` |
+| 每条取舍的来龙去脉 | `docs/decisions/ADR-000-template.md` … `ADR-020-config-override.md`、`ADR-026-panel-custom-theme.md`、`ADR-027-web-build-esbuild-bypass.md` |
 | 安全复查 9 条 + 规格核对 | `docs/SECURITY-REVIEW.md`、`docs/SPEC-ALIGNMENT-B4.md` |
 | 跨阶段铁律 | `docs/PROCESS-RULES.md` |
 | 部署与 12 个环境变量 | `docs/DEPLOYMENT-CHECKLIST.md` |
@@ -219,8 +239,11 @@ docs/            规格、决策、台账、阶段提示词（见 §10）
 | 主题侧规格摘录 | `docs/refs/mizuki-docs/` |
 | 目录树与模块→阶段映射 | `docs/STRUCTURE.md`、`docs/README.md` |
 
-**ADR 缺口**：`docs/decisions/` 现存 `ADR-000` ~ `ADR-020`（**缺 ADR-010**）；代码里另引用 **ADR-022**（外链相册 src 写入口径）、
+**ADR 缺口**：`docs/decisions/` 现存 `ADR-000` ~ `ADR-020`（**缺 ADR-010**）与 **`ADR-026`（面板自定义主题）、
+`ADR-027`（web 构建绕行）**（后两者 2026-10-16 新建）；
+代码里另引用 **ADR-022**（外链相册 src 写入口径）、
 **ADR-024**（theme-lock 双轴与门禁）、**ADR-025**（`deriveStatus` 的 `published === false` 兼容分支，禁删改），
 但这些编号**没有对应文件**——遇到它们时以代码内标签（`[Phase4-…/ADR-0xx]` 注释）加 `CHANGELOG.md` / `docs/SESSIONS.md` 为准。
+**下一空号 028**（021/023 亦无文件但编号已按语境预留，勿回填）。
 
 **本文件与源码冲突时**：先查 `CHANGELOG.md` / `docs/SESSIONS.md` 是否已解释该差异，再把本文件改对——不要默默按旧描述改代码。

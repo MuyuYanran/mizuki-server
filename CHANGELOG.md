@@ -1,5 +1,60 @@
 # 变更日志
 
+## 面板自定义主题 — 预设选择 + 自定义 CSS 上传（ADR-026，用户直派）
+
+- **作用域裁决**：用户需求「可切换主题 + 自行上传 CSS + 选择样式」经人工裁决锁定为**管理面板自身**
+  （`apps/web`），非被管理的博客主题 Mizuki。因此：不写 `<mizukiRoot>/src/**`（红线 1/2 不触发）、
+  **不新增后端 API**（红线 7 冻结面零变化）、不建表、不改 `packages/shared`、不动 `data/`。
+- **新增**：`apps/web/src/lib/custom-theme.ts`（四套预设按 Element Plus 混色口径**代码生成** +
+  自定义条目 CRUD + 单节点注入 + 容量/长度限额 + 损坏存储过滤）；
+  `apps/web/src/views/settings/ThemePage.vue`（预设画廊 → 一键应用或「以此为基础自定义」；
+  自定义列表应用/编辑/删除；编辑器含名称、CSS 文本域、隐藏 file input 触发的 **上传 CSS 文件**、
+  字符计数与超限态）。
+- **接线**：`router/index.ts` 增子路由 `/theme`（`meta.title` 主题外观）；`layouts/MainLayout.vue`
+  在「配置」组末尾加菜单项。`views/` → `router` → `layouts` 三件套与 §11「加一个面板页」导航一致。
+- **注入方式（零侵入换肤）**：只覆盖 CSS 变量——向 `document.head` 追加**唯一**
+  `<style id="mizuki-custom-theme-style">`（位置晚于两份 element-plus CSS 与 `styles/theme.css`），
+  以 `:root {}` + `html.dark {}` 两块覆盖 `--mizuki-*` / `--el-*`；「恢复默认」= 移除该节点，
+  `theme.css` 与既有亮/暗/自动三态逻辑**零改动**、随时可退。
+- **持久化**：纯浏览器本地（`mizuki.customTheme.active` / `mizuki.customTheme.items`），
+  per-browser 不跨设备——页面 `el-alert` 明示，属「面板自包含」裁决的固有代价。
+- **防闪白与双实现纪律**：`index.html` 内联 ES5 脚本按同口径预生成本地主题，`main.ts` 的
+  `initCustomTheme()` 启动后**接管同一 id 节点**（不叠节点）。两份实现须逐字等价，由
+  `.test-tmp/ct-probe/probe-inline.cjs`（抽内联脚本在 Node 桩件下与模块比对）守护；本轮该探针
+  **抓出并修正暗色页面背景渐变 0.92 vs 0.9 的漂移**。
+- **限额**：自定义条目 ≤20、单条 CSS ≤200000 字符（上传文件同口径）、名称 ≤50；非法输入抛中文
+  可读错误；删除激活中的条目会级联清除激活态。
+- **验证**：`vue-tsc --noEmit` **exit 0**；模块行为探针 **43/43**；内联一致性探针 **8/8**；
+  根 `pnpm lint` **0/0（exit 0）**。
+- **构建打通（ADR-027）**：`pnpm build` 已在本机**全绿**（`shared → server → web`，exit 0）。
+  路径：先钉死失败点＝`vite:esbuild-transpile` 把 >1 MiB 的渲染 chunk 交给 `esbuild.transform`，
+  而 esbuild 对 >1 MiB 输入改走「写系统临时文件 → 原生侧读取并删除」，该删除在本机被拒
+  （`remove …esbuild-<hash>: Access is denied.`）；再按 vite 7.3.6 源码里的跳过条件
+  （`config.js:6233`：`(!target || target === "esnext") && minify !== "esbuild"` 即整插件跳过）
+  在 `apps/web/vite.config.ts` 只加 `build: { target: 'esnext', minify: false, cssMinify: 'esbuild' }`。
+  **两条被否决的路**：① `terser`——新增依赖会触发全仓 `latest` 重解析（eslint / typescript-eslint /
+  @nestjs/throttler / drizzle-orm 等实测漂移），已回滚，lockfile 与 `apps/web/package.json` 保持 HEAD 态；
+  ② `manualChunks` 拆 element-plus——build 绿但**运行期崩**（`vendor-element-plus-n-z ↔ a-m` 环形 chunk
+  破坏 ESM 求值序 → TDZ `ReferenceError: Cannot access 'ge' before initialization`，面板不挂载），永久废弃。
+  代价：JS 单 chunk 6.08 MB（gzip 1.35 MB，部署建议开 gzip/br）；一行可回退。详见 ADR-027。
+- **验证（均在真实 `apps/web/dist` 上复核，非探针产物）**：`vue-tsc --noEmit` **exit 0**；`pnpm build`
+  **exit 0**（1903 modules / 18.71s）且构建前后 `esbuild-*` 临时残渣**均为 0**；模块行为探针 **43/43**、
+  内联一致性探针 **8/8**；根 `pnpm lint` **0/0（exit 0）**；同源静态服务（4199）浏览器实测：面板正常挂载、
+  **console 零应用错误**（TDZ 已消除）、预设「薄荷青」应用 → 「使用中」+ 按钮禁用、「以此为基础自定义」→
+  预填 `薄荷青（副本）` + 900 字符生成 CSS（`--el-color-primary-light-3: #78cbac` 与算法手算一致）、
+  自定义项应用 + 整页重载后仍「使用中」（首帧前注入生效）、恢复内置默认（弹窗确认 → 无「使用中」、
+  条目保留但停用）、删除（弹窗确认 → 0/20 空态）；测试残留已在真实浏览器里清干净。
+- **未达项（环境性，非本改动引入）**：本机 `pnpm test` = **484/490**（57 文件中 55 绿），6 例失败集中在
+  `p9-process.e2e-spec.ts`（5）与 `p9b-pm-resolver.e2e-spec.ts`（1），根因唯一：**本机 DSH 运行时只带
+  `node.exe`**——`where npm` 无结果、`node\bin` 只有 `node.exe`、pnpm 仅以 `pnpm.cjs` 形式存在
+  （`shell:false` 下 `.cmd` 不可 spawn）⇒ ADR-011 解析链无包管理器可解析。与本次改动无因果关系
+  （`git diff --stat` 可证改动只在 `apps/web/**` 与 docs）；换具备 npm/pnpm 的终端复跑即可回到 490 基线。
+  另：`browser_inspect action=screenshot` 因写系统临时目录被拒（`os error 5`）本机不可用，
+  视觉证据以可访问性快照 + DOM/console 回执替代。
+- **ADR**：`docs/decisions/ADR-026-panel-custom-theme.md`（面板主题）与
+  `ADR-027-web-build-esbuild-bypass.md`（构建绕行；编号 021 缺文件、022/024/025 仅代码引用且已被占用，
+  故 026 之后取 027）。
+
 ## Phase3-F — 收官批：流程候选转正 + lang 拆分 + 缓存策略 + 遗留终裁 + 走查总账（C-Plus 连续执行）
 
 - **流程变体**：收官批免红队，架构师自查替代（人工裁决 2026-08-29）——自查七项 + v1 评审 17 项

@@ -9,16 +9,20 @@ import App from './App.vue';
 import { router } from './router';
 import { onSessionExpired } from './api/http';
 import { initTheme } from './lib/theme';
+import { initCustomTheme } from './lib/custom-theme';
 
 /**
  * [P10a] 应用入口：Element Plus 完整引入（取舍记报告）+ 路由 +
  * 会话失效回调（401 refresh 失败 → 回登录页）。
  * [Phase2-B1] 接入主题系统：element dark 变量 + theme.css（顺序敏感）+
  * initTheme 接管 index.html 内联脚本的初始 dark 类（R2-1）。
+ * [主题外观] initCustomTheme 接管 index.html 内联脚本注入的自定义主题
+ * 样式节点（预设/上传 CSS，localStorage 持久化，纯前端自包含）。
  */
 
 // 主题在 mount 前应用（避免首帧主题闪变）
 initTheme();
+initCustomTheme();
 
 const app = createApp(App);
 

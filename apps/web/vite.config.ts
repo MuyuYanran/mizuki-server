@@ -67,4 +67,28 @@ export default defineConfig({
       },
     },
   },
+  /**
+   * [2026-10-16 / ADR-027] 产物构建绕开 chunk 级 esbuild 转换。
+   *
+   * 背景：`vite:esbuild-transpile` 会把每个渲染后的 chunk 交给 esbuild，而 esbuild 的 JS 侧
+   * 对 >1 MiB 的输入改走「写系统临时文件 → 原生侧读取并删除」链路（esbuild 0.28.2
+   * lib/main.js:2138 附近的 randomFileName）。本机该删除步骤被系统拒绝
+   * （`remove D:\...\esbuild-<hash>: Access is denied.`），已排除目录 ACL、只读属性、属主、
+   * 杀软与 TEMP 重定向（见 `.test-tmp/ct-probe/esbuild-repro.cjs` 五组对照）。
+   *
+   * Vite 7.3.6 的跳过条件是 `(!target || target === 'esnext') && build.minify !== 'esbuild'`
+   * （`node_modules/vite/dist/node/chunks/config.js:6233`），故：
+   * - `target: 'esnext'`：不做语法降级（面板面向现代浏览器）；
+   * - `minify: false`：不再由 esbuild 压缩整块 chunk —— 这是唯一会写出 >1 MiB 临时文件的步骤。
+   *   JS 因此不压缩（单 chunk 6.08 MB / gzip 1.35 MB）；CSS 仍压缩：
+   *   `cssMinify: 'esbuild'` 只作用于 437.88 kB 的 CSS chunk，远离阈值，不走临时文件链路。
+   *
+   * 代价与回退：产物体积明显大于压缩版；环境修好后把本块恢复为
+   * `build: { minify: 'esbuild' }`（不设 target）即可回到默认行为。
+   */
+  build: {
+    target: 'esnext',
+    minify: false,
+    cssMinify: 'esbuild',
+  },
 });

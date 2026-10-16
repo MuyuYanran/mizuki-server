@@ -17,6 +17,86 @@
         } catch (e) {
           /* localStorage 不可用时退回亮色基础主题 */
         }
+        // [主题外观] 首帧前注入自定义主题样式（预设/上传 CSS），避免刷新时闪回默认色。
+        // 与 src/lib/custom-theme.ts 同键同 id；接管在 initCustomTheme()。
+        try {
+          var id = localStorage.getItem('mizuki.customTheme.active');
+          if (id) {
+            var css = null;
+            var presets = {
+              'preset-mint': ['#3eb489', '#5fc7a2'],
+              'preset-sky': ['#4d9de0', '#6db3ea'],
+              'preset-twilight': ['#9d6fe0', '#b48ae8'],
+              'preset-sunset': ['#e08a4d', '#eda268'],
+            };
+            if (presets[id]) {
+              css = genShades(presets[id][0], false) + '\n' + genShades(presets[id][1], true);
+            } else {
+              var items = JSON.parse(localStorage.getItem('mizuki.customTheme.items') || '[]');
+              for (var i = 0; i < items.length; i++) {
+                if (items[i] && items[i].id === id) {
+                  css = String(items[i].css || '');
+                  break;
+                }
+              }
+            }
+            if (css) {
+              var st = document.createElement('style');
+              st.id = 'mizuki-custom-theme-style';
+              st.textContent = css;
+              document.head.appendChild(st);
+            }
+          }
+        } catch (e2) {
+          /* 存储不可用时退回内置默认主题 */
+        }
+
+        // 主色阶混色（与 lib/custom-theme.ts shadeVars 同算法；亮底白 / 暗底 #141414）
+        function genShades(primary, dark) {
+          function hex(c) {
+            var m = /^#([0-9a-f]{6})$/i.exec(c);
+            var v = parseInt(m[1], 16);
+            return [(v >> 16) & 255, (v >> 8) & 255, v & 255];
+          }
+          function mix(a, b, t) {
+            var ca = hex(a), cb = hex(b);
+            var out = [];
+            for (var i = 0; i < 3; i++) {
+              out.push(Math.round(ca[i] * (1 - t) + cb[i] * t));
+            }
+            return (
+              '#' +
+              out
+                .map(function (x) {
+                  return x.toString(16).padStart(2, '0');
+                })
+                .join('')
+            );
+          }
+          var base = dark ? '#141414' : '#ffffff';
+          var dark2 = dark ? mix(primary, '#ffffff', 0.15) : mix(primary, '#000000', 0.2);
+          var lines = [
+            '  --mizuki-primary: ' + primary + ';',
+            '  --el-color-primary: var(--mizuki-primary);',
+            '  --el-color-primary-light-3: ' + mix(primary, base, 0.3) + ';',
+            '  --el-color-primary-light-5: ' + mix(primary, base, 0.5) + ';',
+            '  --el-color-primary-light-7: ' + mix(primary, base, 0.7) + ';',
+            '  --el-color-primary-light-8: ' + mix(primary, base, 0.8) + ';',
+            '  --el-color-primary-light-9: ' + mix(primary, base, 0.9) + ';',
+            '  --el-color-primary-dark-2: ' + dark2 + ';',
+            '  --mizuki-page-bg: linear-gradient(165deg, ' +
+              mix(primary, dark ? '#0a0a0a' : '#ffffff', dark ? 0.92 : 0.9) +
+              ' 0%, ' +
+              (dark ? '#0a0a0a' : '#f5f7fa') +
+              ' 55%);',
+            '  --mizuki-card-shadow: 0 4px 18px rgba(' +
+              hex(primary).join(', ') +
+              ', ' +
+              (dark ? '0.08' : '0.1') +
+              ');',
+          ];
+          return (dark ? 'html.dark {\n' : ':root {\n') + lines.join('\n') + '\n}';
+        }
       })();
     </script>
   </head>
