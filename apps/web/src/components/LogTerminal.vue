@@ -93,7 +93,7 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div ref="containerRef" class="log-terminal">
+  <div ref="containerRef" class="log-terminal terminal-container">
     <div
       v-for="(line, i) in lines"
       :key="i"
@@ -117,9 +117,10 @@ onBeforeUnmount(() => {
   color: var(--mizuki-terminal-fg);
   font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
   font-size: 12px;
-  padding: 8px;
-  border-radius: 8px;
-  border: 1px solid var(--el-border-color-lighter);
+  padding: 12px;
+  border-radius: var(--mizuki-radius-control);
+  border: 1px solid var(--mizuki-border-hairline);
+  box-shadow: inset 0 2px 6px rgba(0, 0, 0, 0.05);
 }
 /* 滚动条走主题变量（webkit + firefox 两套） */
 .log-terminal::-webkit-scrollbar {

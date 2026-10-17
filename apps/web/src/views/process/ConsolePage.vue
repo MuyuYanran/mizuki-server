@@ -134,14 +134,20 @@ async function checkPort(): Promise<void> {
 </script>
 
 <template>
-  <el-card>
-    <template #header><span>构建预览控制台</span></template>
+  <el-card class="console-card">
+    <template #header>
+      <div class="card-header">
+        <span class="page-title">构建与运行控制台</span>
+        <span class="page-subtitle">执行构建任务与查看实时日志输出</span>
+      </div>
+    </template>
 
     <div class="task-bar">
       <el-button
         v-for="opt in TASK_OPTIONS"
         :key="opt.value"
         :type="currentTask?.task === opt.value ? 'primary' : 'default'"
+        :class="{ 'btn-gradient-primary': currentTask?.task === opt.value }"
         :loading="starting"
         :disabled="currentTask?.status === 'running' && currentTask.task !== opt.value"
         @click="startTask(opt.value)"
@@ -178,29 +184,45 @@ async function checkPort(): Promise<void> {
 </template>
 
 <style scoped>
+.card-header {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+}
+.page-title {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--el-text-color-primary);
+}
+.page-subtitle {
+  font-size: 13px;
+  color: var(--el-text-color-secondary);
+}
 .task-bar {
   display: flex;
-  gap: 8px;
-  margin-bottom: 12px;
+  gap: 10px;
+  margin-bottom: 16px;
   flex-wrap: wrap;
 }
 .task-status {
   display: flex;
   align-items: center;
   gap: 12px;
-  margin-bottom: 12px;
+  margin-bottom: 14px;
   font-size: 13px;
   color: var(--el-text-color-secondary);
 }
 .port-bar {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
+  margin-top: 8px;
 }
 .port-input {
-  width: 160px;
+  width: 180px;
 }
 .port-result {
   color: var(--el-text-color-secondary);
+  font-size: 13px;
 }
 </style>

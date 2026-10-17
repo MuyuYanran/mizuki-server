@@ -111,8 +111,14 @@ onMounted(() => {
   <el-card v-loading="loading">
     <template #header>
       <div class="card-header">
-        <span>备份与恢复</span>
-        <el-button type="primary" @click="openCreate">创建备份</el-button>
+        <span class="page-title">备份与恢复</span>
+        <el-button type="primary" class="btn-gradient-primary" @click="openCreate">
+          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 4px;">
+            <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+            <polyline points="9 12 12 15 15 12" />
+          </svg>
+          创建备份
+        </el-button>
       </div>
     </template>
     <el-table :data="list" border>
@@ -149,7 +155,7 @@ onMounted(() => {
       </el-form>
       <template #footer>
         <el-button @click="createVisible = false">取消</el-button>
-        <el-button type="primary" :loading="creating" @click="onCreate">创建</el-button>
+        <el-button type="primary" :loading="creating" class="btn-gradient-primary" @click="onCreate">创建</el-button>
       </template>
     </el-dialog>
   </el-card>
@@ -160,5 +166,10 @@ onMounted(() => {
   display: flex;
   align-items: center;
   justify-content: space-between;
+}
+.page-title {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--el-text-color-primary);
 }
 </style>

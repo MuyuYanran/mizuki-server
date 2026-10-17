@@ -29,16 +29,41 @@
   --mizuki-page-bg: linear-gradient(165deg, #fdeff5 0%, #f5f7fa 55%);
   --mizuki-card-shadow: 0 4px 18px rgba(232, 115, 158, 0.1);
 
-  /* [Phase4-D3] 分级圆角三档（#9，ADR-023 token 映射）：卡片档 = 主题
-     --radius-large 1rem 实测同值；控件档 = 主题派生档 0.5rem（main.css
-     calc(var(--radius-large)-0.5rem)）同值 8px；pill 档主题无对应 → 惯例
-     999px（偏差登记 ADR-023）。element 变量全部引用本层，禁页面硬编码。 */
-  --mizuki-radius-card: 1rem;
-  --mizuki-radius-control: 8px;
+  /* [Phase4-D3 / U1] 分级圆角体系（升格主容器 1.25rem 20px / 控件 0.75rem 12px / 胶囊 999px） */
+  --mizuki-radius-card: 1.25rem;
+  --mizuki-radius-control: 0.75rem;
   --mizuki-radius-pill: 999px;
   --el-card-border-radius: var(--mizuki-radius-card);
   --el-border-radius-base: var(--mizuki-radius-control);
-  --el-border-radius-small: 6px;
+  --el-border-radius-small: 8px;
+  --el-border-radius-round: var(--mizuki-radius-pill);
+  --el-dialog-border-radius: var(--mizuki-radius-card);
+
+  /* [U1] 交互反馈族（悬浮投影 / 按压阴影 / 焦点光环） */
+  --mizuki-lift-shadow: 0 8px 24px rgba(232, 115, 158, 0.18);
+  --mizuki-press-shadow: 0 2px 6px rgba(232, 115, 158, 0.12);
+  --mizuki-focus-ring: 0 0 0 3px rgba(232, 115, 158, 0.25);
+
+  /* [U1] 渐变族（135° 主色渐变，对齐官方 gradient-buttons） */
+  --mizuki-gradient-primary: linear-gradient(135deg, var(--el-color-primary) 0%, var(--el-color-primary-light-3) 100%);
+  --mizuki-gradient-primary-hover: linear-gradient(135deg, var(--el-color-primary-light-3) 0%, var(--el-color-primary) 100%);
+
+  /* [U1] 描边族（极淡描边，对齐主题 --line-divider black(0.08)） */
+  --mizuki-border-hairline: rgba(0, 0, 0, 0.08);
+
+  /* [U1] 动效族（150ms 快速响应 / 回弹贝塞尔曲线 / 标准平滑） */
+  --mizuki-motion-fast: 150ms;
+  --mizuki-motion-base: 250ms;
+  --mizuki-motion-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+
+  /* [U1] 透明面与毛玻璃（顶栏等） */
+  --mizuki-glass-bg: rgba(255, 255, 255, 0.82);
+  --mizuki-glass-blur: blur(16px);
+  --mizuki-glass-border: rgba(255, 255, 255, 0.6);
+
+  /* [U1] 全局滚动条配色（亮） */
+  --mizuki-scrollbar-thumb: rgba(0, 0, 0, 0.2);
+  --mizuki-scrollbar-thumb-hover: rgba(0, 0, 0, 0.38);
 
   /* [Phase4-D3] 页面底色变量化（原 body 硬编码 #f5f7fa 收敛入变量层） */
   --mizuki-body-bg: #f5f7fa;
@@ -95,6 +120,27 @@ html.dark {
   --mizuki-page-bg: linear-gradient(165deg, #181015 0%, #0a0a0a 55%);
   --mizuki-card-shadow: 0 4px 18px rgba(240, 145, 183, 0.08);
 
+  /* [U1] 交互反馈族（暗） */
+  --mizuki-lift-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+  --mizuki-press-shadow: 0 2px 6px rgba(0, 0, 0, 0.35);
+  --mizuki-focus-ring: 0 0 0 3px rgba(240, 145, 183, 0.3);
+
+  /* [U1] 渐变族（暗） */
+  --mizuki-gradient-primary: linear-gradient(135deg, var(--el-color-primary-dark-2) 0%, var(--el-color-primary) 100%);
+  --mizuki-gradient-primary-hover: linear-gradient(135deg, var(--el-color-primary) 0%, var(--el-color-primary-dark-2) 100%);
+
+  /* [U1] 描边族（暗，对齐主题 white(0.08)） */
+  --mizuki-border-hairline: rgba(255, 255, 255, 0.08);
+
+  /* [U1] 透明面与毛玻璃（暗） */
+  --mizuki-glass-bg: rgba(24, 16, 21, 0.85);
+  --mizuki-glass-blur: blur(16px);
+  --mizuki-glass-border: rgba(255, 255, 255, 0.08);
+
+  /* [U1] 全局滚动条配色（暗） */
+  --mizuki-scrollbar-thumb: rgba(255, 255, 255, 0.22);
+  --mizuki-scrollbar-thumb-hover: rgba(255, 255, 255, 0.4);
+
   /* [Phase4-D3] 页面底色暗态 */
   --mizuki-body-bg: #0a0a0a;
 
@@ -132,20 +178,175 @@ html.dark {
 
 /* ── 全局观感（卡片柔化投影 / 页面背景由布局层引用变量） ───────── */
 
+/* ── 全局观感与基础重置 ─────────────────────────────────────────── */
+
 body {
   margin: 0;
   background: var(--mizuki-body-bg);
+  font-family: "PingFang SC", "Microsoft YaHei UI", "HarmonyOS Sans SC", system-ui, -apple-system, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  color: var(--el-text-color-primary);
+}
+
+/* 全局胶囊滚动条（除终端另有 --mizuki-terminal-scrollbar 豁免） */
+*:not(.terminal-container):not(.terminal-container *) {
+  scrollbar-width: thin;
+  scrollbar-color: var(--mizuki-scrollbar-thumb) transparent;
+}
+
+*:not(.terminal-container):not(.terminal-container *)::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+*:not(.terminal-container):not(.terminal-container *)::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+*:not(.terminal-container):not(.terminal-container *)::-webkit-scrollbar-thumb {
+  background: var(--mizuki-scrollbar-thumb);
+  border-radius: var(--mizuki-radius-pill);
+  transition: background var(--mizuki-motion-fast);
+}
+
+*:not(.terminal-container):not(.terminal-container *)::-webkit-scrollbar-thumb:hover {
+  background: var(--mizuki-scrollbar-thumb-hover);
 }
 
 .el-card {
   box-shadow: var(--mizuki-card-shadow);
+  border: 1px solid var(--mizuki-border-hairline);
+  border-radius: var(--mizuki-radius-card);
+  transition: box-shadow var(--mizuki-motion-base), transform var(--mizuki-motion-base);
 }
 
-/* [Phase4-D3] 卡片化通用容器类（#9；页面容器套用，取自有卡片类之简——
-   圆角/阴影全部走变量层，禁逐页硬编码） */
+/* [Phase4-D3 / U1] 卡片化通用容器类（大圆角、淡描边、柔彩阴影、微上浮过渡） */
 .panel-card {
-  padding: 20px;
+  padding: 24px;
   border-radius: var(--mizuki-radius-card);
   background: var(--el-bg-color);
   box-shadow: var(--mizuki-card-shadow);
+  border: 1px solid var(--mizuki-border-hairline);
+  transition: box-shadow var(--mizuki-motion-base);
+}
+
+/* [U1] Mizuki 官方 135° 渐变主按钮（带上浮与彩色柔影） */
+.btn-gradient-primary,
+.el-button--primary.is-gradient {
+  background: var(--mizuki-gradient-primary);
+  border: none;
+  color: #ffffff;
+  box-shadow: 0 4px 12px rgba(232, 115, 158, 0.28);
+  border-radius: var(--mizuki-radius-control);
+  font-weight: 500;
+  transition: transform var(--mizuki-motion-fast) var(--mizuki-motion-spring),
+              box-shadow var(--mizuki-motion-fast),
+              background var(--mizuki-motion-fast);
+}
+
+.btn-gradient-primary:hover,
+.el-button--primary.is-gradient:hover {
+  background: var(--mizuki-gradient-primary-hover);
+  color: #ffffff;
+  box-shadow: var(--mizuki-lift-shadow);
+  transform: translateY(-2px);
+}
+
+.btn-gradient-primary:active,
+.el-button--primary.is-gradient:active {
+  transform: translateY(0);
+  box-shadow: var(--mizuki-press-shadow);
+}
+
+/* [U1] 控件级交互与圆角全局润色 */
+.el-button {
+  border-radius: var(--mizuki-radius-control);
+  font-weight: 500;
+  transition: transform var(--mizuki-motion-fast) var(--mizuki-motion-spring),
+              box-shadow var(--mizuki-motion-fast),
+              background-color var(--mizuki-motion-fast),
+              border-color var(--mizuki-motion-fast);
+}
+
+.el-button:not(.is-disabled):not(.is-text):not(.is-link):hover {
+  transform: translateY(-1px);
+}
+
+.el-button:not(.is-disabled):not(.is-text):not(.is-link):active {
+  transform: translateY(0);
+}
+
+.el-input__wrapper,
+.el-select__wrapper,
+.el-textarea__inner {
+  border-radius: var(--mizuki-radius-control) !important;
+  transition: box-shadow var(--mizuki-motion-fast) ease, border-color var(--mizuki-motion-fast) ease;
+}
+
+.el-input__wrapper.is-focus,
+.el-select__wrapper.is-focused,
+.el-textarea__inner:focus {
+  box-shadow: var(--mizuki-focus-ring) !important;
+}
+
+/* [U1] 表格：大圆角外壳包裹、去硬边缘、行 hover 樱花淡色温润感 */
+.el-table {
+  border-radius: var(--mizuki-radius-card);
+  overflow: hidden;
+  border: 1px solid var(--mizuki-border-hairline);
+  --el-table-border-color: var(--mizuki-border-hairline);
+  --el-table-header-bg-color: var(--el-fill-color-light);
+  --el-table-row-hover-bg-color: var(--el-color-primary-light-9);
+}
+
+.el-table th.el-table__cell {
+  font-weight: 600;
+}
+
+/* [U1] 弹窗与抽屉：大圆角与回弹曲线入场 */
+.el-dialog {
+  border-radius: var(--mizuki-radius-card) !important;
+  overflow: hidden;
+  border: 1px solid var(--mizuki-border-hairline);
+  box-shadow: var(--mizuki-lift-shadow) !important;
+}
+
+.el-drawer {
+  border-radius: var(--mizuki-radius-card) 0 0 var(--mizuki-radius-card) !important;
+  border-left: 1px solid var(--mizuki-border-hairline);
+}
+
+.el-dialog__header {
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--mizuki-border-hairline);
+  margin-right: 0;
+}
+
+.el-dialog__title {
+  font-weight: 600;
+  font-size: 16px;
+}
+
+.el-dialog__footer {
+  padding-top: 16px;
+  border-top: 1px solid var(--mizuki-border-hairline);
+}
+
+/* [U1] Tag / Badge 胶囊感 */
+.el-tag {
+  border-radius: var(--mizuki-radius-pill);
+}
+
+/* [U1] 空态二次元柔和亲和力 */
+.el-empty {
+  padding: 36px 0;
+}
+.el-empty__image svg {
+  fill: var(--el-color-primary-light-8);
+  filter: drop-shadow(0 4px 12px rgba(232, 115, 158, 0.15));
+}
+.el-empty__description p {
+  color: var(--el-text-color-secondary);
+  font-size: 13px;
 }

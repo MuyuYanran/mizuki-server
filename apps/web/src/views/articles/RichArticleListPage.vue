@@ -57,8 +57,17 @@ async function onDelete(row: ArticleAdminView): Promise<void> {
 <template>
   <div class="rich-article-list-page panel-card">
     <div class="page-header">
-      <h2>富文本文章</h2>
-      <el-button type="primary" @click="goNew">新建文章</el-button>
+      <div class="header-title-wrap">
+        <h2>富文本文章</h2>
+        <span class="header-desc">可视化所见即所得文章列表</span>
+      </div>
+      <el-button type="primary" class="btn-gradient-primary" @click="goNew">
+        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 4px;">
+          <line x1="12" y1="5" x2="12" y2="19" />
+          <line x1="5" y1="12" x2="19" y2="12" />
+        </svg>
+        新建文章
+      </el-button>
     </div>
 
     <el-table v-loading="loading" :data="list" border>
@@ -83,18 +92,24 @@ async function onDelete(row: ArticleAdminView): Promise<void> {
 </template>
 
 <style scoped>
-.rich-article-list-page {
-  /* [Phase4-D3] padding 由 .panel-card 统一提供 */
-}
-
 .page-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 16px;
+  margin-bottom: 20px;
 }
 
-.page-header h2 {
+.header-title-wrap h2 {
   margin: 0;
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--el-text-color-primary);
+}
+
+.header-desc {
+  font-size: 13px;
+  color: var(--el-text-color-secondary);
+  margin-top: 4px;
+  display: inline-block;
 }
 </style>

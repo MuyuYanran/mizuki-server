@@ -6,14 +6,16 @@
  *   （R2-5：minimal=manage 时隐藏富文本文章与六类集合）。
  * [Phase2-B2/裁决 7] manage 模式收窄放宽：仅隐藏富文本文章，
  *   六类集合菜单保留（原 R2-5 的六类隐藏不再生效）。
+ * [Phase4-U1] 面板 UI 全面重设计：大圆角浮岛侧栏 + 零依赖内联图标 + 顶栏毛玻璃 + 窄屏折叠。
  */
-import { computed, onMounted, watch } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { ElMessage } from 'element-plus';
 import { authApi } from '../api/auth';
 import { authState, clearAuth } from '../stores/auth';
 import { ensureSystemMode, isMinimalMode, resetSystemMode, systemMode } from '../stores/system';
 import { THEME_LABELS, cycleTheme, themePreference } from '../lib/theme';
+import MenuIcon from '../components/MenuIcon.vue';
 
 const route = useRoute();
 const router = useRouter();
@@ -72,9 +74,38 @@ const MINIMAL_HIDDEN_PREFIXES = ['/articles'];
 const activeMenu = computed(() => route.path);
 const username = computed(() => authState.user?.username ?? '管理员');
 
+/** [U1] 响应式折叠状态：<1280px 自动折叠成图标侧栏，支持手动切换 */
+const isCollapse = ref(false);
+/** [U1-fix] 本次折叠是否由窄视口自动触发：回宽时只自动恢复「自动折叠」，不覆盖用户手动意图 */
+const autoCollapsed = ref(false);
+
+function handleResize(): void {
+  if (typeof window === 'undefined') return;
+  if (window.innerWidth < 1280) {
+    if (!isCollapse.value) {
+      isCollapse.value = true;
+      autoCollapsed.value = true;
+    }
+  } else if (autoCollapsed.value) {
+    isCollapse.value = false;
+    autoCollapsed.value = false;
+  }
+}
+
+function toggleCollapse(): void {
+  isCollapse.value = !isCollapse.value;
+  autoCollapsed.value = false;
+}
+
 onMounted(() => {
   // 登录后拉取系统状态读取 mode（R2-5 判定源；失败 fail-open 不阻塞）
   void ensureSystemMode();
+  handleResize();
+  window.addEventListener('resize', handleResize);
+});
+
+onBeforeUnmount(() => {
+  window.removeEventListener('resize', handleResize);
 });
 
 // 模式加载完成/变化时，若当前正处于被隐藏路由 → 重定向仪表盘
@@ -100,8 +131,23 @@ async function logout(): Promise<void> {
 <template>
   <el-container class="layout-root">
     <el-header class="layout-header">
-      <span class="brand">Mizuki 管理面板</span>
-      <span class="user-area">
+      <div class="brand-area">
+        <button
+          type="button"
+          class="collapse-btn"
+          :title="isCollapse ? '展开菜单' : '折叠菜单'"
+          aria-label="切换侧栏折叠"
+          @click="toggleCollapse"
+        >
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+            <line x1="3" y1="12" x2="21" y2="12" />
+            <line x1="3" y1="6" x2="21" y2="6" />
+            <line x1="3" y1="18" x2="21" y2="18" />
+          </svg>
+        </button>
+        <span class="brand">Mizuki 管理面板</span>
+      </div>
+      <div class="user-area">
         <el-button
           size="small"
           class="theme-toggle"
@@ -126,18 +172,34 @@ async function logout(): Promise<void> {
         </el-button>
         <span class="username">{{ username }}</span>
         <el-button size="small" @click="logout">登出</el-button>
-      </span>
+      </div>
     </el-header>
-    <el-container>
-      <el-aside width="220px" class="layout-aside">
-        <el-menu :default-active="activeMenu" router class="layout-menu">
-          <el-menu-item index="/">{{ MENU[0]?.title ?? '仪表盘' }}</el-menu-item>
+    <el-container class="layout-body">
+      <el-aside :width="isCollapse ? '72px' : '230px'" class="layout-aside">
+        <el-menu
+          :default-active="activeMenu"
+          :collapse="isCollapse"
+          :collapse-transition="false"
+          router
+          class="layout-menu"
+        >
+          <el-menu-item index="/">
+            <MenuIcon path="/" />
+            <template #title>
+              <span>{{ MENU[0]?.title ?? '仪表盘' }}</span>
+            </template>
+          </el-menu-item>
           <!-- [Phase4-D3] 分组归类：组内全空（manage 收窄后）→ 组壳 v-if 隐藏 -->
           <template v-for="group in MENU_GROUPS" :key="group">
             <el-menu-item-group v-if="menuByGroup(group).length > 0">
-              <template #title>{{ group }}</template>
+              <template #title>
+                <span class="group-title">{{ group }}</span>
+              </template>
               <el-menu-item v-for="item in menuByGroup(group)" :key="item.path" :index="item.path">
-                {{ item.title }}
+                <MenuIcon :path="item.path" />
+                <template #title>
+                  <span>{{ item.title }}</span>
+                </template>
               </el-menu-item>
             </el-menu-item-group>
           </template>
@@ -153,16 +215,50 @@ async function logout(): Promise<void> {
 <style scoped>
 .layout-root {
   min-height: 100vh;
+  background: var(--mizuki-page-bg);
 }
 .layout-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  border-bottom: 1px solid var(--el-border-color);
+  height: 60px;
+  padding: 0 20px;
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  background: var(--mizuki-glass-bg);
+  backdrop-filter: var(--mizuki-glass-blur);
+  -webkit-backdrop-filter: var(--mizuki-glass-blur);
+  border-bottom: 1px solid var(--mizuki-border-hairline);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.02);
+}
+.brand-area {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.collapse-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--mizuki-radius-control);
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--el-text-color-regular);
+  cursor: pointer;
+  transition: all var(--mizuki-motion-fast) ease;
+}
+.collapse-btn:hover {
+  background: var(--el-color-primary-light-9);
+  color: var(--el-color-primary);
+  border-color: var(--mizuki-border-hairline);
 }
 .brand {
   font-size: 18px;
   font-weight: 700;
+  letter-spacing: -0.02em;
   /* 主色品牌字（走 --el-color-primary，R2-1 禁散落硬编码） */
   background: linear-gradient(120deg, var(--el-color-primary), var(--el-color-primary-dark-2));
   -webkit-background-clip: text;
@@ -176,11 +272,13 @@ async function logout(): Promise<void> {
 }
 .username {
   color: var(--el-text-color-secondary);
+  font-size: 14px;
 }
 .theme-toggle {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: 6px;
+  border-radius: var(--mizuki-radius-pill);
 }
 .theme-icon {
   display: inline-flex;
@@ -189,51 +287,85 @@ async function logout(): Promise<void> {
 .theme-label {
   font-size: 12px;
 }
-/* [Phase4-D4e/R2] 侧栏 Mizuki 化：卡片式容器 + 胶囊导航项 + MD3 hover/active 态。
-   token 全走 --mizuki-nav-* 变量族（theme.css，明暗两套；主题实测提取见 R1 对照表）。
-   MD3 比对裁定（冲突以主题实测为准）：卡片圆角 16px 与主题 --radius-large 同值采纳；
-   「大面 24px」主题无对应（面板容器实测一律 --radius-large 1rem）→ 采纳主题；
-   hover/active 状态层 = 主题 --btn-plain-bg-hover/-active 体系（main.css .dropdown-item
-   同构翻译），非 MD3 纯 overlay 层。菜单数据/路由/manage 过滤零触碰（仅样式层）。 */
+
+.layout-body {
+  height: calc(100vh - 60px);
+}
+
+/* [Phase4-U1] 浮岛式大圆角侧栏 */
 .layout-aside {
   border-right: none;
   background: transparent;
-  padding: 12px 10px;
+  padding: 16px 8px 16px 16px;
+  height: 100%;
+  box-sizing: border-box;
+  transition: width var(--mizuki-motion-base) cubic-bezier(0.4, 0, 0.2, 1);
 }
 .layout-menu {
   border-right: none;
   background: var(--mizuki-nav-panel-bg);
-  border: 1px solid var(--mizuki-nav-divider);
+  border: 1px solid var(--mizuki-border-hairline);
   border-radius: var(--mizuki-radius-card);
   box-shadow: var(--mizuki-card-shadow);
-  padding: 8px 10px;
+  padding: 12px 6px;
+  height: 100%;
+  box-sizing: border-box;
   overflow-y: auto;
+  overflow-x: hidden;
+  transition: box-shadow var(--mizuki-motion-base), border-color var(--mizuki-motion-base);
+}
+.layout-menu:hover {
+  box-shadow: var(--mizuki-lift-shadow);
+}
+.layout-menu:not(.el-menu--collapse) {
+  width: 100%;
+}
+.layout-menu.el-menu--collapse {
+  width: 100%;
+  padding: 12px 4px;
 }
 .layout-menu :deep(.el-menu-item) {
-  height: 40px;
-  line-height: 40px;
-  margin: 2px 0;
+  height: 42px;
+  line-height: 42px;
+  margin: 3px 0;
   border-radius: var(--mizuki-radius-control);
   color: var(--mizuki-nav-item-color);
   font-weight: 500;
-  transition: background-color 150ms ease, color 150ms ease;
+  transition: background-color var(--mizuki-motion-fast) ease,
+              color var(--mizuki-motion-fast) ease,
+              transform var(--mizuki-motion-fast) var(--mizuki-motion-spring);
 }
 .layout-menu :deep(.el-menu-item:hover) {
   background: var(--mizuki-nav-item-bg-hover);
   color: var(--mizuki-nav-item-color-active);
+  transform: translateX(2px);
+}
+.layout-menu.el-menu--collapse :deep(.el-menu-item:hover) {
+  transform: none;
 }
 .layout-menu :deep(.el-menu-item.is-active) {
   background: var(--mizuki-nav-item-bg-active);
   color: var(--mizuki-nav-item-color-active);
   font-weight: 600;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
 }
 .layout-menu :deep(.el-menu-item-group__title) {
   color: var(--mizuki-nav-item-color);
-  opacity: 0.65;
-  font-size: 12px;
-  padding: 10px 0 4px;
+  opacity: 0.55;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 12px 10px 4px;
+}
+.group-title {
+  display: inline-block;
 }
 .layout-main {
-  background: var(--mizuki-page-bg);
+  background: transparent;
+  padding: 20px;
+  overflow-y: auto;
+  height: 100%;
+  box-sizing: border-box;
 }
 </style>

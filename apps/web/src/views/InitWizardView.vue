@@ -231,8 +231,8 @@ async function submit(): Promise<void> {
 
       <div class="wizard-actions">
         <el-button v-if="step > 0" @click="step -= 1">上一步</el-button>
-        <el-button v-if="step < 3" type="primary" @click="next">下一步</el-button>
-        <el-button v-else type="primary" :loading="submitting" @click="submit">完成初始化</el-button>
+        <el-button v-if="step < 3" type="primary" class="btn-gradient-primary" @click="next">下一步</el-button>
+        <el-button v-else type="primary" :loading="submitting" class="btn-gradient-primary" @click="submit">完成初始化</el-button>
       </div>
     </el-card>
   </div>
@@ -245,17 +245,35 @@ async function submit(): Promise<void> {
   align-items: center;
   justify-content: center;
   background: var(--mizuki-page-bg);
+  padding: 24px;
+  box-sizing: border-box;
 }
 .wizard-card {
-  width: 640px;
+  width: 100%;
+  max-width: 680px;
+  border-radius: var(--mizuki-radius-card);
+  box-shadow: var(--mizuki-lift-shadow);
+  background: var(--mizuki-glass-bg);
+  backdrop-filter: var(--mizuki-glass-blur);
+  -webkit-backdrop-filter: var(--mizuki-glass-blur);
+  border: 1px solid var(--mizuki-border-hairline);
+  padding: 32px;
 }
 .wizard-title {
   text-align: center;
-  font-size: 20px;
-  margin: 0 0 16px;
+  font-size: 22px;
+  font-weight: 700;
+  margin: 0 0 20px;
+  background: linear-gradient(120deg, var(--el-color-primary), var(--el-color-primary-dark-2));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
 }
 .wizard-steps {
   margin-bottom: 24px;
+  border-radius: var(--mizuki-radius-control);
+  overflow: hidden;
+  border: 1px solid var(--mizuki-border-hairline);
 }
 /* [Phase2-B1 / R2-3] 步骤标签不折行：nowrap + 防收缩；窄窗口字号略缩 */
 .wizard-steps :deep(.el-step__title) {
@@ -268,6 +286,7 @@ async function submit(): Promise<void> {
 }
 .wizard-body {
   min-height: 220px;
+  padding: 8px 0;
 }
 .detect-result {
   margin-top: 16px;
@@ -281,13 +300,15 @@ async function submit(): Promise<void> {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 6px 0;
+  padding: 8px 0;
+  border-bottom: 1px dashed var(--mizuki-border-hairline);
 }
 .check-name {
   font-weight: 600;
 }
 .check-detail {
   color: var(--el-text-color-secondary);
+  font-size: 13px;
 }
 /* [Phase2-B1 / R2-4] 运行模式三选项：垂直排列、同一左缩进基准、
    等宽卡片行（radio 圆点对齐 + 标签/说明双行块），消除参差缩进 */
@@ -300,33 +321,43 @@ async function submit(): Promise<void> {
 .mode-item {
   height: auto;
   margin: 0;
-  padding: 12px 14px;
+  padding: 14px 16px;
   width: 100%;
   box-sizing: border-box;
   align-items: flex-start;
-  border: 1px solid var(--el-border-color-light);
-  border-radius: 10px;
+  border: 1px solid var(--mizuki-border-hairline);
+  border-radius: var(--mizuki-radius-control);
   background: var(--el-fill-color-extra-light);
+  transition: all var(--mizuki-motion-fast) ease;
+}
+.mode-item:hover {
+  border-color: var(--el-color-primary-light-5);
+  transform: translateY(-1px);
 }
 .mode-item.is-checked {
   border-color: var(--el-color-primary);
   background: var(--el-color-primary-light-9);
+  box-shadow: 0 2px 10px rgba(232, 115, 158, 0.12);
 }
 .mode-item :deep(.el-radio__label) {
   white-space: normal;
   line-height: 1.5;
-  padding-left: 6px;
+  padding-left: 8px;
   width: 100%;
 }
 .mode-label {
   font-weight: 600;
+  color: var(--el-text-color-primary);
 }
 .mode-desc {
   color: var(--el-text-color-secondary);
   font-size: 13px;
+  margin-top: 2px;
 }
 .wizard-actions {
-  margin-top: 24px;
-  text-align: right;
+  margin-top: 28px;
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
 }
 </style>

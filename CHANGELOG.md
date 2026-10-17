@@ -1,5 +1,38 @@
 # 变更日志
 
+## 批次 UI-U1：面板 UI 全面重设计 — Mizuki 官方博客风格（大圆角 / 二次元 / 实用性提升）
+
+- **目标与定位**：重设计管理面板（`apps/web`）的视觉与交互层，使其完全长成 Mizuki 官方博客的样子（大圆角、二次元柔和圆彩、悬浮动效），同时保持既有功能行为、测试基线与架构红线 100% 不变。
+- **Token 层扩展（T1，apps/web/src/styles/theme.css）**：
+  - **分级圆角**：升格为两级体系，主容器 `--mizuki-radius-card: 1.25rem`（20px）、控件 `--mizuki-radius-control: 0.75rem`（12px）、胶囊 `--mizuki-radius-pill: 999px`，Element 变量全量重挂；
+  - **交互反馈族**：`--mizuki-lift-shadow`（悬浮态彩色柔影）、`--mizuki-press-shadow`、`--mizuki-focus-ring`；
+  - **渐变与描边族**：`--mizuki-gradient-primary`（135° 主色渐变）、`--mizuki-border-hairline`（极淡描边对齐主题）；
+  - **动效族**：`--mizuki-motion-fast: 150ms`、`--mizuki-motion-spring: cubic-bezier(0.34, 1.56, 0.64, 1)`（回弹缓动曲线）；
+  - **材质面与字体**：毛玻璃材质 `--mizuki-glass-bg` + `blur(16px)`；全局胶囊滚动条；系统圆体倾向字体栈（`"PingFang SC", "Microsoft YaHei UI", "HarmonyOS Sans SC", system-ui, sans-serif`）。
+  - **成对纪律**：亮暗双主题成对扩展，`--mizuki-primary` 与混色阶字面量、`custom-theme.ts` 混色算法零改动，换肤链完全无损。
+- **菜单栏重置（T2，apps/web/src/layouts/MainLayout.vue）**：
+  - **大圆角浮岛侧栏**：脱离旧式通体通高样式，在 aside 内独立成卡，微上浮过渡与阴影增强；
+  - **零依赖内联图标**：新增 `MenuIcon.vue`，为 18 个菜单项逐一提供精美现代的内联 SVG 线性微圆角图标；
+  - **分组标题样式化**：小号、大写字距（letter-spacing: 0.08em）增强层级二次元亲和力；
+  - **顶栏毛玻璃化**：毛玻璃背景 + 品牌字双色渐变保留；
+  - **响应式折叠**：窗口宽度 <1280px 自动折叠为图标侧栏（el-menu collapse），顶栏配有手动汉堡切换按钮；
+  - **零触碰**：`MENU` 数组语义、`visibleMenu` 过滤逻辑、`MINIMAL_HIDDEN_PREFIXES` 重定向与 manage 模式完全未变。
+- **全页面观感统一（T3，views/** + components/**）**：
+  - **统一容器**：各页面根容器统一套用 `.panel-card`，清零页面级硬编码 border-radius、box-shadow 与 color；
+  - **表格美化**：el-table 统一大圆角外壳包裹、去硬边框、行 hover 底色走主色 light-9 浅粉温润感；
+  - **按钮规范**：主操作按钮套用 `.btn-gradient-primary`（J3 克制原则：单页至多一个渐变主按钮），hover 上浮 translateY(-2px)；
+  - **登录页视觉重点**：二次元樱花光晕背景、居中大圆角浮岛卡片、渐变品牌标；
+  - **向导/仪表盘/相册/媒体库**：统计卡片悬浮上浮、相册缩略图微放大交互、弹窗统一大圆角与入场动效。
+- **验证与审计（T4）**：
+  - `vue-tsc --noEmit`：**exit 0（0 错误）**；
+  - `pnpm build`（`shared → server → web`）：**exit 0（全绿通过，12.85s）**；
+  - `pnpm lint`：**exit 0（0 warning, 0 error）**；
+  - `pnpm test`：**57/57 文件通过，490/490 测试全绿**；
+  - ADR-026 换肤链探针：**43/43 模块探针通过，8/8 内联探针通过**；
+  - 浏览器端实测：四套预设逐一切换、自定义 CSS、恢复内置默认全功能通过；
+  - 交付留证：`docs/audits/ui-u1/` 归档 12 张核心页面亮暗留证图与审计报告。
+
+
 ## 面板自定义主题 — 预设选择 + 自定义 CSS 上传（ADR-026，用户直派）
 
 - **作用域裁决**：用户需求「可切换主题 + 自行上传 CSS + 选择样式」经人工裁决锁定为**管理面板自身**

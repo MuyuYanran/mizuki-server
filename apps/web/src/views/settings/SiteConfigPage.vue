@@ -206,8 +206,11 @@ onMounted(() => {
 </script>
 
 <template>
-  <div v-loading="loading">
-    <h2>站点配置</h2>
+  <div v-loading="loading" class="site-config-page panel-card">
+    <div class="page-header">
+      <h2 class="page-title">站点配置</h2>
+      <span class="page-subtitle">Astro 博客受控配置管理</span>
+    </div>
     <el-alert
       type="info"
       :closable="false"
@@ -282,7 +285,7 @@ onMounted(() => {
       aria-label="导航 JSON"
     />
     <div class="nav-actions">
-      <el-button type="primary" :loading="saving" @click="onSaveNav">保存导航</el-button>
+      <el-button type="primary" :loading="saving" class="btn-gradient-primary" @click="onSaveNav">保存导航</el-button>
       <el-button :loading="saving" @click="onResetNav">还原主题默认</el-button>
     </div>
     <el-collapse v-if="baselineNavText" class="nav-baseline">
@@ -294,8 +297,22 @@ onMounted(() => {
 </template>
 
 <style scoped>
+.page-header {
+  margin-bottom: 16px;
+}
+.page-title {
+  font-size: 20px;
+  font-weight: 700;
+  margin: 0 0 4px;
+  color: var(--el-text-color-primary);
+}
+.page-subtitle {
+  font-size: 13px;
+  color: var(--el-text-color-secondary);
+}
 .page-alert {
   margin-bottom: 16px;
+  border-radius: var(--mizuki-radius-control);
 }
 .lang-form {
   margin-bottom: 8px;

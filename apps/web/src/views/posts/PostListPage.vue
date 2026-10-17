@@ -169,8 +169,17 @@ function dateOf(row: PostListItem): string {
 <template>
   <div class="post-list-page panel-card">
     <div class="page-header">
-      <h2>Markdown 文章</h2>
-      <el-button type="primary" @click="goNew">新建文章</el-button>
+      <div class="header-title-wrap">
+        <h2>Markdown 文章</h2>
+        <span class="header-desc">管理博客文章、草稿与回收站</span>
+      </div>
+      <el-button type="primary" class="btn-gradient-primary" @click="goNew">
+        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 4px;">
+          <line x1="12" y1="5" x2="12" y2="19" />
+          <line x1="5" y1="12" x2="19" y2="12" />
+        </svg>
+        新建文章
+      </el-button>
     </div>
 
     <el-tabs :model-value="activeTab" @tab-change="onTabChange">
@@ -232,18 +241,42 @@ function dateOf(row: PostListItem): string {
 </template>
 
 <style scoped>
-.post-list-page {
-  /* [Phase4-D3] padding 由 .panel-card 统一提供 */
-}
-
 .page-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 16px;
+  margin-bottom: 20px;
 }
 
-.page-header h2 {
+.header-title-wrap h2 {
   margin: 0;
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--el-text-color-primary);
+}
+
+.header-desc {
+  font-size: 13px;
+  color: var(--el-text-color-secondary);
+  margin-top: 4px;
+  display: inline-block;
+}
+
+:deep(.el-tabs__nav-wrap::after) {
+  background-color: var(--mizuki-border-hairline);
+}
+
+:deep(.el-tabs__item) {
+  font-size: 14px;
+  font-weight: 500;
+  transition: color var(--mizuki-motion-fast) ease;
+}
+
+:deep(.el-tabs__item.is-active) {
+  font-weight: 600;
+}
+
+:deep(.el-table) {
+  margin-top: 12px;
 }
 </style>

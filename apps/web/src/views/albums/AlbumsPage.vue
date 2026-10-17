@@ -158,8 +158,14 @@ onMounted(() => {
   <el-card v-loading="loading">
     <template #header>
       <div class="card-header">
-        <span>相册</span>
-        <el-button type="primary" @click="openCreate">创建相册</el-button>
+        <span class="page-title">相册管理</span>
+        <el-button type="primary" class="btn-gradient-primary" @click="openCreate">
+          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 4px;">
+            <line x1="12" y1="5" x2="12" y2="19" />
+            <line x1="5" y1="12" x2="19" y2="12" />
+          </svg>
+          创建相册
+        </el-button>
       </div>
     </template>
     <el-row :gutter="12">
@@ -258,7 +264,7 @@ onMounted(() => {
       </el-form>
       <template #footer>
         <el-button @click="createVisible = false">取消</el-button>
-        <el-button type="primary" :loading="creating" @click="onCreate">创建</el-button>
+        <el-button type="primary" :loading="creating" class="btn-gradient-primary" @click="onCreate">创建</el-button>
       </template>
     </el-dialog>
   </el-card>
@@ -269,6 +275,11 @@ onMounted(() => {
   display: flex;
   align-items: center;
   justify-content: space-between;
+}
+.page-title {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--el-text-color-primary);
 }
 .date-input {
   width: 100%;
@@ -283,19 +294,37 @@ onMounted(() => {
 }
 .album-card {
   cursor: pointer;
-  margin-bottom: 12px;
+  margin-bottom: 16px;
+  border-radius: var(--mizuki-radius-card);
+  border: 1px solid var(--mizuki-border-hairline);
+  box-shadow: var(--mizuki-card-shadow);
+  transition: transform var(--mizuki-motion-fast) var(--mizuki-motion-spring),
+              box-shadow var(--mizuki-motion-fast),
+              border-color var(--mizuki-motion-fast);
+}
+.album-card:hover {
+  transform: translateY(-3px);
+  box-shadow: var(--mizuki-lift-shadow);
+  border-color: var(--el-color-primary-light-7);
 }
 .album-title {
   font-weight: 700;
   font-size: 15px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
 }
 .album-desc {
   color: var(--el-text-color-secondary);
   font-size: 13px;
-  margin: 4px 0;
+  margin: 6px 0;
+  line-height: 1.4;
 }
 .album-meta {
-  color: var(--el-text-color-secondary);
+  color: var(--el-text-color-placeholder);
   font-size: 12px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
 </style>

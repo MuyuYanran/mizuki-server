@@ -135,7 +135,7 @@ function confirmCrop(): void {
       </p>
       <template #footer>
         <el-button @click="dialogVisible = false">取消</el-button>
-        <el-button type="primary" :loading="cropping" @click="confirmCrop">确认并上传</el-button>
+        <el-button type="primary" :loading="cropping" class="btn-gradient-primary" @click="confirmCrop">确认并上传</el-button>
       </template>
     </el-dialog>
   </div>

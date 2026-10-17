@@ -431,7 +431,7 @@ function errorFor(key: string, childKey?: string): string {
     </template>
 
     <el-form-item>
-      <el-button type="primary" :loading="loading" @click="onSubmit">
+      <el-button type="primary" class="btn-gradient-primary" :loading="loading" @click="onSubmit">
         {{ submitLabel ?? '提交' }}
       </el-button>
       <el-button @click="emit('cancel')">取消</el-button>

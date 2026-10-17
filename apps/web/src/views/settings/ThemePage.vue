@@ -302,7 +302,7 @@ async function onDelete(item: CustomThemeItem): Promise<void> {
         </el-form-item>
         <el-form-item>
           <el-button type="primary" :loading="saving" :disabled="cssOverLimit" @click="onSave">保存</el-button>
-          <el-button :loading="saving" :disabled="cssOverLimit" @click="onSaveAndApply">保存并应用</el-button>
+          <el-button type="primary" class="btn-gradient-primary" :loading="saving" :disabled="cssOverLimit" @click="onSaveAndApply">保存并应用</el-button>
           <el-button v-if="isEditing" @click="startNew">转为新建</el-button>
         </el-form-item>
       </el-form>
@@ -340,18 +340,25 @@ async function onDelete(item: CustomThemeItem): Promise<void> {
 .preset-card {
   display: flex;
   flex-direction: column;
-  border: 2px solid var(--el-border-color-lighter);
+  border: 1px solid var(--mizuki-border-hairline);
   border-radius: var(--mizuki-radius-card);
-  padding: 14px;
-  transition: border-color 150ms ease, box-shadow 150ms ease;
+  padding: 16px;
+  transition: border-color var(--mizuki-motion-fast) ease,
+              box-shadow var(--mizuki-motion-fast) ease,
+              transform var(--mizuki-motion-fast) var(--mizuki-motion-spring);
   background: var(--el-bg-color);
+}
+.preset-card:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--mizuki-lift-shadow);
+  border-color: var(--el-color-primary-light-7);
 }
 .preset-actions {
   display: flex;
   gap: 8px;
   align-items: center;
   margin-top: auto;
-  padding-top: 10px;
+  padding-top: 12px;
 }
 .preset-card.active {
   border-color: var(--el-color-primary);
@@ -360,13 +367,14 @@ async function onDelete(item: CustomThemeItem): Promise<void> {
 .swatch-row {
   display: flex;
   gap: 8px;
-  margin-bottom: 10px;
+  margin-bottom: 12px;
 }
 .swatch {
-  width: 40px;
-  height: 40px;
-  border-radius: 12px;
+  width: 42px;
+  height: 42px;
+  border-radius: var(--mizuki-radius-control);
   display: inline-block;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.08);
 }
 .swatch.dark {
   outline: 1px solid var(--el-border-color);

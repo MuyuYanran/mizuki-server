@@ -410,7 +410,7 @@ function formatValue(value: unknown): string {
           <span>上传 Markdown</span>
           <input type="file" accept=".md,.markdown,.txt" hidden @change="onMdUpload" />
         </label>
-        <el-button type="primary" :loading="saving" @click="onSave">保存</el-button>
+        <el-button type="primary" :loading="saving" class="btn-gradient-primary" @click="onSave">保存</el-button>
       </div>
     </div>
 
@@ -687,9 +687,10 @@ function formatValue(value: unknown): string {
 .fm-sidebar {
   width: 320px;
   flex-shrink: 0;
-  border: 1px solid var(--el-border-color);
-  border-radius: 4px;
-  padding: 12px;
+  border: 1px solid var(--mizuki-border-hairline);
+  border-radius: var(--mizuki-radius-control);
+  background: var(--el-fill-color-blank);
+  padding: 14px;
   /* [Phase4-D1/缺陷三] 高度随行（行高已视口对齐），侧栏内部自滚 */
   max-height: 100%;
   overflow-y: auto;
@@ -745,12 +746,13 @@ function formatValue(value: unknown): string {
 /* [Phase4-D4/B1] 存量 published 遗留值提示（警告色浅底条） */
 .fm-legacy-hint {
   margin: 0 0 12px;
-  padding: 6px 10px;
+  padding: 8px 12px;
   font-size: 12px;
   line-height: 1.5;
   color: var(--el-color-warning-dark-2);
   background: var(--el-color-warning-light-9);
-  border-radius: 4px;
+  border-radius: var(--mizuki-radius-control);
+  border: 1px solid var(--mizuki-border-hairline);
 }
 
 .unknown-keys {

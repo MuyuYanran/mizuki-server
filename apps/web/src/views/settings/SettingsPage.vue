@@ -203,7 +203,12 @@ onMounted(() => {
 
 <template>
   <el-card v-loading="loading">
-    <template #header><span>设置管理</span></template>
+    <template #header>
+      <div class="card-header">
+        <span class="page-title">系统设置</span>
+        <span class="page-subtitle">运行态参数与账户安全管理</span>
+      </div>
+    </template>
     <el-alert type="info" :closable="false" class="boundary-note">
       本页仅管理运行态设置（site_setting 表）。启动配置（如 Mizuki 项目根路径、运行模式）在初始化向导设定，不在此修改。Mizuki 侧 config/主题配置文件接管属二期能力。
     </el-alert>
@@ -220,7 +225,7 @@ onMounted(() => {
         <el-input v-model="passwordForm.confirm" type="password" show-password autocomplete="new-password" />
       </el-form-item>
       <el-form-item>
-        <el-button type="primary" :loading="changingPassword" @click="onChangePassword">修改密码</el-button>
+        <el-button type="primary" :loading="changingPassword" class="btn-gradient-primary" @click="onChangePassword">修改密码</el-button>
         <span class="password-hint">修改成功后将吊销所有会话，需要重新登录</span>
       </el-form-item>
     </el-form>
@@ -264,15 +269,30 @@ onMounted(() => {
         <el-input v-model="newValue" placeholder='如 "我的博客" 或 {"a":1}' />
       </el-form-item>
       <el-form-item>
-        <el-button type="primary" @click="onAdd">新增</el-button>
+        <el-button type="primary" class="btn-gradient-primary" @click="onAdd">新增</el-button>
       </el-form-item>
     </el-form>
   </el-card>
 </template>
 
 <style scoped>
+.card-header {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+}
+.page-title {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--el-text-color-primary);
+}
+.page-subtitle {
+  font-size: 13px;
+  color: var(--el-text-color-secondary);
+}
 .boundary-note {
   margin-bottom: 16px;
+  border-radius: var(--mizuki-radius-control);
 }
 .setting-group {
   margin-bottom: 12px;

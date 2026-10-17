@@ -457,7 +457,14 @@ onMounted(() => {
             hidden
             @change="onUploadChange"
           />
-          <el-button :loading="uploading" @click="triggerUpload">上传图片</el-button>
+          <el-button type="primary" class="btn-gradient-primary" :loading="uploading" @click="triggerUpload">
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 4px;">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+              <polyline points="17 8 12 3 7 8" />
+              <line x1="12" y1="3" x2="12" y2="15" />
+            </svg>
+            上传图片
+          </el-button>
           <el-button @click="openEdit">编辑信息</el-button>
         </div>
       </div>
@@ -589,7 +596,7 @@ onMounted(() => {
       </el-form>
       <template #footer>
         <el-button @click="editVisible = false">取消</el-button>
-        <el-button type="primary" :loading="saving" @click="onSaveEdit">保存</el-button>
+        <el-button type="primary" :loading="saving" class="btn-gradient-primary" @click="onSaveEdit">保存</el-button>
       </template>
     </el-dialog>
 
@@ -688,7 +695,7 @@ onMounted(() => {
   width: 100%;
   height: 120px;
   object-fit: cover;
-  border-radius: 6px;
+  border-radius: var(--mizuki-radius-control);
   background: var(--el-fill-color-light);
 }
 .photo-title {
@@ -733,11 +740,15 @@ onMounted(() => {
   width: 100%;
   aspect-ratio: 1 / 1;
   overflow: hidden;
-  border-radius: 8px;
+  border-radius: var(--mizuki-radius-control);
   background: var(--el-fill-color-light);
   display: flex;
   align-items: center;
   justify-content: center;
+  transition: transform var(--mizuki-motion-fast) ease;
+}
+.image-preview:hover {
+  transform: scale(1.02);
 }
 .thumb {
   width: 100%;

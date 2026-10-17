@@ -257,7 +257,7 @@ function onConfirm(): void {
 
     <template #footer>
       <el-button @click="emit('update:modelValue', false)">取消</el-button>
-      <el-button type="primary" @click="onConfirm">确定</el-button>
+      <el-button type="primary" class="btn-gradient-primary" @click="onConfirm">确定</el-button>
     </template>
   </el-dialog>
 </template>
@@ -289,20 +289,25 @@ function onConfirm(): void {
 }
 .picker-cell {
   border: 2px solid transparent;
-  border-radius: 8px;
+  border-radius: var(--mizuki-radius-control);
   padding: 4px;
   cursor: pointer;
   background: var(--el-fill-color-light);
+  transition: all var(--mizuki-motion-fast) ease;
+}
+.picker-cell:hover {
+  transform: translateY(-1px);
 }
 .picker-cell.picked {
   border-color: var(--el-color-primary);
   background: var(--el-color-primary-light-9);
+  box-shadow: 0 2px 8px rgba(232, 115, 158, 0.15);
 }
 .picker-thumb {
   width: 100%;
   height: 72px;
   object-fit: cover;
-  border-radius: 6px;
+  border-radius: var(--mizuki-radius-control);
   display: block;
 }
 .picker-name {

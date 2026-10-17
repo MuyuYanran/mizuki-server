@@ -167,14 +167,14 @@ function goBack(): void {
 </script>
 
 <template>
-  <div class="rich-article-edit-page" v-loading="loading">
+  <div class="rich-article-edit-page panel-card" v-loading="loading">
     <div class="page-header">
       <el-button @click="goBack">返回</el-button>
       <h2>{{ isEdit ? '编辑富文本文章' : '新建富文本文章' }}</h2>
       <div class="header-actions">
         <el-button size="small" @click="onExportHtml" :loading="exporting">导出 HTML</el-button>
         <el-button size="small" @click="onExportMd">导出 Markdown</el-button>
-        <el-button type="primary" :loading="saving" @click="onSave">保存</el-button>
+        <el-button type="primary" :loading="saving" class="btn-gradient-primary" @click="onSave">保存</el-button>
       </div>
     </div>
 
@@ -257,9 +257,10 @@ function goBack(): void {
 .meta-sidebar {
   width: 300px;
   flex-shrink: 0;
-  border: 1px solid var(--el-border-color);
-  border-radius: 4px;
-  padding: 12px;
+  border: 1px solid var(--mizuki-border-hairline);
+  border-radius: var(--mizuki-radius-control);
+  background: var(--el-fill-color-blank);
+  padding: 14px;
 }
 
 .field-error {

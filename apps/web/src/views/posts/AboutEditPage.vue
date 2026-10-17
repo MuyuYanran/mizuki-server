@@ -98,7 +98,7 @@ function onUploadReplace(event: Event): void {
 </script>
 
 <template>
-  <div class="about-edit-page" v-loading="loading">
+  <div class="about-edit-page panel-card" v-loading="loading">
     <div class="page-header">
       <h2>关于页编辑</h2>
       <div class="header-actions">
@@ -112,7 +112,7 @@ function onUploadReplace(event: Event): void {
           <span>上传替换</span>
           <input type="file" accept=".md,.markdown,.txt" hidden @change="onUploadReplace" />
         </label>
-        <el-button type="primary" :loading="saving" @click="onSave">保存</el-button>
+        <el-button type="primary" :loading="saving" class="btn-gradient-primary" @click="onSave">保存</el-button>
       </div>
     </div>
 
