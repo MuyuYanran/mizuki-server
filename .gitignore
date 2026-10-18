@@ -83,6 +83,8 @@ $RECYCLE.BIN/
 
 # ── Agent / tooling data (must not be committed) ──
 .workbuddy
+# 一次性验证脚本归档（含自铸 token 辅助等本地物，勿提交）
+_attic/
 
 # ── Note ──
 # pnpm-lock.yaml 是锁定文件，必须有意提交（请勿忽略）。

@@ -350,3 +350,59 @@ body {
   color: var(--el-text-color-secondary);
   font-size: 13px;
 }
+
+/* [UI-U2 / T2 / K2] 弹窗体高度限制与自滚 */
+.el-dialog .el-dialog__body {
+  max-height: 70vh;
+  overflow-y: auto;
+}
+
+/* [UI-U2 / T2 / K2] 弹窗宽度缩放把手样式 */
+.el-dialog {
+  position: relative;
+}
+
+.dialog-resize-handle {
+  position: absolute;
+  z-index: 100;
+  touch-action: none;
+}
+
+.dialog-resize-handle--e {
+  top: 0;
+  bottom: 0;
+  right: -3px;
+  width: 6px;
+  cursor: ew-resize;
+}
+
+.dialog-resize-handle--se {
+  bottom: 0;
+  right: 0;
+  width: 16px;
+  height: 16px;
+  cursor: nwse-resize;
+}
+
+.dialog-resize-handle--se::after {
+  content: '';
+  position: absolute;
+  right: 4px;
+  bottom: 4px;
+  width: 6px;
+  height: 6px;
+  border-right: 2px solid var(--el-text-color-placeholder);
+  border-bottom: 2px solid var(--el-text-color-placeholder);
+  border-radius: 1px;
+  opacity: 0.6;
+}
+
+.el-dialog:hover .dialog-resize-handle--se::after {
+  border-color: var(--el-color-primary);
+  opacity: 1;
+}
+
+.is-dialog-resizing {
+  user-select: none !important;
+  transition: none !important;
+}

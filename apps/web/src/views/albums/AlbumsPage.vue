@@ -201,7 +201,7 @@ onMounted(() => {
       </el-col>
     </el-row>
 
-    <el-dialog v-model="createVisible" title="创建相册" width="500px">
+    <el-dialog v-model="createVisible" v-dialog-resize draggable title="创建相册" width="500px">
       <el-form label-width="80px">
         <el-form-item label="目录名" required>
           <el-input v-model="createForm.name" placeholder="相册目录名（不含路径分隔符）" />

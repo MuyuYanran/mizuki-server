@@ -32,10 +32,13 @@ const props = withDefaults(
     modelValue: string;
     readonly?: boolean;
     placeholder?: string;
+    /** [UI-U2fix] 编辑器高度：默认 400px；弹性容器中传 '100%'（同 VditorEditor API） */
+    height?: string;
   }>(),
   {
     readonly: false,
     placeholder: '',
+    height: '400px',
   },
 );
 
@@ -71,8 +74,10 @@ function buildExtensions(): Extension[] {
       '&': {
         fontSize: '14px',
         fontFamily: 'Consolas, Monaco, "Courier New", monospace',
+        height: '100%',
       },
-      '.cm-content': { minHeight: '400px' },
+      '.cm-content': { minHeight: '100%' },
+      '.cm-scroller': { overflow: 'auto' },
     }),
   ];
   if (props.readonly) {
@@ -165,7 +170,7 @@ defineExpose({ getValue, insertAtCursor });
 </script>
 
 <template>
-  <div ref="containerRef" class="cm-editor-wrap"></div>
+  <div ref="containerRef" class="cm-editor-wrap" :style="{ height: props.height }"></div>
 </template>
 
 <style scoped>

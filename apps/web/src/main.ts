@@ -10,6 +10,7 @@ import { router } from './router';
 import { onSessionExpired } from './api/http';
 import { initTheme } from './lib/theme';
 import { initCustomTheme } from './lib/custom-theme';
+import { setupDialogResizeObserver, vDialogResize } from './lib/float';
 
 /**
  * [P10a] 应用入口：Element Plus 完整引入（取舍记报告）+ 路由 +
@@ -18,16 +19,19 @@ import { initCustomTheme } from './lib/custom-theme';
  * initTheme 接管 index.html 内联脚本的初始 dark 类（R2-1）。
  * [主题外观] initCustomTheme 接管 index.html 内联脚本注入的自定义主题
  * 样式节点（预设/上传 CSS，localStorage 持久化，纯前端自包含）。
+ * [UI-U2] 注册 v-dialog-resize 全局弹窗宽度缩放指令与全局把手监控。
  */
 
 // 主题在 mount 前应用（避免首帧主题闪变）
 initTheme();
 initCustomTheme();
+setupDialogResizeObserver();
 
 const app = createApp(App);
 
 app.use(ElementPlus);
 app.use(router);
+app.directive('dialog-resize', vDialogResize);
 
 onSessionExpired(() => {
   void router.push('/login');

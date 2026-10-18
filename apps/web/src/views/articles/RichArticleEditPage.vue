@@ -15,6 +15,18 @@ import { ElMessage } from 'element-plus';
 import { TipTapEditor } from '../../lib/editors';
 import { articlesApi, extractArticleIssues, type ArticleAdminView } from '../../api/articles';
 import { ApiError } from '../../api/http';
+import { useSplitter } from '../../lib/float';
+
+const {
+  width: sidebarWidth,
+  isDragging: isSplitterDragging,
+  onPointerDown: onSplitterPointerDown,
+} = useSplitter({
+  storageKey: 'mizuki.layout.rich-article-edit.v1',
+  defaultWidth: 320,
+  min: 240,
+  max: 480,
+});
 
 const route = useRoute();
 const router = useRouter();
@@ -184,8 +196,18 @@ function goBack(): void {
         <TipTapEditor :model-value="docJson" @update:model-value="docJson = $event" />
       </div>
 
+      <!-- [UI-U2 / T4] 可拖动分栏条 -->
+      <div
+        class="editor-splitter"
+        :class="{ 'is-dragging': isSplitterDragging }"
+        title="拖拽调整侧栏宽度"
+        @pointerdown="onSplitterPointerDown"
+      >
+        <div class="splitter-line" />
+      </div>
+
       <!-- 元数据侧栏 -->
-      <div class="meta-sidebar">
+      <div class="meta-sidebar" :style="{ width: `${sidebarWidth}px` }">
         <el-form label-width="80px" size="small">
           <el-form-item label="标题" required>
             <el-input v-model="meta.title" />
@@ -255,12 +277,38 @@ function goBack(): void {
 }
 
 .meta-sidebar {
-  width: 300px;
   flex-shrink: 0;
   border: 1px solid var(--mizuki-border-hairline);
   border-radius: var(--mizuki-radius-control);
   background: var(--el-fill-color-blank);
   padding: 14px;
+  box-sizing: border-box;
+}
+
+/* [UI-U2 / T4] 编辑器分栏拖拽条 */
+.editor-splitter {
+  width: 10px;
+  cursor: col-resize;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  user-select: none;
+  touch-action: none;
+}
+
+.splitter-line {
+  width: 4px;
+  height: 48px;
+  border-radius: var(--mizuki-radius-pill);
+  background: var(--mizuki-border-hairline);
+  transition: background var(--mizuki-motion-fast), height var(--mizuki-motion-fast);
+}
+
+.editor-splitter:hover .splitter-line,
+.editor-splitter.is-dragging .splitter-line {
+  background: var(--el-color-primary);
+  height: 64px;
 }
 
 .field-error {

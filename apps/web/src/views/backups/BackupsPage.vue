@@ -142,7 +142,7 @@ onMounted(() => {
       </el-table-column>
     </el-table>
 
-    <el-dialog v-model="createVisible" title="创建备份" width="440px">
+    <el-dialog v-model="createVisible" v-dialog-resize draggable title="创建备份" width="440px">
       <el-form label-width="80px">
         <el-form-item label="范围">
           <el-select v-model="createForm.scope">

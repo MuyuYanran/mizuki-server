@@ -545,7 +545,7 @@ onMounted(() => {
       </el-row>
     </template>
 
-    <el-dialog v-model="editVisible" title="编辑相册信息" width="500px">
+    <el-dialog v-model="editVisible" v-dialog-resize draggable title="编辑相册信息" width="500px">
       <el-form label-width="80px">
         <!-- [Phase4-D2/#5] 模式切换入口（空本地相册可切外链后增补外链图；
              非空相册切换由服务端 409 拒绝并提示现存数量——主题双路渲染契约） -->
@@ -603,6 +603,8 @@ onMounted(() => {
     <!-- [Phase3-C2a] 外链照片编辑对话框（官方 14 字段；settings 四子键独立输入框） -->
     <el-dialog
       v-model="photoDialogVisible"
+      v-dialog-resize
+      draggable
       :title="photoEditingIndex === null ? '新增外链照片' : '编辑外链照片'"
       width="640px"
     >

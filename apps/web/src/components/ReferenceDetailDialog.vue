@@ -33,6 +33,8 @@ function labelFor(refType: string): string {
 <template>
   <el-dialog
     :model-value="modelValue"
+    v-dialog-resize
+    draggable
     title="无法删除：存在引用"
     width="480px"
     @update:model-value="emit('update:modelValue', $event)"

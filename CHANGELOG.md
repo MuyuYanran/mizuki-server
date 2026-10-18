@@ -1,5 +1,37 @@
 # 变更日志
 
+## 批次 UI-U2：面板「工作台模式」— 可拖动 / 可缩放窗口体系
+
+- **目标与定位**：响应用户「让每个窗口变为可动的、可自行拖动调整大小的」需求，实现三层工作台浮动体系：仪表盘自由画布（FloatCanvas）、弹窗全量可拖动/可调宽、编辑器侧栏分栏可拉伸。
+- **浮动窗口基础设施（T1，apps/web/src/lib/float/）**：
+  - `z-manager.ts`：模块级卡片递增置顶计数器（起始 100）；
+  - `use-float-card.ts`：指针事件捕获（PointerCapture）、画布全量钳制、8 方向调整、ESC 回弹（K6）、localStorage 持久化（K4）与窄视口禁用（K5）；
+  - `FloatCard.vue`：卡片头拖拽把手、8 方向缩放把手、双状态过渡样式与窄视口自适应降级。
+- **弹窗全量可拖可缩（T2）**：
+  - 全站 7 个 `el-dialog` 全量配置 `draggable`（Element Plus 原生能力）；
+  - 新建 `v-dialog-resize.ts` 指令，挂载 E 边与 SE 角缩放把手，宽度钳制在 `[360, 视口 - 32]`；
+  - `theme.css` 追加全局规则：`.el-dialog .el-dialog__body { max-height: 70vh; overflow-y: auto; }`。
+- **仪表盘自由画布（T3，DashboardPage.vue）**：
+  - 8 张统计卡 + 1 张操作日志卡升级为 FloatCard，支持点阵网格背景、拖动/缩放与 z-index 置顶；
+  - 首屏默认布局复刻 U1 四列两行 + 满宽日志卡观感；
+  - 布局持久化键 `mizuki.layout.dashboard.v1`，配备页头「重置布局」按钮，清键一键回退；
+  - 窄视口（<1280px）自动降级为自然静态网格堆叠，把手不挂载，控制台零报错。
+- **编辑器分栏可拉伸（T4，PostEditPage.vue + RichArticleEditPage.vue）**：
+  - 新建 `use-splitter.ts`，侧栏宽度钳制 `[240, 480]`，支持 PointerCapture、ESC 回弹与持久化（`mizuki.layout.post-edit.v1` / `mizuki.layout.rich-article-edit.v1`）；
+  - 两编辑器引入受控侧栏与视觉圆角短杠分隔条，保持主编辑区 100% 视口弹性伸缩不回退。
+- **验证与审计（T5）**：
+  - `vue-tsc --noEmit`：**exit 0（0 错误）**；
+  - `pnpm build`（`shared → server → web`）：**exit 0（全绿）**；
+  - `pnpm lint`：**exit 0（0 warning, 0 error）**；
+  - `pnpm test`：**57/57 passed，490/490 全绿通过**；
+  - 证据表：全部自测项由真实 DOM 断言验证（禁提交空白 PNG），详见 `docs/audits/ui-u2/README.md`。
+- **验收轮（2026-10-18，架构师直修三缺陷）**：
+  - ① 仪表盘全屏重进错位：`onMounted` 中 `updateCanvasBounds()` 调序致宽度守卫恒真早退，删除该调用恢复 ResizeObserver 重布局；
+  - ② 关于页编辑器半高：flex 高度链修复（页面 `calc(100vh - 100px)` + `.editor-area` flex 弹性 + 编辑器 `height="100%"`）；
+  - ③（衍生）CodeMirror 引擎不跟随高度链：`CodeMirrorEditor.vue` 新增 `height` prop（默认 `400px` 兼容旧行为），AboutEditPage / PostEditPage 传 `100%`，PostEditPage 补 `.cm-editor-wrap` 弹性规则；
+  - 修复后三连全绿重跑（build exit 0 / lint 0/0 / test 490/490 用户终端原生），CDP 几何实测双页双引擎三档视口全自适应，证据见 `docs/audits/ui-u2/README.md` §4。
+
+
 ## 批次 UI-U1：面板 UI 全面重设计 — Mizuki 官方博客风格（大圆角 / 二次元 / 实用性提升）
 
 - **目标与定位**：重设计管理面板（`apps/web`）的视觉与交互层，使其完全长成 Mizuki 官方博客的样子（大圆角、二次元柔和圆彩、悬浮动效），同时保持既有功能行为、测试基线与架构红线 100% 不变。

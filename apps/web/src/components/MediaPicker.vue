@@ -169,6 +169,8 @@ function onConfirm(): void {
 <template>
   <el-dialog
     :model-value="modelValue"
+    v-dialog-resize
+    draggable
     :title="props.title"
     width="760px"
     @update:model-value="emit('update:modelValue', $event)"

@@ -25,6 +25,18 @@ import { extractArticleIssues } from '../../api/articles';
 import { ApiError } from '../../api/http';
 import { notifyApiError } from '../../lib/notify';
 import { dateOrEmpty } from '../../lib/format';
+import { useSplitter } from '../../lib/float';
+
+const {
+  width: sidebarWidth,
+  isDragging: isSplitterDragging,
+  onPointerDown: onSplitterPointerDown,
+} = useSplitter({
+  storageKey: 'mizuki.layout.post-edit.v1',
+  defaultWidth: 320,
+  min: 240,
+  max: 480,
+});
 
 const route = useRoute();
 const router = useRouter();
@@ -457,11 +469,22 @@ function formatValue(value: unknown): string {
           :model-value="content"
           @update:model-value="content = $event"
           placeholder="输入 Markdown 正文…"
+          height="100%"
         />
       </div>
 
+      <!-- [UI-U2 / T4] 可拖动分栏条 -->
+      <div
+        class="editor-splitter"
+        :class="{ 'is-dragging': isSplitterDragging }"
+        title="拖拽调整侧栏宽度"
+        @pointerdown="onSplitterPointerDown"
+      >
+        <div class="splitter-line" />
+      </div>
+
       <!-- frontmatter 侧栏（[S4→C2] 文件形态编辑已解除：el-form disabled 撤销；封面入口仍隐藏） -->
-      <div class="fm-sidebar">
+      <div class="fm-sidebar" :style="{ width: `${sidebarWidth}px` }">
         <el-form label-width="80px" size="small">
           <el-form-item label="标题" required>
             <el-input v-model="fm.title" />
@@ -679,13 +702,20 @@ function formatValue(value: unknown): string {
   height: auto;
 }
 
+/* [UI-U2fix] CodeMirror 变体同规则：弹性列中吃满剩余高度（wrap 内联 height:100%
+   在 flex 子项上不生效，须由 flex 基准接管；cm-editor 内部 height:100% 填满 wrap） */
+.content-area > :deep(.cm-editor-wrap) {
+  flex: 1 1 0;
+  min-height: 0;
+  height: auto;
+}
+
 .slug-input {
   margin-bottom: 8px;
   flex-shrink: 0;
 }
 
 .fm-sidebar {
-  width: 320px;
   flex-shrink: 0;
   border: 1px solid var(--mizuki-border-hairline);
   border-radius: var(--mizuki-radius-control);
@@ -694,6 +724,33 @@ function formatValue(value: unknown): string {
   /* [Phase4-D1/缺陷三] 高度随行（行高已视口对齐），侧栏内部自滚 */
   max-height: 100%;
   overflow-y: auto;
+  box-sizing: border-box;
+}
+
+/* [UI-U2 / T4] 编辑器分栏拖拽条 */
+.editor-splitter {
+  width: 10px;
+  cursor: col-resize;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  user-select: none;
+  touch-action: none;
+}
+
+.splitter-line {
+  width: 4px;
+  height: 48px;
+  border-radius: var(--mizuki-radius-pill);
+  background: var(--mizuki-border-hairline);
+  transition: background var(--mizuki-motion-fast), height var(--mizuki-motion-fast);
+}
+
+.editor-splitter:hover .splitter-line,
+.editor-splitter.is-dragging .splitter-line {
+  background: var(--el-color-primary);
+  height: 64px;
 }
 
 /* [Phase4-D4d/D2] 侧栏 label 防折行：label-width 80px 内长 label（如修复前

@@ -4,6 +4,7 @@
  * [职责] CodeMirror 6 复用，编辑 src/content/spec/about.md；
  *   保存调 PUT /admin/about（后端写前自动备份）；展示「已自动备份」提示；
  *   「上传替换」入口读本地 .md 文本后走同一保存链路。
+ * [UI-U2fix] 弹性高度链：编辑器随窗口自适应撑满（替换原固定 600px 高）。
  * [状态] ACTIVE
  */
 import { onMounted, ref } from 'vue';
@@ -125,21 +126,24 @@ function onUploadReplace(event: Event): void {
       style="margin-bottom: 12px"
     />
 
-    <VditorEditor
-      v-if="engine === 'vditor'"
-      ref="editorRef"
-      :model-value="content"
-      @update:model-value="content = $event"
-      placeholder="输入 about 内容…"
-      height="600px"
-    />
-    <CodeMirrorEditor
-      v-else
-      ref="editorRef"
-      :model-value="content"
-      @update:model-value="content = $event"
-      placeholder="输入 about 内容…"
-    />
+    <div class="editor-area">
+      <VditorEditor
+        v-if="engine === 'vditor'"
+        ref="editorRef"
+        :model-value="content"
+        @update:model-value="content = $event"
+        placeholder="输入 about 内容…"
+        height="100%"
+      />
+      <CodeMirrorEditor
+        v-else
+        ref="editorRef"
+        :model-value="content"
+        @update:model-value="content = $event"
+        placeholder="输入 about 内容…"
+        height="100%"
+      />
+    </div>
 
     <!-- [Phase4-D2/需求4] 统一选图器（媒体库/相册/外链） -->
     <MediaPicker v-model="imagePickerVisible" @picked="onImagesPicked" />
@@ -147,8 +151,13 @@ function onUploadReplace(event: Event): void {
 </template>
 
 <style scoped>
+/* [UI-U2fix] 弹性高度链：页面吃满视口剩余高，编辑区 flex 撑满（对齐 PostEditPage 模式） */
 .about-edit-page {
   padding: 16px;
+  height: calc(100vh - 100px);
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
 }
 
 .page-header {
@@ -156,6 +165,7 @@ function onUploadReplace(event: Event): void {
   align-items: center;
   justify-content: space-between;
   margin-bottom: 16px;
+  flex-shrink: 0;
 }
 
 .page-header h2 {
@@ -173,5 +183,22 @@ function onUploadReplace(event: Event): void {
   cursor: pointer;
   color: var(--el-color-primary);
   font-size: 13px;
+}
+
+.about-edit-page > .el-alert {
+  flex-shrink: 0;
+}
+
+.editor-area {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* 编辑器根（Vditor/CodeMirror 组件根元素）在弹性列中吃满剩余高度 */
+.editor-area > * {
+  flex: 1 1 0;
+  min-height: 0;
 }
 </style>

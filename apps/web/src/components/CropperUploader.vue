@@ -110,7 +110,14 @@ function confirmCrop(): void {
   <div class="cropper-uploader">
     <el-button :loading="cropping" @click="trigger">{{ props.label }}</el-button>
 
-    <el-dialog v-model="dialogVisible" title="裁切图片" width="640px" :close-on-click-modal="false">
+    <el-dialog
+      v-model="dialogVisible"
+      v-dialog-resize
+      draggable
+      title="裁切图片"
+      width="640px"
+      :close-on-click-modal="false"
+    >
       <div class="cropper-body">
         <VueCropper
           ref="cropperRef"

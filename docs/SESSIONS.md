@@ -355,6 +355,76 @@ posts 的 slug 为文件系统主键（目录/文件名），无 articles 的自
 - **重建**：`pnpm --filter @mizuki/web build` exit 0（vue-tsc 0 错误，新 bundle `index-ChAgG8si.js`）。
 - **验收轮结案修订**：UI-U1 判定维持「通过」，本缺陷已在验收轮内修复闭环；`docs/audits/ui-u1/dashboard-dark-collapsed-1212px.png`（折叠态留证）继续有效。
 
+---
+
+# 批次 UI-U2 交付报告 — 面板「工作台模式」：可拖动 / 可缩放窗口体系（2026-10-17）
+
+> [授权] 架构师授权 2026-10-17（docs/prompts-ui/U2-floating-workbench.md，数账基线 490）。
+> [结论] T1~T5 全部按时高质量交付；预裁决 K1~K10 全部严格执行；不变量 I1~I6 坚决捍卫；
+> 验收三连（build 0 / lint 0/0 / test 490/490）一次全绿通过；自测清单全部经真实 DOM 断言闭环（无 PNG 伪留证）。
+> 提交纪律：改动保留在工作区，**未提交、未 push**，等候用户统一验收处置。
+
+### 1. 任务完成与实物清单
+
+- **T1 浮动窗口基础设施（apps/web/src/lib/float/）**：
+  - `z-manager.ts`：模块级卡片递增置顶计数器（起始 100，点击置顶，K3）；
+  - `use-float-card.ts`：PointerCapture 指针事件捕获、8 方向缩放调整、画布边界全量钳制（K1）、ESC 取消并回弹（K6）、localStorage 持久化（K4）与窄视口自适应禁用（K5）；
+  - `FloatCard.vue`：卡片头拖拽把手（grab/grabbing）、8 方向缩放把手（`.float-handle--*`）、双状态过渡样式、窄视口自适应静态网格降级（K5）；
+  - `index.ts`：统一模块导出。
+- **T2 弹窗全量可拖可缩（7 个 el-dialog）**：
+  - 7 处弹窗全量配置 `draggable`（Element Plus 原生拖拽能力）；
+  - 新建 `v-dialog-resize.ts` 指令并配置全局 Teleport 观察器，挂载 E 边与 SE 角缩放把手，宽度钳制 `[360, 视口 - 32]`（K2）；
+  - `theme.css` 追加全局规则：`.el-dialog .el-dialog__body { max-height: 70vh; overflow-y: auto; }`。
+- **T3 仪表盘自由画布（DashboardPage.vue）**：
+  - 8 统计卡 + 1 操作日志卡重构为 FloatCard，支持点阵网格背景、拖动/缩放与 z-index 置顶；
+  - 首次默认布局自动根据画布宽度计算 4 列 2 行 + 满宽日志卡（完美复刻 U1 视觉观感）；
+  - 持久化键 `mizuki.layout.dashboard.v1`，损坏数据静默回退，提供「重置布局」一键清空还原；
+  - 窄视口（<1280px）自动降级为自然静态网格堆叠，把手不挂载，控制台零报错。
+- **T4 编辑器分栏可拉伸（PostEditPage.vue + RichArticleEditPage.vue）**：
+  - 新建 `use-splitter.ts`，侧栏宽度钳制 `[240, 480]`，支持 PointerCapture、ESC 取消与持久化（`mizuki.layout.post-edit.v1` / `mizuki.layout.rich-article-edit.v1`）；
+  - 两编辑器引入受控侧栏与视觉圆角短杠分隔条，保持主编辑区 100% 视口弹性伸缩不回退。
+- **T5 验证与交付**：
+  - `docs/audits/ui-u2/README.md` 归档真实 DOM 断言自测记录；
+  - `CHANGELOG.md` 与本文件追加交付条目。
+
+### 2. 真实 DOM 断言自测结果汇总（全部通过）
+- **仪表盘自由画布**：初始布局卡片 9 张，8 统计卡 278×140 + 满宽日志卡；拖动卡片 translate3d(120px, 80px, 0px) 与持久化通过；刷新保持位置通过；重置布局恢复通过；边界与最小尺寸 260×160 钳制通过。
+- **窄视口降级 (<1280px)**：窗口缩到 1132px 时 `floatEnabled: false`，FloatCard 把手 0 渲染，静态堆叠排布，控制台零错误。
+- **7 处弹窗拖动与拉宽**：以 AlbumsPage 弹窗实测，`.el-dialog.is-draggable` 生效，E 边把手成功从 500px 拉宽到 650px，body 限制 70vh 内滚。
+- **编辑器分栏拉伸与持久化**：向左拖动使侧栏由 320px 扩为 400px，localStorage 写入并通过，刷新后保持 400px；拖动中按 ESC 键平滑回滚至起点。
+- **主题联动**：FloatCard、把手色标、分栏条随 `--el-color-primary` 实时响应变色，换肤链探针 43/43 与 8/8 全过。
+
+### 3. 数账与构建验证
+- `vue-tsc --noEmit`：**exit 0（0 错误）**
+- `pnpm build`：**exit 0（全量构建成功，16.50s）**
+- `pnpm lint`：**exit 0（0 warning, 0 error）**
+- `pnpm test`：**57/57 passed，490/490 全绿通过**（基线保持 490）
+- 零新增依赖，`pnpm-lock.yaml` 零改动。
 
 
+
+
+
+## UI-U2 验收轮（2026-10-18，架构师直修）
+
+用户报告两缺陷，按 U1 判例由架构师本轮直修（不回抛执行方），验收中另抓一衍生缺陷一并修复。详见 `docs/audits/ui-u2/README.md` §4。
+
+### 缺陷与修复
+- **① 仪表盘全屏重进错位**：根因是 `onMounted` 中 `updateCanvasBounds()` 先于 `handleCanvasMaybeChanged()` 执行，宽度变化守卫恒真早退，重布局从未跑。删除该调用后 ResizeObserver 路径恢复工作。取证：1045px 画布首进卡片 260px，切回保持 260px，窗口拉宽自适应 313px。
+- **② 关于页编辑器半高**：页面无高度上下文。flex 高度链修复（`calc(100vh - 100px)` + `.editor-area` flex:1/min-height:0 + Vditor `height=100%`）。
+- **③（衍生，自抓）CodeMirror 引擎不跟随高度链**：`CodeMirrorEditor.vue` 新增 `height` prop（默认 400px 兼容旧行为），两调用点传 `100%`，PostEditPage 补 `.cm-editor-wrap` 弹性规则。
+
+### 验收三连（修复后全量重跑，全绿）
+- `pnpm build`：exit 0（11.30s）
+- `pnpm lint`：exit 0（0 warning / 0 error）
+- `pnpm test -- --maxWorkers=1`：**57/57 文件，490/490 用例全绿**（用户终端原生运行，2026-10-18 20:04）
+- CDP 几何实测：关于页/文章编辑页 × Vditor/CodeMirror × 700/900/1000 视口高，编辑器 518/718/818px 线性自适应，底边距恒定，引擎切换无残留。
+
+### 环境性备注（复盘用，非代码问题）
+- DSH 沙箱 Low 完整性层下 node 自建 NTFS junction 无法被 `fs.realpathSync` 解析（对照实验钉死：pwsh 建的正常解析，node 建的 isSymbolicLink=false），沙箱内 safe-join 两个 junction 用例环境性失败 488/490；用户终端 490/490 全绿。
+- `apps/server/data/` 曾缺 Low integrity 标签致 SQLite 只读（登录 500），用户已管理员 icacls 补齐，服务恢复（登录 200）。
+- 验证辅助脚本归档 `_attic/`（u2-mint-token / u2-about-geometry* / u2-final-verify）。
+
+### 提交状态
+- UI-U2 全部改动 + 验收轮三缺陷修复待用户手验后**一笔提交**（未 commit / 未 push）。
 
