@@ -66,7 +66,23 @@ export const commentConfig = {
     loading: "lazy",
   },
 };
+
+// [U3-P2/K5] 导航声明：含 LinkPreset 预设标识符 → 求值必抛 UnsupportedLiteralError
+// （基线 nav 不可得 = 降级分支），但原文本可经 baselineNavRaw 取得（⑯ 断言面）。
+export const navBarConfig = {
+  links: [
+    LinkPreset.Home,
+    { name: "关于", url: "/about/", icon: "fa7-solid:user" },
+    { name: "友链", url: "/friends/", icon: "fa7-solid:link", children: [LinkPreset.About] },
+  ],
+};
 `;
+
+// [U3-P2/K5] 变体：navBarConfig 声明整体缺失（⑰ 对照：声明缺失 → baselineNavRaw = null）
+const BASELINE_NO_NAV = BASELINE_CONFIG_TS.replace(
+  /export const navBarConfig = \{[\s\S]*?\n\};\n/,
+  '',
+);
 
 // 基线 siteConfig 声明字节段（⑭ 断言源：从基线全文切出，同源零漂移；含声明与尾随空行）
 const BASELINE_SITE_DECL = BASELINE_CONFIG_TS.slice(
@@ -331,5 +347,38 @@ describe('Phase3-C7：站点配置受控子集（override）e2e', () => {
     };
     expect(view.siteConfig.lang).toBeNull(); // 净态呈现：无 override
     expect(view.siteConfig.baselineLang).toBe('zh_CN'); // 还原后原文本探针求值（SITE_LANG 代入）
+  });
+
+  // ── ⑯⑰ [U3-P2/K5] baselineNavRaw：解析失败时的原文对照（A-GAP-10 服务端面） ──
+
+  it('⑯ baselineNavRaw：navBarConfig 含 LinkPreset → baselineNav=null 但原文可读（含预设标识符）', async () => {
+    const get = await server().get('/api/v1/admin/config');
+    expect(get.status).toBe(200);
+    const view = get.body as {
+      nav: unknown;
+      baselineNav: unknown;
+      baselineNavRaw: string | null;
+    };
+    // 降级分支：解析不可得（astToValueWithConsts 无 PropertyAccess 分支）
+    expect(view.baselineNav).toBeNull();
+    // 原文照给：面板据此向用户展示「主题默认导航长什么样」，避免蒙眼接管
+    expect(view.baselineNavRaw).not.toBeNull();
+    expect(view.baselineNavRaw).toContain('LinkPreset.Home');
+    expect(view.baselineNavRaw).toContain('LinkPreset.About');
+    expect(view.baselineNavRaw).toContain('name: "关于"'); // 字面量项也在原文内
+  });
+
+  it('⑰ baselineNavRaw：navBarConfig 声明缺失 → baselineNav 与 baselineNavRaw 双 null', async () => {
+    fs.writeFileSync(configTsPath, BASELINE_NO_NAV);
+    if (fs.existsSync(overridePath)) {
+      fs.rmSync(overridePath);
+    }
+    const get = await server().get('/api/v1/admin/config');
+    expect(get.status).toBe(200);
+    const view = get.body as { baselineNav: unknown; baselineNavRaw: string | null };
+    expect(view.baselineNav).toBeNull();
+    expect(view.baselineNavRaw).toBeNull();
+    // 复位到解析得出原文的基线，避免污染后续（本 spec 用例按文件序共享状态）
+    fs.writeFileSync(configTsPath, BASELINE_CONFIG_TS);
   });
 });

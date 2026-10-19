@@ -65,7 +65,8 @@ export const PostSlugSchema = singleSegmentName({
 });
 
 /**
- * frontmatter 字段（P5 §3.2 逐字 + Phase3-C1 扩展 + [Phase3-C5] lang）：16 个已知字段 + 未知字段原样保留。
+ * frontmatter 字段（P5 §3.2 逐字 + Phase3-C1 扩展 + [Phase3-C5] lang + [U3-P2/A-GAP-09] 七键）：
+ * 23 个已知字段 + 未知字段原样保留（passthrough）。
  * published ⚠ 类型以 Mizuki 为准（可能为日期），故放宽为 boolean | string | Date；
  * date/pubDate 允许 string 或 YAML 解析出的 Date。
  */
@@ -111,6 +112,22 @@ export const PostFrontmatterSchema = z
     //   该函数被 ADR-013/ADR-020 锚为「引用不重写、语义冻结」的共享终行，
     //   可空性属 posts 写入口机制（C1 删键哨兵），故就地外挂、不动共享语义。
     lang: langCodeSchema().nullable(),
+    // [U3-P2/K2] A-GAP-09：主题 content.config.ts 26 字段中面板/服务端此前未知的七键补齐
+    //   （updated / priority / sourceLink / licenseName / licenseUrl / passwordHint / alias）。
+    //   类型逐字对齐主题：updated 与 date/pubDate 同型（z.date() 可空缺省）；priority 为
+    //   z.number()（主题无取值域，故不设 min/max）；其余五键 z.string()。prev* 四键在主题
+    //   标注 "For internal use"（构建期回填，非作者字段），刻意不入 schema、不入表单。
+    // .nullable() 同 C1/A3 口径：null 为删键哨兵（JSON 传输无法表达 undefined），
+    //   parse 先于 strip，nullable 是删键指令的入口通行前提。
+    // updated 刻意**不设**删键路径：与 date/pubDate 一致——空值不写键（面板 || undefined），
+    //   PATCH 缺键保留存量，避免「清空日期即销毁元数据」的破坏面。
+    updated: DateLikeSchema.optional(),
+    priority: z.number().nullable().optional(),
+    sourceLink: z.string().nullable().optional(),
+    licenseName: z.string().nullable().optional(),
+    licenseUrl: z.string().nullable().optional(),
+    passwordHint: z.string().nullable().optional(),
+    alias: z.string().nullable().optional(),
   })
   .passthrough();
 
@@ -133,9 +150,26 @@ export const PostFrontmatterSchema = z
  *   且不在删键集合内），只能手工删行。增键影响面已核：本集合唯一消费者为
  *   下方 stripNullDeleteKeys，全仓 src 侧无其他引用，config 链（putLang 走 delete
  *   carrier.siteConfig.lang 独立机制）零副作用。
- * 仅这六个键参与删键语义；其余字段（含 passthrough 自定义键）合并语义零变化。
+ * [U3-P2/K2] 增补 A-GAP-09 六键（alias / priority / passwordHint / licenseName /
+ *   licenseUrl / sourceLink）：均为主题 content.config.ts 的可选字段，此前可经
+ *   passthrough 写入但无法经 API 删除（面板清空后键留存，只能手工删行）。
+ *   updated 不在此列——日期键沿用 date/pubDate 的「空值不写键」口径，无删键语义。
+ * 仅这十二个键参与删键语义；其余字段（含 passthrough 自定义键）合并语义零变化。
  */
-const NULL_DELETE_KEYS = ['encrypted', 'password', 'comment', 'permalink', 'lang', 'draft'] as const;
+const NULL_DELETE_KEYS = [
+  'encrypted',
+  'password',
+  'comment',
+  'permalink',
+  'lang',
+  'draft',
+  'alias',
+  'priority',
+  'passwordHint',
+  'licenseName',
+  'licenseUrl',
+  'sourceLink',
+] as const;
 
 /** null 删键哨兵处理：浅拷贝后删除值为 null 的可删键（不原地修改入参，防共享引用污染） */
 function stripNullDeleteKeys(frontmatter: Record<string, unknown>): Record<string, unknown> {
@@ -771,16 +805,21 @@ export class PostsService {
  * [Phase4-D4/S3/B1b] posts 写路径序列化：published 官方形态 = YAML 裸日期
  * （yyyy-mm-dd 无引号；press-file.md 快照 L40-43 + 用户实测证据：裸日期可运行，
  * 面板改写曾引入引号回归——SESSIONS 记录）。
+ * [U3-P2/K2] 同一口径扩至 updated：主题 content.config.ts 中 updated 亦为
+ * z.date().optional()，带引号的 '2026-05-06' 会以 string 进 astro 校验而被拒
+ * （js-yaml 对日期形态字符串恒加引号防 timestamp 误解析——不归一即埋构建期雷）。
  *
  * js-yaml 实证（gray-matter 4 / js-yaml 4，2026-09-04 灰盒）：
  *   - 字符串 '2026-01-02' → 恒带引号 `published: '2026-01-02'`（防 timestamp 误解析）；
  *   - Date 实例 → 恒输出完整 ISO `2026-01-02T00:00:00.000Z`（非裸日期）。
- * 两路皆得不到官方裸形态，故自拼：仅对 frontmatter 块内 published 键整行归一——
+ * 两路皆得不到官方裸形态，故自拼：仅对 frontmatter 块内日期键整行归一——
  * 引号形剥离引号；parseMarkdown 对裸日期的解析产物（Date → UTC 零点 ISO 形）截断为
  * 日期段。其余时间形态与非零点值原样保留；正文区零触碰（仅处理首个 frontmatter 块，
  * 空 frontmatter 直返正文）。重读语义：裸日期经 js-yaml load 解析为 Date——与
  * frontmatter.ts 往返承诺「无引号日期 → Date」及主题/Astro 官方消费一致。
  */
+const BARE_DATE_KEYS = ['published', 'updated'] as const;
+
 function stringifyPostMarkdown(frontmatter: Record<string, unknown>, content: string): string {
   const text = stringifyMarkdown(frontmatter, content);
   if (Object.keys(frontmatter).length === 0 || !text.startsWith('---\n')) {
@@ -792,16 +831,19 @@ function stringifyPostMarkdown(frontmatter: Record<string, unknown>, content: st
   }
   const head = text.slice(4, headEnd);
   const rest = text.slice(headEnd);
+  const keyPattern = BARE_DATE_KEYS.join('|');
+  const quotedRe = new RegExp(`^(${keyPattern}): '(\\d{4}-\\d{2}-\\d{2})'$`);
+  const isoRe = new RegExp(`^(${keyPattern}): (\\d{4}-\\d{2}-\\d{2})T00:00:00(?:\\.\\d+)?Z$`);
   const normalized = head
     .split('\n')
     .map((line) => {
-      const quoted = /^published: '(\d{4}-\d{2}-\d{2})'$/.exec(line);
+      const quoted = quotedRe.exec(line);
       if (quoted !== null) {
-        return `published: ${quoted[1]}`;
+        return `${quoted[1]}: ${quoted[2]}`;
       }
-      const iso = /^published: (\d{4}-\d{2}-\d{2})T00:00:00(?:\.\d+)?Z$/.exec(line);
+      const iso = isoRe.exec(line);
       if (iso !== null) {
-        return `published: ${iso[1]}`;
+        return `${iso[1]}: ${iso[2]}`;
       }
       return line;
     })

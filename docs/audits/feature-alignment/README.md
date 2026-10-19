@@ -56,11 +56,11 @@
 |---|---|---|---|---|
 | A-GAP-01 | siteConfig 站点信息档未管（title/subtitle/siteURL/siteStartDate/timeZone/themeColor/featurePages/navbarTitle/postListLayout/tagStyle/wallpaperMode/banner/pageScaling/font/toc，lang 已管） | basic-layout/01:20-142 | `shared/src/site-config.ts:70-86` 仅 3 对象；主题 config.ts:26-158 含全部键 | **P1** |
 | A-GAP-02 | 侧栏内容未管（profileConfig/announcementConfig） | sidepanel/02:55-60、03:55-60 | 主题 config.ts:284/390 无受管面 | **P1** |
-| A-GAP-06 | pagefind 索引后置缺失：官方 Docker 口径 build 后须 `pnpm exec pagefind --site dist`，面板 build 产出无搜索索引 | guide/deploy/07:104 | `process-manager.service.ts:38` TASK_WHITELIST 四任务无索引钩子 | **P1** |
+| A-GAP-06 | ~~pagefind 索引后置缺失~~ **改判：审计误诊，销案**（主题 build 脚本已内联 pagefind，面板参数原样透传，dist/pagefind 实存） | guide/deploy/07:104 原文是 `\|\|` 兜底链，非后置步骤 | 主题 package.json:16 `... && pagefind --site dist && ...`；process-manager 参数透传 | **销案** |
 | A-GAP-08 | bilibili-data.json 不入备份（= DEF-03） | special/08:42-48 | backup.service.ts:274-282 只收 *.ts | **P1**（并入 DEF-03） |
 | A-GAP-07 | 任务级环境变量注入缺失（BILI_SESSDATA、ENABLE_CONTENT_SYNC 等无法经面板注入） | special/08:107-131、separation/01:40-41 | process-manager.service.ts:414-431 env 白名单仅 PATH/HOME/APPDATA+CI | P2 |
-| A-GAP-09 | frontmatter 已知字段表缺 7 键：updated/alias/priority/passwordHint/licenseName/licenseUrl/sourceLink（passthrough 保底不丢数据，但无表单项、列为「未知键」） | writing/05:56-60 | 主题 content.config.ts:10,19,22,23,28,31；posts.service.ts:74-115 + PostEditPage.vue:375-379 16 键无此七键 | P2 |
-| A-GAP-10 | navBarConfig 基线含 LinkPreset 标识符 → 面板不可解析，首次保存即物化覆盖丢预设（原文留档可还原，但用户无感知）；children 封顶 1 层 | basic-layout/04 | SiteConfigPage.vue:270-271 警示原文；nav-config.ts:3-7（ADR-020 已知限制） | P2 |
+| A-GAP-09 | ~~frontmatter 已知字段表缺 7 键~~ **已闭环（U3-P2）**：七键入写入口 schema + NULL_DELETE_KEYS + 面板表单项，KNOWN_FM_KEYS 16→23，p5f 7 用例 | writing/05:56-60 | posts.service.ts:74-141；PostEditPage.vue（七键表单/回填/提交）；test/p5f-*.e2e-spec.ts | **闭环** |
+| A-GAP-10 | ~~LinkPreset 面板不可解析且用户无感知~~ **已强化闭环（U3-P2）**：AdminSiteConfigView 增 `baselineNavRaw` 原文对照 + 接管保存二次确认，p7f ⑯⑰ 锚；**children 封顶 1 层维持 ADR-020 已知限制**（本批不动） | basic-layout/04 | site-config.service.ts（baselineNavRaw）；SiteConfigPage.vue（原文折叠区 + 接管确认）；test/p7f ⑯⑰ | **闭环（children 除外）** |
 | A-GAP-11 | 番剧非 local 模式 config 未管：bangumi.userId、bilibili.vmid/fetchOnDev/coverMirror/useWebp、anime.mode（≡ B-P2-05，合并裁定） | special/08:54-96、:238-245 | 主题 config.ts:57-69；site-config.ts 无此键 | P2 |
 | A-GAP-12 | Markdown 增强语法（::github/5 类提示框/:spoiler/mermaid/数学公式/w-%/视频 iframe）在面板预览与公开 API 渲染中不支持（落盘原文无损，构建期主题自渲染）；公开 API 契约已冻结 P8 | writing/Markdown/02:18,50,87、03:11、06:14、special/01:44-68 | render.ts:20-48（marked+sanitize 子集） | P3 |
 | A-GAP-03 | 布局外观档未管（footer/sidebarLayout/share/license/permalink/relatedPosts/randomPosts/showLastModified/expressiveCode/字体/fullscreenWallpaper） | basic-layout/layout/01-03、02、03、05；article-layout/01-05 | 主题 config.ts:159-633 均 0 纳入 | P3 |
@@ -94,7 +94,7 @@
 | B-P2-06 | 二期清单「友链申请审核、文件 diff」未实现且无裁剪记录（评论系统已由 ADR-016 有意关闭，不计） | REQUIREMENTS:386 | 全仓 grep 仅规格原文一处 |
 | B-P2-07 | 「模式二/三前端侧接入」仅有模式枚举/菜单过滤，无「向主题写入 API 客户端/组件」行为 | REQUIREMENTS:79-85、386 | **UNSURE**：若解读为主题侧工作则不属本仓缺口，建议裁决划界 |
 | B-P2-08 | 一期路线图「三期」八项（浏览量/点赞/说说/全文搜索/访客分析/RSS/缓存/PG-MySQL）被实际三期规格静默跳过 | REQUIREMENTS:387 | PHASE3 全文无一项 |
-| B-P2-09 | 外链相册封面未纳入媒体引用注册表（collectReferences 返回 []，注释陈述已过时）；本地 /images/ 形态封面无 409 删除保护 | REQUIREMENTS:431-432；PHASE2:114 | albums.service.ts:201-208；AlbumDetailPage.vue:560 明示接受本地路径 |
+| B-P2-09 | ~~外链相册封面未纳入媒体引用注册表~~ **已闭环（U3-P2/K4）**：collectReferences 实装，cover + photos[].src 双注册（`album-cover` / `album-photo`），media 模块零改动，p7j 8 用例 | REQUIREMENTS:431-432；PHASE2:114 | albums.service.ts（collectReferences + toMediaPath）；test/p7j-*.e2e-spec.ts | **闭环** |
 
 ### P3 状态确认（有意裁剪/显式移交/冻结，有据，非缺口）
 
@@ -134,9 +134,37 @@
 |---|---|---|
 | **U3-D（缺陷先行）** | DEF-01 devices 登记、DEF-02 published 预填、DEF-03 备份收 *.json、DEF-04/05 文案订正 | 小（3 行级修复 + 2 文案） |
 | **U3-P1（配置域一期）** | A-GAP-01 站点信息档 + A-GAP-02 侧栏内容（即对接报告 U3-P1/P2 档） | 中（schema+物化器+表单） |
-| **U3-P2（构建与杂项）** | A-GAP-06 pagefind 后置钩子、A-GAP-09 frontmatter 补 7 键表单、B-P2-09 相册封面注册表、A-GAP-10 LinkPreset 警示强化 | 中 |
+| **U3-P2（构建与杂项）** | ~~A-GAP-06 pagefind 后置钩子~~（改判销案）、A-GAP-09 frontmatter 补 7 键表单、B-P2-09 相册封面注册表、A-GAP-10 LinkPreset 警示强化 | 中（已交付，见 §6） |
 | **U3-P3（裁定销账）** | B-P1-01/02/03 补裁决或立项、B-P2-05/07/08 划界裁决、DEV 四项规格文本修订 | 文档轮 |
 | **U3-P4（低优档）** | A-GAP-03/04/05/07/11/12、A-GAP-13 导入器（待表态） | 大，逐项独立裁定 |
+
+---
+
+## 6. A-GAP-06 改判销案（U3-P2，2026-10-19）
+
+**原判**：pagefind 索引后置缺失 —— 「官方 Docker 口径 build 后须 `pnpm exec pagefind --site dist`，面板 build 产出无搜索索引」，P1。
+
+**改判：误诊，销案。** 四条独立证据：
+
+1. **主题 build 脚本已内联 pagefind**：主题 `package.json:16` 为
+   `"build": "node scripts/update-anime.mjs && astro build && pagefind --site dist && node scripts/compress-fonts.js"`
+   —— pagefind 是 build 链内的顺序一步，`pagefind ^1.4.0` 还是运行时依赖（:68），不是可选后置钩子。
+2. **面板参数原样透传**：`process-manager.service.ts:129` 的 `taskArgs(task)` → `['run','build']`（:407-412）。
+   pm-resolver 的垫片穿透只改写 **调用 pnpm 自身**的那一层（`pm-resolver.ts:220`，file=process.execPath + 入口 js），
+   `run build` 这两个参数不经过任何改写 ⇒ 面板执行 build 必然跑完主题完整脚本链（含 pagefind）。
+3. **产物实存**：`Mizuki/dist/pagefind/` 内 `pagefind-entry.json` 等 8+ 文件在（2026-09-08 构建产物）。
+4. **审计引用的文档原文被误读**：`guide/deploy/07-Docker部署.md:104` 原文是
+   `RUN pnpm run build || pnpm exec astro build && pnpm exec pagefind --site dist`
+   —— 这是**失败兜底链**（`&&` 优先级高于 `||`：整条 build 成功就短路，只有 build 失败才退回
+   astro-only + 补跑 pagefind），不是「build 之后还须补跑 pagefind」的口径。
+
+**动作**：仅台账改判（本节 + 上表行 + SESSIONS 记录）。**零产品代码、零测试**——
+刻意**不**写「断言主题 build 脚本含 pagefind」这类测试：主题源码内容不属于本仓契约，
+主题哪天改脚本也不该让本仓 CI 变红。
+
+**连带记录（防后续误判）**：主题 `.npmrc` 有 `manage-package-manager-versions = true`、
+`packageManager=pnpm@10.22.0`，宿主 pnpm 12 会自切到 10.22.0 执行；这**与本裁断无关**
+（pagefind 在主脚本而非 pre/post 钩子，任何 pnpm 版本行为一致），单独记下来以免下次又被当成变量。
 
 ---
 

@@ -69,6 +69,12 @@ export interface AdminSiteConfigView {
   /** [Phase4-D3] 基线 nav 解析值（真实主题含 LinkPreset 标识符 → 不可得 null，降级分支） */
   baselineNav: NavConfigValue | null;
   /**
+   * [U3-P2/K5] navBarConfig 声明的初始化器**原文**（未求值）：解析成功与否均照给；
+   * 声明缺失 → null。用处是降级分支（基线上含 LinkPreset 标识符 → baselineNav null）
+   * 下面板仍能把「主题默认导航长什么样」展示给用户——否则接管保存等于蒙眼覆盖。
+   */
+  baselineNavRaw: string | null;
+  /**
    * [U3-P1] 站点信息档：override 态优先（整档写入 = 管理权转移），无 override 时取
    * 基线逐键解析值；基线可缺键（可选键未写 / 未支持字面量键省略）→ 面板对应字段空档起步。
    */
@@ -132,6 +138,7 @@ export class SiteConfigService {
       commentConfig: carrier.commentConfig ?? baseline.commentConfig,
       nav: carrier.nav ?? baseline.nav,
       baselineNav: baseline.nav,
+      baselineNavRaw: baseline.navRaw,
       // [U3-P1] 四新字段（K4）：siteInfo 支持「基线可缺键 → 面板空字段起步」
       siteInfo: carrier.siteInfo ?? baseline.siteInfo,
       baselineSiteInfo: baseline.siteInfo,
@@ -352,6 +359,7 @@ export class SiteConfigService {
     siteLang: string | null;
     commentConfig: CommentConfigValue | null;
     nav: NavConfigValue | null;
+    navRaw: string | null;
     siteInfo: Partial<SiteInfoValues> | null;
     profile: ProfileConfigValue | null;
     announcement: AnnouncementConfigValue | null;
@@ -405,6 +413,8 @@ export class SiteConfigService {
     let nav: NavConfigValue | null = null;
     const navDecl = sf.getVariableDeclaration('navBarConfig');
     const navInit = navDecl?.getInitializer();
+    // [U3-P2/K5] 初始化器原文：解析成败均照给（面板降级分支的「原文对照」来源）
+    const navRaw = navInit !== undefined ? navInit.getText() : null;
     if (navInit !== undefined) {
       try {
         // T1.1 实测：真实主题 links 含 LinkPreset.Home/Archive 标识符（PropertyAccess
@@ -441,7 +451,7 @@ export class SiteConfigService {
       configPath,
       consts,
     );
-    return { siteLang, commentConfig, nav, siteInfo, profile, announcement };
+    return { siteLang, commentConfig, nav, navRaw, siteInfo, profile, announcement };
   }
 
   /**

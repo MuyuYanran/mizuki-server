@@ -1,5 +1,19 @@
 # 变更日志
 
+## 批次 U3-P2：frontmatter 补键 / 相册引用注册表 / 导航接管确认（含 A-GAP-06 改判销案）
+
+- **目标**：把功能-文档对齐核查里的四项 P2 缺口收口，另折入 U3-P1 验收遗留的 `wallpaperMode` 收紧。**零新依赖、零新机制、零新路由/菜单**。
+- **A-GAP-09 闭环（frontmatter 七键）**：`PostFrontmatterSchema` 增 `updated`（`DateLikeSchema.optional()`，**无删键路径**，与 date/pubDate 同口径）/ `priority`（`z.number().nullable().optional()`，无取值域，对齐主题）/ `alias`、`passwordHint`、`licenseName`、`licenseUrl`、`sourceLink`（`z.string().nullable().optional()`）；`NULL_DELETE_KEYS` **6 → 12**；`prev*` 四键标注 "For internal use"，不入 schema 不入表单。
+- **落盘形态修正（未列文件）**：`stringifyPostMarkdown` 的裸日期归一由 `published` 单键扩至 `BARE_DATE_KEYS = ['published','updated']`——js-yaml 对日期形字符串恒加引号，而主题 `updated` 是 `z.date()`，带引号会以 string 进 Astro 校验被拒（每次保存更新时间都在埋构建期雷）。
+- **面板七键**：`PostEditPage.vue` `fm` +7 状态、`populateForm` +7 回填、`buildFrontmatter` +7 提交、`KNOWN_FM_KEYS` **16 → 23**、`onDatePick` 联合类型 +`'updated'`；七表单项按 K3 定位（更新时间贴日期区 / 别名贴 permalink / 排序权重贴置顶 / 密码提示贴密码 / 许可证三键连续一组置评论设置之后）。`priority` 提交用 `?? null`（0 是合法权重），五字符串键 `|| null`（空串 = 删键）。
+- **B-P2-09 闭环（相册引用注册表）**：`albums.service.ts` `collectReferences()` 由占位转实装——遍历相册，对 `mode === 'external'` 的 info 登记 **cover + photos[].src** 双来源；归一 `http(s)` 跳过 / `public/` 原样 / `images/` 拼 `public/` 前缀 / 其余（含裸名）跳过；产出 `{refType:'album-cover'|'album-photo', targetLabel:<相册名>, mediaPath}`；单相册失败 warn 跳过，`mizukiRoot` 未配置返回 `[]`。**media 模块与 `shared/media-reference.ts` 零改动**（注册表反转）。两处过时注释（:12、:202-204）同步改写。
+- **A-GAP-10 强化闭环（导航接管）**：`AdminSiteConfigView` 增 `baselineNavRaw: string | null`（navBarConfig 初始化器原文，解析成败均给，声明缺失为 null）；面板基线折叠区改为「解析成功给结构对照，失败给原文对照（标签明示含 LinkPreset 预设）」；`onSaveNav` 增接管二次确认——无 override ∧ 基线不可解析时，links 非空弹接管确认，links 为空则把接管提示并入既有空导航确认（**单次弹窗，不叠两次**）。**children 一层封顶维持 ADR-020 已知限制**（本批不动）。
+- **A-GAP-06 改判销案**：审计误诊。证据：主题 `package.json:16` build 脚本已内联 `pagefind --site dist`（且 pagefind 是运行时依赖）；`process-manager` 的 `['run','build']` 原样透传、pm-resolver 只改写调用 pnpm 那一层；`dist/pagefind/` 实存 8+ 文件；审计引用的 Docker 文档原文 `build || astro build && pagefind` 是**失败兜底链**（`&&` 优先），不是后置步骤。**零产品代码、零测试**，仅台账改判（`docs/audits/feature-alignment/README.md` 新增 `## 6` 证据小节 + 表行销账）。刻意不写「断言主题 build 脚本含 pagefind」这类耦合测试——主题源码不属本仓契约。
+- **K7 wallpaperMode 收紧**：`shared/src/site-config.ts` 去 `.optional()`（对齐主题 `types/config.ts` 必填对象）；注释改「4 可选 / 11 必填」；面板 `SITE_INFO_OPTIONAL_KEYS` 由 runtime ZodOptional 自省生成，该键自动退出（仅注释同步）。探针宽松视图与侧车 `.partial()` 不受影响。
+- **测试 +18（505 → 523，58 → 60 文件）**：新增 `p5f-posts-frontmatter-extra-keys.e2e-spec.ts`（7：七键创建往返 / PATCH 单键合并 / null 删键逐键 / updated 缺键保留 / 类型错 400×2 / passthrough 回归 / deriveStatus 回归锚）；新增 `p7j-album-cover-references.e2e-spec.ts`（8：`/images/` 站点形态 409 / `public/` 形态 409 / https 不拦 / photos[].src 409 / 裸名跳过 / 动态重扫后可删 / local 相册回归 / 贡献者形状）；`p7f` 增 ⑯⑰（baselineNavRaw 有值态与缺失态）；`p7i` ④ 原位改键（wallpaperMode→siteStartDate）+ 新增 ④b（缺 wallpaperMode → 400）。**跳过 p7g**（历史空缺，原因不明，禁复用）。
+- **验收三连**：`pnpm build` exit 0（shared→server→web，vue-tsc 0 错，1914 modules）/ `pnpm lint` 0·0 / `pnpm test` **523/523（60 文件）全绿**。
+- **红线核对**：`/public/**`、`backup.service.ts`、media/collections/articles 模块、路由表、`MainLayout.vue`、`vite.config.ts`、`pnpm-lock.yaml`、三处 `package.json` 零变动；零新增依赖；测试全走 mkdtemp。
+
 ## 批次 U3-P1：配置域一期 — 站点信息档 + 侧栏内容
 
 - **目标**：把「config.ts 受控面 = 3 对象」推进到「6 对象」，**零新机制、零新依赖**：复用 ADR-020 既有链路（schema → zod 管道 → 探针门禁 → 定点物化 → 侧车留档 → 面板表单）。

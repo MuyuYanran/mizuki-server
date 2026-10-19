@@ -609,3 +609,79 @@ DEV（裁决在案、规格文本未修订）：minimal 菜单范围、timeline 
 - 全部改动（11 改 + 3 新增：p7i spec / `docs/audits/u3-p1/` / `docs/prompts-ui/U3-P1-site-config-domain.md` 指令包）**未提交、未 push**，待 PM 手验后一笔提交。
 - 建议提交信息：`feat(config): U3-P1 配置域一期 — 站点信息档/个人资料/公告三档受控管理（受控面 3→6 对象，基线 505）`。
 - PM 手验点：设置页五区折叠回显（基线值正确起步）；改 title / 主题色 hue → 保存 → `config.ts` 物化点查；banner / font textarea 合法 JSON 保存与非法 JSON 拦截；profile links 清空保存；越界键 400 提示；主题基线对照折叠区显示。
+- 【2026-10-19 追记】PM 裁定提交，已提交 **2b22479**（未 push）。
+
+---
+
+# 批次 U3-P2 交付报告（frontmatter 补键 / 相册引用注册表 / 导航接管确认）
+
+> 指令包 `docs/prompts-ui/U3-P2-frontmatter-album-nav.md`（K1–K8 / I1–I8 / T1–T6）。
+> 起始 HEAD = `2b22479`，基线 505/505、58 文件。执行方交付报告全文：`docs/audits/u3-p2/README.md`。
+
+## 1. 交付面
+
+- **A-GAP-09 闭环**：`PostFrontmatterSchema` 七键（`updated` / `priority` / `alias` / `passwordHint` / `licenseName` / `licenseUrl` / `sourceLink`）；`NULL_DELETE_KEYS` 6→12；`updated` 刻意无删键路径（与 date/pubDate 同口径）。面板 `PostEditPage.vue` 七状态 + 七回填 + 七提交，`KNOWN_FM_KEYS` 16→23，七表单项按 K3 定位。
+- **落盘形态修正（未列文件，报告 §0 说明）**：`stringifyPostMarkdown` 裸日期归一扩至 `BARE_DATE_KEYS = ['published','updated']`——不改则 `updated` 以带引号字符串落盘，主题 `z.date()` 构建期拒收。
+- **B-P2-09 闭环**：`albums.collectReferences()` 实装，`mode==='external'` 的 cover + photos[].src 双登记，`toMediaPath()` 归一（`/images/` → `public/images/`；`public/` 原样；http(s) 与裸名跳过）；media 模块与 `shared/media-reference.ts` 零改动。
+- **A-GAP-10 强化闭环**：`AdminSiteConfigView.baselineNavRaw`（navBarConfig 初始化器原文）；面板基线折叠区原文对照 + 接管二次确认（空导航情形并入同一弹窗）；children 一层封顶维持 ADR-020 已知限制。
+- **A-GAP-06 改判销案**：审计误诊（主题 build 已内联 pagefind / 面板参数透传 / `dist/pagefind` 实存 / Docker 原文是 `||` 兜底链）。仅台账：`docs/audits/feature-alignment/README.md` 新增 `## 6` 证据小节 + 表行改判 + §5 批次表划改。零产品代码、零测试。
+- **K7 wallpaperMode 收紧**：shared 去 `.optional()`，注释「4 可选 / 11 必填」；面板可选键集由 runtime 自省，自动退出。
+
+## 2. 数账（I5）
+
+净增 **+18**：`p5f` 新 7 + `p7j` 新 8 + `p7f` +2（⑯⑰）+ `p7i` +1（④b，④ 原位改写）。**505 → 523，58 → 60 文件**。逐用例明细见 `docs/audits/u3-p2/README.md` §2。
+
+## 3. 验收三连
+
+- `pnpm build`：exit 0（shared → server → web；vue-tsc 0 错；1914 modules / 31.45s）
+- `pnpm lint`：exit 0（0 error / 0 warning）
+- `pnpm test`（`vitest run --maxWorkers=1` 单批全量）：**60/60 文件、523/523 用例全绿**
+- 单文件轮次：p5f 7/7、p7j 8/8、p7f 16/16、p7i 16/16。
+
+## 4. 已知限制
+
+1. `updated` 无删键路径（K2 明文，与 date/pubDate 一致）。
+2. 相册引用只覆盖 `mode==='external'`；本地模式相册图片自持，不经媒体库。
+3. 裸文件名 cover 不登记（永不命中 mediaPath，登记只会产生噪声引用）。
+4. children 一层封顶维持 ADR-020 已知限制（K6 明示本批不动）。
+5. 接管确认只出现在「首次接管」；override 已存在后仅保留空数组确认（K6 口径）。
+6. `baselineNavRaw` 只读展示，不可编辑回填（LinkPreset 无法反序列化为可编辑 JSON）。
+
+## 5. 偏差披露（8 条，详见审计报告 §6）
+
+①`stringifyPostMarkdown` 扩键（未列文件，必要修正）；②p7j 做 8 条而非建议的 7 条（补贡献者形状断言）；③p7f 基线新增 `navBarConfig` 声明；④p7f ⑰ 末尾主动复位基线（测试卫生）；⑤p7i ④ 选 `siteStartDate` 做零触碰键（K7 授权执行方选）；⑥`SITE_INFO_OPTIONAL_KEYS` 未改代码仅改注释（runtime 自省）；⑦audit README 新增 `## 6` 小节（一次编辑误删附录标题已即时恢复）；⑧p5f ① URL 断言改为两段式（js-yaml 对含 `:` 的值加单引号属合法 YAML，不把序列化细节钉成契约）。
+
+## 6. 提交状态
+
+- 全部改动（**12 改 + 3 新增**：`p5f` spec / `p7j` spec / `docs/audits/u3-p2/`）**未提交、未 push**，等架构师复核。
+- 建议提交信息：`feat(posts+albums+config): U3-P2 frontmatter 七键 / 相册引用注册表 / 导航接管确认（基线 523）`。
+- PM 手验点：文章编辑页七新字段（输入→保存→`index.md` 点查，尤其 `updated` 是否裸日期）；清空 `alias`/`priority`/`passwordHint` → 保存 → 键消失；媒体库删一张被外链相册封面引用的图 → 409 且明细显示「album-cover / 相册名」；改封面为外链后同一图可删；设置页导航区在 LinkPreset 主题上显示原文对照，首次保存弹接管确认。
+
+---
+
+# 批次 U3-P2 验收轮 — frontmatter 补键 / 相册引用注册表 / 导航接管确认（2026-10-19，架构师复核）
+
+## 1. 结论
+
+**通过。** 交付面逐条对 K 条款核实，红线零触碰，数账独立复核吻合，验收三连独立复现全绿（含一轮负载抖动排查，见 §3）。
+
+## 2. 核验摘要
+
+- **红线 grep**：`pnpm-lock.yaml` / 三处 `package.json` / `MainLayout.vue` / `vite.config.ts` / 路由表 / `media|backup|collections|articles` 模块源码 / `shared/media-reference.ts` / `bootstrap/` 全零 diff；触碰面 = 指令包点名面 + 报告披露的两处未列文件。
+- **全量 diff 审读（12 文件）**：
+  - K2：七键类型逐字对齐主题（`updated` DateLike 无删键 / `priority` number 无取值域 / 五字符串键 nullable）；`NULL_DELETE_KEYS` 6→12；`prev*` 不入。`BARE_DATE_KEYS` 扩键的 regex 实现干净（键名交替、行锚定、引号形与 ISO 零点形两路归一）——**未列改动裁定：必要且正确**，不带此修正则 `updated` 落盘带引号、主题 `z.date()` 构建期拒收，是修 K2 的题中之义。
+  - K4：`tryReadInfo` 复用（非复制读取逻辑）；`toMediaPath` 四分支与指令逐字一致；双层防御 + 空根短路；过时注释两处修正。**指令包自身一处笔误被执行方正确绕开**：`SITE_INFO_OPTIONAL_KEYS` 系运行时 ZodOptional 自省，指令写「移除」不成立，执行方仅改注释 + 集合自动退出——偏差⑥采信，指令包教训记档。
+  - K3/K5/K6/K7：逐条吻合（`priority` 的 `?? null` 保 0 合法权重、接管确认单弹窗合并、原文对照降级链、p7i ④ 改键 + ④b 新增）。
+  - K1：audit README `## 6` 改判小节证据链完整（四条证据 + 兜底链优先级解释 + pnpm 版本自切连带记录），附录标题完好。
+- **测试审读**：p5f 7 条、p7j 8 条逐条与报告一致（p7j 覆盖 K4 全部归一分支 + 动态重扫 + 注册表可调用兜底）；p7f ⑯⑰ 与 p7i ④④b diff 审读通过（`BASELINE_NO_NAV` 正则非贪婪到行首 `};` 安全；⑰ 末尾复位防污染）；fixture 全走 mkdtemp + env 注入，真实主题目录零写入。
+- **数账独立复核**：`it(` 计数 p5f=7 / p7j=8 / p7f=16 / p7i=16，算术 505+18=523 吻合；执行方对预估差（+2）的解释成立（p7j 补贡献者形状 1 条 + p7i 改写与新增各记 1 条）。
+
+## 3. 独立三连与本轮抖动排查
+
+- `pnpm build`：exit 0（web 23.16s，vue-tsc 0 错）；`pnpm lint`：exit 0（0/0）。
+- `pnpm test`（全量单批 `--maxWorkers=1`）**第一轮**：p4c ⑨ 与 p9 §6.5 两条失败（521/523）。两文件本批**零改动**且与其消费面无交集 → 隔离复跑：p4c 13/13 绿、p9 8/8 绿 → **第二轮全量：523/523、60 文件全绿**。裁定：负载抖动（p9 §6.5 为真实子进程 + 2000 行输出的计时敏感用例），非 U3-P2 回归。数账采信全绿轮：**基线 505 → 523（+18，60 文件）**。
+
+## 4. 验收轮新发现
+
+- 无新增缺陷。8 条偏差全部审读采信（①为必要修正，⑥系指令包笔误，其余为合理的执行自由度）。
+- 观察项（不阻验收）：p4c ⑨ / p9 §6.5 在本机全量负载下存在偶发抖动史，后续批次验收如再遇，按本轮同法（隔离复跑 + 二次全量）判定即可，不必排查被测代码。

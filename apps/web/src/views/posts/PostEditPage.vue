@@ -3,15 +3,16 @@
  * [P10c] Markdown 文章编辑页（CodeMirror 6 + frontmatter 表单 + 封面）
  * [职责] 新建/编辑 Markdown 文章：
  *   - CodeMirror 6 编辑正文（语法高亮）；
- *   - 侧栏 frontmatter 表单（§6.10 的 12 个已知字段 + [Phase3-C1] 加密与发布区块 + [Phase3-C5] lang）；
+ *   - 侧栏 frontmatter 表单（§6.10 的 12 个已知字段 + [Phase3-C1] 加密与发布区块 + [Phase3-C5] lang
+ *     + [U3-P2/A-GAP-09] updated/priority/passwordHint/alias/licenseName/licenseUrl/sourceLink）；
  *   - 未知 frontmatter 键原样保留（提交时以读取时的完整 frontmatter 为基础合并）；
  *   - 封面上传（POST /admin/posts/:slug/cover）；
  *   - 上传 Markdown 文件入口（读文本填入编辑器）。
  * [状态] ACTIVE
  *
  * 往返保真（§3.2）：未知 frontmatter 键不丢——编辑时 fullFm 持有读取的完整 frontmatter，
- *   表单只编辑已知字段（12 既有 + [Phase3-C1] 加密与发布 4 键），提交时
- *   { ...fullFm, ...formFm } 合并（已知字段覆盖，未知键保留；四可删键清空按 null 提交）。
+ *   表单只编辑已知字段（12 既有 + [Phase3-C1] 加密与发布 4 键 + [U3-P2/A-GAP-09] 七键），
+ *   提交时 { ...fullFm, ...formFm } 合并（已知字段覆盖，未知键保留；可删键清空按 null 提交）。
  */
 import { computed, onMounted, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
@@ -135,6 +136,20 @@ const fm = ref({
   encrypted: false,
   password: '',
   commentDisabled: false,
+  /**
+   * [U3-P2/K3] A-GAP-09 七键（主题 content.config.ts 26 字段的补齐面）：
+   * 更新时间 / 排序权重 / 密码提示 / 别名 / 许可证名称 / 许可证链接 / 来源链接。
+   * 六键（非日期）在主题侧均是可空缺省字段，面板语义：空串 = 清空 = 提交 null 删键
+   * （服务端 NULL_DELETE_KEYS 哨兵）；priority 为 number | null，null 即删键。
+   * updated 走日期口径（空 = 不写键、不覆盖存量，与 date/pubDate 一致，无删键路径）。
+   */
+  updated: '',
+  priority: null as number | null,
+  passwordHint: '',
+  alias: '',
+  licenseName: '',
+  licenseUrl: '',
+  sourceLink: '',
 });
 
 /** 标签输入 */
@@ -168,7 +183,7 @@ async function loadPost(): Promise<void> {
   }
 }
 
-/** 从完整 frontmatter 填充表单字段（15 已知字段；[Phase4-D4/B1] published 不再入表单） */
+/** 从完整 frontmatter 填充表单字段（23 已知字段；[Phase4-D4/B1] published 不再入表单） */
 function populateForm(fmData: Record<string, unknown>): void {
   fm.value.title = typeof fmData['title'] === 'string' ? fmData['title'] : '';
   fm.value.description = typeof fmData['description'] === 'string' ? fmData['description'] : '';
@@ -192,6 +207,16 @@ function populateForm(fmData: Record<string, unknown>): void {
   fm.value.encrypted = fmData['encrypted'] === true;
   fm.value.password = typeof fmData['password'] === 'string' ? fmData['password'] : '';
   fm.value.commentDisabled = fmData['comment'] === false;
+  // [U3-P2/K3] A-GAP-09 七键回填：updated 走日期口径（dateToString）；
+  // priority 仅 number 才回填（其余形态含字符串一律 null = 删键态，不猜用户意图）；
+  // 五字符串键仅 string 才回填（缺键/非字符串 → 空串 = 不送键）。
+  fm.value.updated = dateToString(fmData['updated']);
+  fm.value.priority = typeof fmData['priority'] === 'number' ? fmData['priority'] : null;
+  fm.value.passwordHint = typeof fmData['passwordHint'] === 'string' ? fmData['passwordHint'] : '';
+  fm.value.alias = typeof fmData['alias'] === 'string' ? fmData['alias'] : '';
+  fm.value.licenseName = typeof fmData['licenseName'] === 'string' ? fmData['licenseName'] : '';
+  fm.value.licenseUrl = typeof fmData['licenseUrl'] === 'string' ? fmData['licenseUrl'] : '';
+  fm.value.sourceLink = typeof fmData['sourceLink'] === 'string' ? fmData['sourceLink'] : '';
 }
 
 function dateToString(value: unknown): string {
@@ -237,6 +262,17 @@ function buildFrontmatter(): Record<string, unknown> {
     password: fm.value.password || null,
     comment: fm.value.commentDisabled ? false : null,
     permalink: fm.value.permalink || null,
+    // [U3-P2/K3] A-GAP-09 七键：
+    // - updated 走日期口径（空 = 不写键，向后兼容 PATCH 增量合并不覆盖存量）；
+    // - priority 用 ?? null：0 是合法权重，不能用 || （否则 0 被吞成删键）；
+    // - 五字符串键 || null：空串/清空即删键（NULL_DELETE_KEYS 哨兵），禁凭空落键。
+    updated: fm.value.updated || undefined,
+    priority: fm.value.priority ?? null,
+    passwordHint: fm.value.passwordHint || null,
+    alias: fm.value.alias || null,
+    licenseName: fm.value.licenseName || null,
+    licenseUrl: fm.value.licenseUrl || null,
+    sourceLink: fm.value.sourceLink || null,
   };
 }
 
@@ -250,7 +286,7 @@ function addTag(): void {
 }
 
 /** [B3.6] 日期选择回调：el-date-picker 清空回调 null → 空串（保持 string 语义） */
-function onDatePick(field: 'date' | 'pubDate' | 'published', value: unknown): void {
+function onDatePick(field: 'date' | 'pubDate' | 'published' | 'updated', value: unknown): void {
   fm.value[field] = dateOrEmpty(value);
 }
 
@@ -376,11 +412,12 @@ function handleError(err: unknown): void {
 
 function goBack(): void {
   router.push('/posts');
-}/** 未知 frontmatter 键（非 16 个已知字段） */
+}/** 未知 frontmatter 键（非 23 个已知字段；[U3-P2/A-GAP-09] 16 → 23） */
 const KNOWN_FM_KEYS = new Set([
   'title', 'published', 'description', 'tags', 'category', 'author',
   'permalink', 'pinned', 'draft', 'image', 'date', 'pubDate',
   'encrypted', 'password', 'comment', 'lang',
+  'updated', 'priority', 'passwordHint', 'alias', 'licenseName', 'licenseUrl', 'sourceLink',
 ]);
 const unknownKeys = computed<string[]>(() =>
   Object.keys(fullFm.value).filter((k) => !KNOWN_FM_KEYS.has(k)),
@@ -505,6 +542,11 @@ function formatValue(value: unknown): string {
           <el-form-item label="置顶">
             <el-switch v-model="fm.pinned" />
           </el-form-item>
+          <!-- [U3-P2/K3] 排序权重贴置顶：主题 priority 为 z.number() 无取值域，
+               schema 为权威，故 el-input-number 不设 min/max；清空 = null 删键 -->
+          <el-form-item label="排序权重">
+            <el-input-number v-model="fm.priority" :controls="false" placeholder="数值越大越靠前" />
+          </el-form-item>
           <el-form-item label="描述">
             <el-input v-model="fm.description" type="textarea" :rows="3" />
           </el-form-item>
@@ -558,6 +600,19 @@ function formatValue(value: unknown): string {
               @update:model-value="(v: unknown) => onDatePick('date', v)"
             />
           </el-form-item>
+          <!-- [U3-P2/K3] 更新时间贴日期区（主题 updated 为 z.date().optional()）：
+               空 = 不写键（不覆盖存量），与 date/pubDate 同口径，无删键路径 -->
+          <el-form-item label="更新时间">
+            <el-date-picker
+              :model-value="fm.updated || undefined"
+              type="date"
+              value-format="YYYY-MM-DD"
+              format="YYYY-MM-DD"
+              placeholder="选择日期"
+              class="date-input"
+              @update:model-value="(v: unknown) => onDatePick('updated', v)"
+            />
+          </el-form-item>
           <!-- [Phase4-D4d/D1] label 正名（C4 防重名方案的自我修正）：pubDate 保留
                英文键名锚定（与 date「日期」、published「发布日期」三者互异防混淆） -->
           <el-form-item label="pubDate">
@@ -597,11 +652,30 @@ function formatValue(value: unknown): string {
           <el-form-item label="密码">
             <el-input v-model="fm.password" type="password" show-password placeholder="your-secret-password" />
           </el-form-item>
+          <!-- [U3-P2/K3] 密码提示贴密码（主题 passwordHint）：加密文章的明文提示语 -->
+          <el-form-item label="密码提示">
+            <el-input v-model="fm.passwordHint" placeholder="给读者的密码提示" />
+          </el-form-item>
           <el-form-item label="禁用评论">
             <el-checkbox v-model="fm.commentDisabled">禁用本文评论</el-checkbox>
           </el-form-item>
+          <!-- [U3-P2/K3] 许可证三键连续一组（置于评论设置之后）：主题 licenseName /
+               licenseUrl / sourceLink 三键在文章页脚同处展示，故不拆散 -->
+          <el-form-item label="许可证名称">
+            <el-input v-model="fm.licenseName" placeholder="如 CC BY-NC-SA 4.0" />
+          </el-form-item>
+          <el-form-item label="许可证链接">
+            <el-input v-model="fm.licenseUrl" placeholder="https://creativecommons.org/licenses/…" />
+          </el-form-item>
+          <el-form-item label="来源链接">
+            <el-input v-model="fm.sourceLink" placeholder="原文出处 URL" />
+          </el-form-item>
           <el-form-item label="固定链接">
             <el-input v-model="fm.permalink" placeholder="encrypted-example" />
+          </el-form-item>
+          <!-- [U3-P2/K3] 别名贴 permalink（主题 alias 为 permalink 的低优先级前身） -->
+          <el-form-item label="别名">
+            <el-input v-model="fm.alias" placeholder="旧固定链接（permalink 优先）" />
           </el-form-item>
         </el-form>
 

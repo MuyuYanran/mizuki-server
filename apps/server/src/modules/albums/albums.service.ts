@@ -9,8 +9,8 @@
  * 事件：相册元数据写入成功发射 content.changed（scope='album'）；
  * 相册图片保存/删除发射 media.changed（path 为相册图片相对路径）。
  * 贡献者：本服务实现 MediaReferenceContributor（name='albums'）——
- * info.json 无封面字段、相册图片暂不被其他内容引用，collectReferences
- * 返回空数组（机制占位，取舍见交付报告，§3.4 授权记录）。
+ * [U3-P2/K4] 聚合外链模式 info.json 的 cover 与 photos[].src 对媒体库的引用
+ * （B-P2-09 由占位转实装；本地模式相册图片自持，不入注册表）。
  */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -28,6 +28,7 @@ import { z } from 'zod';
 import { ContentChangedPayload, EVENTS, MediaChangedPayload, type MediaReference, type MediaReferenceContributor } from '@mizuki/shared';
 import { atomicReplace, atomicWriteFile, removeQuietly, tempPathFor } from '../../common/fs/atomic-write';
 import { toMizukiAbs } from '../../common/fs/mizuki-root';
+import { normalizeUserPath } from '../../common/fs/posix';
 import { assertImageUpload, type UploadedFileLike } from '../../common/http/uploaded-file';
 import { logger } from '../../common/logger';
 import { MediaReferenceRegistry } from '../../common/registry/media-reference.registry';
@@ -199,12 +200,54 @@ export class AlbumsService implements MediaReferenceContributor {
   // ── MediaReferenceContributor（P7 §3.4：albums 注册位） ──
 
   /**
-   * info.json 无封面字段（REQUIREMENTS §6.9 字段表无 cover），相册图片
-   * 当前不被其他内容模块引用 → 返回空数组。机制占位：后续如需「相册封面」
-   * 概念（如 info.json 扩展 cover 字段），在此聚合即可，消费方零改动。
+   * [U3-P2/K4 / B-P2-09] 聚合本模块对媒体的引用：外链模式 info.json 的 cover 与
+   * photos[].src（机制占位自此实装；此前返回空数组）。
+   *
+   * 为什么必须含 photos[].src：外链照片的 src 写入口径（ADR-022）明文接受站点绝对
+   * 路径 —— 面板 placeholder「https://... 或 /images/...」（AlbumDetailPage），
+   * 媒体库选择器回填的正是 `/images/...` 形态。若只登记 cover，删除被外链照片
+   * 引用的媒体文件会静默留下死链。
+   *
+   * 归一目标形态与 media 侧对账口径严格一致：media_file.path 恒为
+   * `public/images/uploads/<nanoid>.<ext>`，删除检查是**精确串等**（media.service
+   * `ref.mediaPath === row.path`），故注册值必须是同一形态而非站点 URL 形态。
+   *
+   * 只读扫描：不写任何文件；单相册读取失败 warn 跳过（与 collections 贡献者同款
+   * 双层防御——注册表对贡献者亦有兜底）；mizukiRoot 未配置 → 返回 []。
    */
   async collectReferences(): Promise<MediaReference[]> {
-    return [];
+    if (this.options.mizukiRoot === '') {
+      return [];
+    }
+    const refs: MediaReference[] = [];
+    const rootAbs = this.albumsDirAbs();
+    if (!fs.existsSync(rootAbs)) {
+      return [];
+    }
+    for (const entry of fs.readdirSync(rootAbs, { withFileTypes: true })) {
+      if (!entry.isDirectory()) {
+        continue;
+      }
+      try {
+        const info = this.tryReadInfo(entry.name);
+        if (!info || info.mode !== 'external') {
+          continue; // 本地模式相册的图片由相册自身持有，非媒体库引用
+        }
+        const coverPath = toMediaPath(info.cover);
+        if (coverPath !== null) {
+          refs.push({ refType: 'album-cover', targetLabel: entry.name, mediaPath: coverPath });
+        }
+        for (const photo of info.photos) {
+          const photoPath = toMediaPath(photo.src);
+          if (photoPath !== null) {
+            refs.push({ refType: 'album-photo', targetLabel: entry.name, mediaPath: photoPath });
+          }
+        }
+      } catch (error) {
+        logger.warn({ err: error, album: entry.name }, 'albums 引用检查：单相册读取失败（跳过）');
+      }
+    }
+    return refs;
   }
 
   // ── 相册 CRUD ──
@@ -636,6 +679,36 @@ export class AlbumsService implements MediaReferenceContributor {
 }
 
 // ── 纯工具 ──
+
+/**
+ * [U3-P2/K4] 相册内图片值（cover / photos[].src）→ 媒体库 mediaPath 形态。
+ *
+ * 映射规则（只有能命中 media_file.path 的值才上报，其余一律 null 跳过）：
+ * - `http(s)://` 外链 → null（外部资源不归媒体库管，删不掉也无需拦）；
+ * - `public/` 开头 → 去前导 '/' 后原样（已是 mediaPath 形态）；
+ * - `images/` 开头 → 拼 `public/` 前缀（站点 URL 形态 `/images/x` → `public/images/x`）；
+ * - 其余（含裸文件名、assets/ 等）→ null。裸文件名**不可能**对账命中——mediaPath
+ *   恒含 '/' 且以 `public/` 起头，上报裸名只会制造永不命中的噪声引用。
+ *
+ * 先经 normalizeUserPath：用户可能在面板粘贴 Windows 反斜杠形态。
+ */
+function toMediaPath(value: string): string | null {
+  const raw = value.trim();
+  if (/^https?:\/\//i.test(raw)) {
+    return null;
+  }
+  const posix = normalizeUserPath(raw).replace(/^\/+/, '');
+  if (posix === '') {
+    return null;
+  }
+  if (posix.startsWith('public/')) {
+    return posix;
+  }
+  if (posix.startsWith('images/')) {
+    return `public/${posix}`;
+  }
+  return null;
+}
 
 /** 原文件名主干清洗：去路径成分与危险字符，保底 'image' */
 function sanitizeFileBase(base: string): string {

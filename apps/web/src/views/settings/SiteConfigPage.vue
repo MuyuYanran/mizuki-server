@@ -50,6 +50,13 @@ const formValue = ref<Record<string, unknown>>(emptyValueFromSchema(CommentConfi
 const navJson = ref('[]');
 /** 基线 nav 对照文本（不可得 → null） */
 const baselineNavText = ref<string | null>(null);
+/**
+ * [U3-P2/K6] navBarConfig 初始化器原文（ADMIN 视图 K5 增量字段）：基线解析失败
+ * （真实主题含 LinkPreset 标识符）时的原文对照；解析成功时仍可用作交叉核对。
+ */
+const baselineNavRaw = ref<string | null>(null);
+/** 接管态（view.nav === null = 面板尚未管理导航，当前生效的是主题声明） */
+const navUnmanaged = ref(false);
 /** 基线不可得（真实主题 navbar 含 LinkPreset 标识符 → 降级分支，ADR-020 追加节） */
 const navBaselineUnavailable = ref(false);
 
@@ -67,9 +74,10 @@ const SITE_INFO_FORM_SCHEMA = SiteInfoSchema.omit({
   banner: true,
   font: true,
 }) as unknown as ZodObject<Record<string, ZodType>>;
-/** 可选键集（K7 口径：siteStartDate / navbarTitle / pageScaling / tagStyle /
- *  wallpaperMode）——基线缺该键时表单不送（零触碰，禁凭空落键）；运行时自
- *  schema 内省（ZodOptional 包装判定），不与 shared 语义重复维护。 */
+/** 可选键集（K7 口径：siteStartDate / navbarTitle / pageScaling / tagStyle）——
+ * 基线缺该键时表单不送（零触碰，禁凭空落键）；运行时自
+ *  schema 内省（ZodOptional 包装判定），不与 shared 语义重复维护。
+ *  [U3-P2/K7] wallpaperMode 已收紧为必填（主题类型即必填），故自动退出本集合。 */
 const SITE_INFO_OPTIONAL_KEYS = new Set(
   Object.entries(SITE_INFO_FORM_SCHEMA.shape)
     .filter(([, type]) => type.constructor.name === 'ZodOptional')
@@ -179,10 +187,13 @@ async function fetchConfig(): Promise<void> {
     formValue.value =
       (view.commentConfig as Record<string, unknown> | null) ??
       emptyValueFromSchema(CommentConfigSchema as ZodObject<Record<string, ZodType>>);
-    // [Phase4-D3] nav：override 优先回显，否则基线对照，均不可得 = 空表单起步
+    // [U3-P2/K6] nav：override 优先回显；基线解析成功 → 结构化对照文本，否则退回
+    // 初始化器原文（含 LinkPreset 预设，用户仍能看到主题默认导航长什么样）
     navBaselineUnavailable.value = view.baselineNav === null;
+    navUnmanaged.value = view.nav === null;
     navJson.value = JSON.stringify(view.nav?.links ?? [], null, 2);
     baselineNavText.value = view.baselineNav ? JSON.stringify(view.baselineNav.links, null, 2) : null;
+    baselineNavRaw.value = view.baselineNavRaw ?? null;
     // [U3-P1] 站点信息档：13 键进表单、banner/font 进 JSON textarea、基线只读对照
     siteInfoUnavailable.value = view.siteInfo === null;
     siteFormValue.value = siteFormValueOf(view.siteInfo);
@@ -322,19 +333,43 @@ function parseNavInput(text: string): Record<string, unknown>[] | null {
   return items;
 }
 
-/** 保存导航：空数组 = 合法清空导航（破坏性语义，二次确认）；其余交服务端校验 */
+/**
+ * 保存导航：空数组 = 合法清空导航（破坏性语义，二次确认）；其余交服务端校验。
+ * [U3-P2/K6] 接管确认：面板尚未管理导航（nav === null）且基线不可解析（含 LinkPreset
+ * 预设）时，首次保存会把主题的预设导航整体替换掉——此处显式告知并二次确认。原文
+ * 已在首次物化时留档，故「还原主题默认」可回滚。
+ * 两种情形合并为**一次**确认，不叠两层弹窗：
+ * - links 非空 → 接管提示；
+ * - links 为空 → 在既有「空导航」文案前加同义接管提示（仍是单次确认）。
+ * override 已存在（nav 非 null）→ 维持现状（空数组仍走既有确认）。
+ */
 async function onSaveNav(): Promise<void> {
   const links = parseNavInput(navJson.value);
   if (links === null) {
     ElMessage.warning('导航内容须为 JSON 数组（元素为对象），请检查格式');
     return;
   }
+  // [U3-P2/K6] 接管态判定：nav === null（无 override）∧ 基线解析不可得
+  const takeover = navUnmanaged.value && navBaselineUnavailable.value;
+  const TAKEOVER_HINT =
+    '主题默认导航含 LinkPreset 预设（基线不可解析），保存后预设将被替换；原文已留档，可经「还原主题默认」恢复。';
   if (links.length === 0) {
     const confirmed = await ElMessageBox.confirm(
-      '将保存空导航：前台导航栏将被清空（构建预览执行 build 后生效）。确定继续？',
-      '空导航二次确认',
+      `${takeover ? `${TAKEOVER_HINT}\n\n` : ''}将保存空导航：前台导航栏将被清空（构建预览执行 build 后生效）。确定继续？`,
+      takeover ? '接管导航且清空确认' : '空导航二次确认',
       { type: 'warning', confirmButtonText: '确认清空', cancelButtonText: '取消' },
     )
+      .then(() => true)
+      .catch(() => false);
+    if (!confirmed) {
+      return;
+    }
+  } else if (takeover) {
+    const confirmed = await ElMessageBox.confirm(TAKEOVER_HINT + '确定保存？', '接管主题导航确认', {
+      type: 'warning',
+      confirmButtonText: '确认接管',
+      cancelButtonText: '取消',
+    })
       .then(() => true)
       .catch(() => false);
     if (!confirmed) {
@@ -589,9 +624,19 @@ onMounted(() => {
           <el-button type="primary" :loading="saving" class="btn-gradient-primary" @click="onSaveNav">保存导航</el-button>
           <el-button :loading="saving" @click="onResetNav">还原主题默认</el-button>
         </div>
-        <el-collapse v-if="baselineNavText" class="nav-baseline">
-          <el-collapse-item title="主题默认导航（基线对照，只读）">
+        <el-collapse v-if="baselineNavText || baselineNavRaw" class="nav-baseline">
+          <el-collapse-item
+            v-if="baselineNavText"
+            title="主题默认导航（基线对照，只读）"
+          >
             <pre class="nav-baseline-pre">{{ baselineNavText }}</pre>
+          </el-collapse-item>
+          <!-- [U3-P2/K6] 解析失败时的原文对照：LinkPreset 预设原样可见，用户不至蒙眼接管 -->
+          <el-collapse-item
+            v-else
+            title="主题默认导航（原文对照，含 LinkPreset 预设，只读）"
+          >
+            <pre class="nav-baseline-pre">{{ baselineNavRaw }}</pre>
           </el-collapse-item>
         </el-collapse>
       </el-collapse-item>

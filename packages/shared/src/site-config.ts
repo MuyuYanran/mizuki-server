@@ -239,8 +239,11 @@ export const SiteTocSchema = z
 
 /**
  * 站点信息档：siteConfig 的 15 个受管键（lang 归既有端独占，不在此档）。
- * 可选性逐字对齐主题类型：siteStartDate / navbarTitle / pageScaling / tagStyle /
- * wallpaperMode 为可选（主题缺该键时面板可整键不送 → 物化器不新增），其余 10 键必填。
+ * 可选性逐字对齐主题类型：siteStartDate / navbarTitle / pageScaling / tagStyle
+ * 为可选，其余 11 键必填。
+ * [U3-P2/K7] wallpaperMode 由 optional 收紧为必填——主题 types/config.ts 中它是
+ * **必填**对象（defaultMode 必填枚举 + showModeSwitchOnMobile 可选），真基线恒有值；
+ * U3-P1 误落 .optional() 已记录为偏差，本批按其类型定义纠正。
  */
 export const SiteInfoSchema = z
   .object({
@@ -254,7 +257,7 @@ export const SiteInfoSchema = z
     navbarTitle: SiteNavbarTitleSchema.optional(),
     postListLayout: SitePostListLayoutSchema,
     tagStyle: SiteTagStyleSchema.optional(),
-    wallpaperMode: SiteWallpaperModeSchema.optional(),
+    wallpaperMode: SiteWallpaperModeSchema,
     banner: SiteBannerSchema,
     pageScaling: SitePageScalingSchema.optional(),
     font: SiteFontSchema,

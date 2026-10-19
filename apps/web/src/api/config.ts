@@ -23,6 +23,8 @@ export interface SiteConfigView {
   nav: { links: unknown[] } | null;
   /** [Phase4-D3] 基线 nav 解析值（真实主题含 LinkPreset 标识符 → null，降级分支） */
   baselineNav: { links: unknown[] } | null;
+  /** [U3-P2/K5] navBarConfig 初始化器原文（解析成败均给；声明缺失 → null） */
+  baselineNavRaw: string | null;
   /** [U3-P1] 站点信息档：override 优先，逐键回落到基线；声明形态不符 → null */
   siteInfo: Record<string, unknown> | null;
   /** [U3-P1] 基线 siteInfo 逐键解析值（未支持字面量键省略）；不可得 → null */

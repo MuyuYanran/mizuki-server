@@ -18,6 +18,7 @@ import { initAndLogin, withAuth } from './helpers/admin-auth';
  * ② GET 合并语义：siteInfo = override 态（整档），baselineSiteInfo = config.ts 现值逐键解析；
  * ③ 基线缺可选键 navbarTitle → 追加属性（缺失插入；原本无属性不留档，已知限制）；
  * ④ 可选键缺省零触碰（不新增、不改写、不落侧车键）+ 非受管键 keywords 零触碰；
+ * ④b [U3-P2/K7] 必填键 wallpaperMode 缺失 → 400 零物化（U3-P1 的 optional 偏差纠正后新增）；
  * ⑤⑥⑦⑧ 越界键 / timeZone=13 / siteURL 无尾斜杠 / title 空串 → 400 零物化；
  * ⑨⑩ profile 往返（links=[] 合法清空）+ 越界键 400；
  * ⑪⑫ announcement 往返 + content 空串 / 非法 type → 400；
@@ -268,6 +269,7 @@ describe('U3-P1：配置域一期（site-info / profile / announcement）e2e', (
     commentConfig: unknown;
     nav: unknown;
     baselineNav: unknown;
+    baselineNavRaw: string | null;
     siteInfo: Record<string, unknown> | null;
     baselineSiteInfo: Record<string, unknown> | null;
     profile: Record<string, unknown> | null;
@@ -335,17 +337,30 @@ describe('U3-P1：配置域一期（site-info / profile / announcement）e2e', (
 
   it('④ 可选键缺省 → 零触碰：不新增、不改写、不落侧车键', async () => {
     reset();
+    // [U3-P2/K7] wallpaperMode 已收紧为必填（主题类型即必填），故本用例改用两个
+    // 仍为可选的键做零触碰语义：tagStyle（嵌套对象）+ siteStartDate（标量）。
     const body: Record<string, unknown> = { ...SITE_INFO_BODY };
     delete body['tagStyle'];
-    delete body['wallpaperMode'];
+    delete body['siteStartDate'];
     const res = await server().put('/api/v1/admin/config/site-info').send(body);
     expect(res.status).toBe(200);
     const text = configTs();
     expect(text).toContain('useNewStyle: true'); // 站点原值保留
-    expect(text).toContain('showModeSwitchOnMobile: "both"');
+    expect(text).toContain('siteStartDate: "2024-01-01"'); // 站点原值保留
     const carrier = readCarrier();
     expect(carrier['siteInfo']).not.toHaveProperty('tagStyle');
-    expect(carrier['siteInfo']).not.toHaveProperty('wallpaperMode');
+    expect(carrier['siteInfo']).not.toHaveProperty('siteStartDate');
+  });
+
+  it('④b 必填键 wallpaperMode 缺失 → 400 且零物化（K7 收紧实证）', async () => {
+    reset();
+    const before = configTs();
+    const body: Record<string, unknown> = { ...SITE_INFO_BODY };
+    delete body['wallpaperMode'];
+    const res = await server().put('/api/v1/admin/config/site-info').send(body);
+    expect(res.status).toBe(400);
+    expect(configTs()).toBe(before);
+    expect(fs.existsSync(overridePath)).toBe(false);
   });
 
   it('⑤ 越界键（lang / keywords）→ 400 且零物化', async () => {
