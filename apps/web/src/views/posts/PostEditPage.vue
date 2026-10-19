@@ -118,8 +118,13 @@ const fm = ref({
   permalink: '',
   pinned: false,
   draft: false,
-  /** [Phase4-D4/S3/B1b] 官方发布日期（可选；空 = 不写键，存量键不被覆盖） */
-  published: '',
+  /**
+   * [Phase4-D4/S3/B1b] 官方发布日期；编辑时 populateForm 覆盖。
+   * [U3-D/DEF-02] 新建预填当天：主题 schema published 为必填 z.date()，缺键文章
+   * 会让 astro build 直接 throw InvalidContentEntryDataError（astro@6.1.2 源码实证，
+   * 非静默跳过）——不再留空埋雷。「空 = 不写键」语义保留给编辑态（清空即不覆盖存量）。
+   */
+  published: todayString(),
   image: '',
   /** [B3.6] 默认当天（与 B1 SchemaForm 一致）；编辑时 populateForm 覆盖 */
   date: todayString(),

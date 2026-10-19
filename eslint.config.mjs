@@ -18,6 +18,9 @@ export default tseslint.config(
       '**/coverage/**',
       'apps/web/**',
       '.test-tmp/**',
+      // [U3-D] _attic 为 gitignored 验证脚本留档区（.gitignore 同步排除；junction-probe 系列
+      // 为 CommonJS 探针，非工程源码，lint 误报 require-imports）
+      '_attic/**',
     ],
   },
   ...tseslint.configs.recommended,

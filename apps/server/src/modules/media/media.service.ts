@@ -40,8 +40,12 @@ import { mediaFile } from '../../infra/db/schema';
 /** 上传目标目录（相对 Mizuki 根，MASTER-PLAN §7） */
 const UPLOADS_REL_DIR = 'public/images/uploads';
 
-/** 允许上传的扩展名清单文案（错误信息括号内全文，逐字保留 MASTER-PLAN §7 原文） */
-const UPLOAD_ALLOWED_TEXT = 'jpg/jpeg/png/gif/webp/avif/bmp/tiff';
+/**
+ * 允许上传的扩展名清单文案（错误信息括号内全文）。
+ * [U3-D/DEF-05] 补 /tif 与 ADR-017 终集九扩展名对齐（EXTENSION_FORMAT 早已放行 .tif，
+ * 此前仅文案少写；原注「逐字保留 MASTER-PLAN §7 原文」不实——MASTER-PLAN 无此串，一并订正）。
+ */
+const UPLOAD_ALLOWED_TEXT = 'jpg/jpeg/png/gif/webp/avif/bmp/tiff/tif';
 
 /** :id 路径参数校验（nanoid 字符集，拒绝路径分隔符） */
 export const MediaIdSchema = z.string().min(1).max(64).regex(/^[A-Za-z0-9_-]+$/);

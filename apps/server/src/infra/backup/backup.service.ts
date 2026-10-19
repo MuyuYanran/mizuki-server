@@ -272,10 +272,15 @@ export class BackupService {
     const rels = new Set<string>();
     const dataDir = path.join(root, 'src', 'data');
     if (restScope === 'full' || restScope === 'data') {
-      // data：仅 src/data/*.ts 数据文件
+      // data：src/data/*.ts 数据文件 + *.json（bilibili-data.json 番剧 API 缓存）。
+      // [U3-D/DEF-03] 补 *.json：官方 special/08 的 BiliBili 模式缓存落 src/data/bilibili-data.json，
+      // 此前只收 *.ts → data/full 备份双双漏收（恢复通道无需改动：manifest 按原路径回灌）。
       if (fs.existsSync(dataDir)) {
         for (const name of fs.readdirSync(dataDir)) {
-          if (name.endsWith('.ts') && fs.statSync(path.join(dataDir, name)).isFile()) {
+          if (
+            (name.endsWith('.ts') || name.endsWith('.json')) &&
+            fs.statSync(path.join(dataDir, name)).isFile()
+          ) {
             rels.add(toPosixPath(path.join('src', 'data', name)));
           }
         }

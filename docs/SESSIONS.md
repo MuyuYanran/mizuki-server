@@ -427,4 +427,90 @@ posts 的 slug 为文件系统主键（目录/文件名），无 articles 的自
 
 ### 提交状态
 - UI-U2 全部改动 + 验收轮三缺陷修复待用户手验后**一笔提交**（未 commit / 未 push）。
+- 【2026-10-18 追记】用户手验通过，已提交 **237cd06**（未 push）。
+
+---
+
+## 功能-文档对齐核查（2026-10-18，三方模型 · 架构师合成）
+
+> 任务：检查项目功能与文档（官方文档 + 自身规格）的对齐缺口。三把尺子并行：
+> A 尺 = mizuki-docs 76 页官方镜像 vs 面板能力；B 尺 = REQUIREMENTS 一/二/三期 vs 实现；
+> C 面 = 实现功能底账（64 路由 / 18 页面全量盘点）。三个只读子代理并行 + 架构师独立抽验。
+> 完整清单：`docs/audits/feature-alignment/README.md`（本节只记结论与裁定入口）。
+
+### 总体结论
+- **内容域零缺口**：7 集合零字段漂移、文章/相册/媒体/about 全对接（A 尺对前期对接报告 5 条结论抽查全部属实）。
+- 缺口集中在**配置域**（config.ts 25 对象仅管 3）、**构建域**（pagefind 索引缺失）、**备份域**（bilibili-data.json 漏收）、**规格欠账**（二期 R2-2/R2-10 两项 P1 承诺无裁剪记录地未落地）。
+
+### 缺陷级发现（DEF，建议先行直修）
+- **DEF-01** devices 集合前后端断链：registry/菜单/路由全通，CollectionListPage CONFIGS 漏登记第 7 类 → 设备页渲染占位。文件头注释声称支持 devices，属漏登记非裁剪。
+- **DEF-02** 新建文章预填 `pubDate` 而非必填的 `published`：主题 schema published 为 z.date() 必填，缺失文章使 Astro 6.1.2 构建直接 throw（InvalidContentEntryDataError）——**架构师已对 astro@6.1.2 dist 源码实证 throw 路径**（content-layer.js:237 → utils.js:143/172），非静默跳过。新建即埋雷，面板 build 任务会失败。
+- **DEF-03** bilibili-data.json（123KB API 缓存，实测在主题 src/data/）不入备份：backup.service.ts collectSources 只收 *.ts。
+- **DEF-04/05（小）** 相册上传「转 JPG」文案漂移（实际已原格式落盘）；媒体白名单文案少 tif。
+
+### A 尺缺口（官方能力 vs 面板，A-GAP-01..13）
+P1：站点信息档（A-01）、侧栏内容（A-02）、pagefind 索引（A-06）、备份漏收（A-08=DEF-03）。
+P2：任务 env 注入（A-07）、frontmatter 缺 7 键表单（A-09）、LinkPreset 基线丢失警示（A-10）、番剧非 local 模式 config（A-11）。
+P3：增强语法渲染保真（A-12）、布局外观档（A-03）、特效外链（A-04）、Umami 状态展示（A-05，裁定建议不做写管理）、迁移导入器（A-13，待表态）。
+frontmatter 命名裁定已闭合：主题真名 published+image；pubDate/cover 是官方文档内部漂移，不采信；面板字段名一致无需改。
+
+### B 尺缺口（自身规格 vs 实现）
+P1（「必须」无裁剪记录）：R2-2 向导目录点选器整条、R2-10 控制台历史持久化+任务模板整条、R2-14 items 合并子项（UNSURE，B2 终版提示词不在仓）。
+P2：设置接管范围收窄（≡A-01）、config.json 参数无面板、媒体重命名/格式转换、自动备份、anime.mode 归 C7 未销账（≡A-11）、友链申请审核+文件 diff、模式二/三接入语义（UNSURE 待划界）、一期路线图「三期」八项静默跳过、外链相册封面不在引用注册表（无 409 保护）。
+DEV（裁决在案、规格文本未修订）：minimal 菜单范围、timeline type 官方四值、posts 封面转 JPG（ADR-010 文件缺位）、富文本导出 Markdown 降级实现。
+
+### 建议批次（待 PM 裁定）
+- **U3-D（缺陷先行）**：DEF-01/02/03 + DEF-04/05 文案订正。
+- **U3-P1（配置域）**：A-01 站点信息档 + A-02 侧栏内容。
+- **U3-P2（构建与杂项）**：A-06 pagefind、A-09 frontmatter 表单、B-P2-09 封面注册表、A-10 警示强化。
+- **U3-P3（裁定销账轮）**：B-P1 三项补裁决或立项、B-P2-05/07/08 划界、DEV 四项规格文本修订。
+- **U3-P4（低优）**：A-03/04/05/07/11/12、A-13 导入器。
+
+### 状态
+- 核查全只读，未改任何产品代码；本报告与 `docs/audits/feature-alignment/` 待 PM 验收后一并入库。
+- 测试/提交状态不变（U2=237cd06 已入库，基线 490/490）。
+
+---
+
+## 批次 U3-D 交付与验收 — 对齐核查缺陷先行修复（2026-10-18，三方模型）
+
+> [授权] PM 批准（对齐核查报告《功能对齐缺口清单》当日裁定：U3-D 缺陷先行）。
+> [范围] DEF-01..05（devices 面板断链 / published 预填 / bilibili 备份漏收 / 文案漂移×2）。
+> [执行方式] 子代理双工（server 面 + web 面）+ 架构师逐行 diff 核验 16 处零越界。
+> 备忘（数账保真）：执行子代理实际运行于会话模型——DSH subagent 工具无模型路由参数，
+> 当时汇报中「DeepSeek v4.1flash 子代理」的标注不成立；流程已修订为指定模型一律走
+> workflow 网关 `agent(prompt,{provider,model})` 且先报批后执行。
+> [结论] 验收三连全绿（build 0 / lint 0·0 / test 490/490），待 PM 手验后一笔提交。
+
+### 1. 修复清单（9 文件，全部带 [U3-D/DEF-xx] 注释锚）
+
+- **DEF-01 devices 面板断链**：`CollectionListPage.vue` CONFIGS 补第 7 类 `devices`（schema / idField=name / shape=grouped），头注释六类→七类。
+- **DEF-02 新建文章预填 published**：`PostEditPage.vue` `published: ''` → `todayString()`（主题 schema published 为必填 z.date()，缺失使 astro@6.1.2 构建 throw——已对 dist 源码实证 content-layer.js:237→utils.js:143/172）；编辑态「空 = 不写键」语义保留。
+- **DEF-03 备份漏收**：`backup.service.ts` collectSources 顶层 `src/data` 收集由 `*.ts` 扩展为 `*.ts|*.json`（bilibili-data.json ~123KB 入备份）；恢复通道按 manifest 原路径回灌，不受影响。
+- **DEF-04 相册文案漂移**：`albums.service.ts` / `albums.controller.ts` / `api/albums.ts` / `AlbumDetailPage.vue` 四处「非 JPG 自动转 JPG」→「原格式落盘」（B2 裁决 2：相册=原格式落盘；posts 封面转 JPG 口径不同，不动）。
+- **DEF-05 白名单文案**：`media.service.ts` UPLOAD_ALLOWED_TEXT 补 `/tif`（ADR-017 终集九扩展名），撤「逐字保留 MASTER-PLAN §7」的不实 JSDoc。
+- **测试**：`p2-backup.e2e-spec.ts` fixture 增 `src/data/bilibili-data.json`，全量备份计数 2→3、数据备份计数断言 +1。
+
+### 2. 刻意不动面（防越界）
+
+- `posts.service.ts` COVER_ALLOWED_TEXT、`posts.controller.ts` 转 JPG summary、PostEditPage「已转 JPG」提示——posts 封面真转码，文案属实。
+- `buildFrontmatter` / `populateForm` / `publishedLegacy` 兼容链零触碰；集合写管线、引用注册表、恢复通道零触碰。
+
+### 3. 验收三连（DSH 会话内系统工具链，环境与用户终端同级）
+
+- `pnpm build`：exit 0（shared → server → web，1914 modules / 14.12s，vue-tsc 0 错误——DEF-01/02 类型面随门禁通过）。
+- `pnpm lint`：exit 0（0 warning / 0 error）。
+- `pnpm test -- --maxWorkers=1`：**57/57 文件，490/490 全绿**（41.25s）——含此前沙箱环境性失败的两个 safe-join junction 用例与 p9 进程全组。
+- 工具链：node v26.11.1 + pnpm 12.10.1（PATH 系统安装）。PM 如需可在自有终端复核三连。
+
+### 4. 环境性发现（复盘用，非代码问题）
+
+- DSH 运行时 node.exe（`C:\Users\…\.dsh\dsh-runtimes\…`）进程为低完整性：写中完整性的既有产物（`packages/shared/dist` 旧文件等）必 EPERM，但能写低标记目录（`.test-tmp`）。系统 node（Medium）同文件读写正常，icacls 实测无 deny 且 Authenticated Users 有 Modify——此前「孤立 SID 致 EPERM」的推断据此修正。**构建/测试一律用 PATH 系统工具链，不动旧产物 ACL。**
+- `eslint.config.mjs` ignores 增 `_attic/**`（U2 遗留 junction-probe*.cjs 产生 17 个 lint 错，属交付卫生，非产品代码改动）。
+
+### 5. 提交状态
+
+- 全部改动（9 产品文件 + `eslint.config.mjs` + 本台账 + CHANGELOG + `docs/audits/feature-alignment/` 报告）**未提交、未 push**，待 PM 手验后一笔提交。
+- 建议提交信息：`fix(panel+server): 对齐缺陷批 U3-D — devices 面板/published 预填/备份漏收/文案订正（含对齐核查报告入库）`。
+- PM 手验点：设备集合页渲染与 CRUD；新建文章默认发布日期=当日；全量备份含 bilibili-data.json；相册页与媒体上传处文案。
 

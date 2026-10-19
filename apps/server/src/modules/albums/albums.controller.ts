@@ -6,7 +6,7 @@
  *   POST   /admin/albums                  创建（目录 + info.json）
  *   PATCH  /admin/albums/:id              修改元信息（含 mode 切换）
  *   DELETE /admin/albums/:id              删除（引用检查 → 备份 → 删目录）
- *   POST   /admin/albums/:id/images       上传图片（非 JPG 自动转 JPG）
+ *   POST   /admin/albums/:id/images       上传图片（原格式落盘）
  *   DELETE /admin/albums/:id/images/:name 删除单张图片
  *   [R2-14] 外链照片 CRUD（仅外链模式相册）：
  *   POST   /admin/albums/:id/external-photos          追加外链照片
@@ -77,7 +77,7 @@ export class AlbumsController {
     return this.albums.delete(id);
   }
 
-  @ApiOperation({ summary: '上传相册图片（multipart 字段 file，非 JPG 自动转 JPG）' })
+  @ApiOperation({ summary: '上传相册图片（multipart 字段 file，原格式落盘）' })
   @ApiConsumes('multipart/form-data')
   @ApiBody({ schema: { type: 'object', properties: { file: { type: 'string', format: 'binary' } } } })
   @Post(':id/images')

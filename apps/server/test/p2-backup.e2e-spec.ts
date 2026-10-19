@@ -51,6 +51,8 @@ describe('P2 备份 REST API e2e', () => {
     fs.mkdirSync(path.join(mizukiRoot, 'src', 'data'), { recursive: true });
     fs.mkdirSync(path.join(mizukiRoot, 'src', 'content', 'posts', 'hello'), { recursive: true });
     fs.writeFileSync(diaryPath, originalContent);
+    // [U3-D/DEF-03] src/data 下的 json（bilibili-data.json 形态）必须入 data/full 备份
+    fs.writeFileSync(path.join(mizukiRoot, 'src', 'data', 'bilibili-data.json'), '{"code":0}');
     fs.writeFileSync(path.join(mizukiRoot, 'src', 'content', 'posts', 'hello', 'index.md'), 'hello\n');
     // [P6] init 检测所需的四项结构补齐（package.json 含 astro + astro.config.mjs）
     fs.writeFileSync(
@@ -91,7 +93,7 @@ describe('P2 备份 REST API e2e', () => {
     const res = await server().post('/api/v1/admin/backups').send({ scope: 'full' });
     expect(res.status).toBe(201);
     expect(res.body.scope).toBe('manual');
-    expect(res.body.fileCount).toBe(2); // diary.ts + index.md
+    expect(res.body.fileCount).toBe(3); // diary.ts + bilibili-data.json + index.md
     createdIds['full'] = res.body.id;
   });
 
@@ -99,6 +101,7 @@ describe('P2 备份 REST API e2e', () => {
     const res = await server().post('/api/v1/admin/backups').send({ scope: 'data' });
     expect(res.status).toBe(201);
     expect(res.body.scope).toBe('manual');
+    expect(res.body.fileCount).toBe(2); // diary.ts + bilibili-data.json（[U3-D/DEF-03]）
     createdIds['data'] = res.body.id;
   });
 

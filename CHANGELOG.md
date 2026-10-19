@@ -1,5 +1,17 @@
 # 变更日志
 
+## 批次 U3-D：对齐核查缺陷先行修复（DEF-01..05）
+
+- **背景**：功能-文档对齐核查（`docs/audits/feature-alignment/README.md`）裁定的缺陷级发现先行直修，PM 批准。
+- **DEF-01 设备集合面板断链**：`CollectionListPage.vue` CONFIGS 漏登记第 7 类 devices（registry/菜单/路由全通，仅面板配置缺位致渲染占位）——补齐登记（DeviceItemSchema / idField=name / grouped 形态）。
+- **DEF-02 新建文章预填发布日期**：主题 schema `published` 为必填 `z.date()`，缺失文章使 astro@6.1.2 构建直接抛 InvalidContentEntryDataError（已对 dist 源码实证）；新建文章预填由空改为当日日期，编辑态「空 = 不写键」语义不变。
+- **DEF-03 备份漏收**：备份收集器只收 `src/data/*.ts`，bilibili-data.json（~123KB API 缓存）不入备份——扩展为 `*.ts|*.json`（仅顶层 `src/data`）；恢复按 manifest 原路径回灌不受影响。
+- **DEF-04 相册文案漂移**：相册早已原格式落盘，四处文案仍写「非 JPG 自动转 JPG」——服务 / 控制器 / API 客户端 / 页面统一改为「原格式落盘」（posts 封面真转码，口径不同，不动）。
+- **DEF-05 上传白名单文案**：`UPLOAD_ALLOWED_TEXT` 补 `tif`，与 ADR-017 终集九扩展名对齐；撤除「逐字保留 MASTER-PLAN §7」的不实 JSDoc。
+- **测试**：p2-backup e2e 增 bilibili-data.json fixture 与两条计数断言（全量 2→3、数据备份 +1）。
+- **验收三连**：`pnpm build` exit 0（含 vue-tsc 0 错误）/ `pnpm lint` 0·0 / `pnpm test` 490/490（57 文件全绿）。
+- **流程卫生**：`eslint.config.mjs` ignores 增 `_attic/**`（U2 验证脚本残骸不入 lint 面）。
+
 ## 批次 UI-U2：面板「工作台模式」— 可拖动 / 可缩放窗口体系
 
 - **目标与定位**：响应用户「让每个窗口变为可动的、可自行拖动调整大小的」需求，实现三层工作台浮动体系：仪表盘自由画布（FloatCanvas）、弹窗全量可拖动/可调宽、编辑器侧栏分栏可拉伸。

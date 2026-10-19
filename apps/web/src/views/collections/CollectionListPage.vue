@@ -1,12 +1,12 @@
 <script setup lang="ts">
 /**
- * [P10b] 六类集合通用列表页（按路由参数 :type 实例化）
- * [职责] 一个组件复用于 diary/friends/projects/timeline/skills/devices：
+ * [P10b] 七类集合通用列表页（按路由参数 :type 实例化）
+ * [职责] 一个组件复用于 diary/friends/projects/timeline/skills/devices/anime：
  *   - array 形：表格展示条目，新增/编辑/删除；
  *   - grouped 形（devices）：先选分组再展示条目，新增带 group 字段，
  *     删除后重新拉取（空分组由后端清理）。
  * 字段列与表单全部由 @mizuki/shared 的 zod schema 驱动（mapper.ts 推导），
- * 不为六类手写重复结构（P4 放 schema 到 shared 的动机在此兑现）。
+ * 不为七类手写重复结构（P4 放 schema 到 shared 的动机在此兑现）。
  * [状态] ACTIVE
  */
 import { computed, onMounted, ref, watch } from 'vue';
@@ -55,6 +55,8 @@ const CONFIGS: CollectionConfig[] = [
   { type: 'projects', title: '项目', schema: ProjectsItemSchema, idField: 'id', shape: 'array' },
   { type: 'timeline', title: '时间线', schema: TimelineItemSchema, idField: 'id', shape: 'array' },
   { type: 'skills', title: '技能', schema: SkillsItemSchema, idField: 'id', shape: 'array' },
+  // [U3-D/DEF-01] devices 漏登记补上：grouped 形，idField/shape 与后端 registry 逐字对齐
+  { type: 'devices', title: '设备', schema: DeviceItemSchema, idField: 'name', shape: 'grouped' },
   // [Phase3-C2b] anime 第七集合：无 id 字段，title 为定位键
   { type: 'anime', title: '番剧', schema: AnimeItemSchema, idField: 'title', shape: 'array' },
 ];

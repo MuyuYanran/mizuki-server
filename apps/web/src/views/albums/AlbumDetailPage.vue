@@ -1,7 +1,7 @@
 <script setup lang="ts">
 /**
  * [P10d] 相册详情页面
- * [职责] 图片网格 + 上传（非 JPG 自动转 JPG，由后端处理，前端提示）+
+ * [职责] 图片网格 + 上传（原格式落盘，由后端处理，前端提示）+
  *   删除单图（二次确认）+ 编辑 info（对话框，info.json 全字段）。
  * [状态] ACTIVE
  *
@@ -126,7 +126,7 @@ function triggerUpload(): void {
 /**
  * [B3.6] 相册图片上传：走相册专属端点（服务端契约：
  *   POST /admin/albums/:id/images，multipart 字段名 file —— 以
- *   albums.controller.ts 为准），原文件名保存、非 JPG 后端自动转 JPG。
+ *   albums.controller.ts 为准），原文件名保存、原格式落盘。
  * 图片只进 public/images/albums/<名>/ 与相册 info，不写入媒体库索引
  *   （P7 偏差 2 边界）；删除同样走相册端点（见 onDeleteImage）。
  */
@@ -470,7 +470,7 @@ onMounted(() => {
       </div>
     </template>
     <el-alert v-if="album !== null" type="info" :closable="false" class="hint">
-      非 JPG 图片上传后由后端自动转换为 JPG。
+      图片按原格式保存，不做格式转换。
     </el-alert>
     <el-row v-if="album !== null" :gutter="12">
       <el-col v-for="img in pagedImages" :key="img" :span="4">

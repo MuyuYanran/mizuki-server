@@ -2,7 +2,7 @@
  * [阶段 P7] albums/albums.service — 相册目录与 info.json 管理
  * [职责] REQUIREMENTS §6.9 逐字：目录 `public/images/albums/<相册名>/`，
  *   info.json（zod 校验）+ 图片文件；相册列表/创建/修改/删除、
- *   图片上传（非 JPG 自动转 JPG，复用 §3.1 白名单+魔数+上限校验）、图片删除；
+ *   图片上传（原格式落盘，复用 §3.1 白名单+魔数+上限校验）、图片删除；
  *   相册删除与图片删除前经注册表引用检查（409 + 明细）。
  * [状态] ACTIVE
  *
@@ -415,7 +415,7 @@ export class AlbumsService implements MediaReferenceContributor {
     // [Phase3-C2a/ADR-017] 白名单 +bmp+tiff/tif（svg 维持排除）
     const { ext, format: expectedFormat } = assertImageUpload(file, {
       subject: '文件',
-      allowedText: 'jpg/jpeg/png/gif/webp/avif/bmp/tiff',
+      allowedText: 'jpg/jpeg/png/gif/webp/avif/bmp/tiff/tif',
       limitMb: getAppConfig().uploadLimitMb,
     });
 

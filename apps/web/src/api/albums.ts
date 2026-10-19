@@ -9,7 +9,7 @@
  * - POST /admin/albums（body { name, info }）→ 201 AlbumView；
  * - PATCH /admin/albums/:id（info 增量）→ AlbumView；
  * - DELETE /admin/albums/:id → { deleted };
- * - POST /admin/albums/:id/images（multipart file）→ 201 { name, path }（非 JPG 自动转 JPG）；
+ * - POST /admin/albums/:id/images（multipart file）→ 201 { name, path }（原格式落盘）；
  * - DELETE /admin/albums/:id/images/:name → { deleted }。
  *
  * 引用明细格式与 media 相同（detail.references），复用 media.ts 的提取函数。
