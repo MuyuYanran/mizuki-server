@@ -25,12 +25,16 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { Injectable, NotFoundException } from '@nestjs/common';
 import {
+  type AnnouncementConfigValue,
   type CommentConfigValue,
   type ConfigOverrideFile,
   ConfigOverrideFileSchema,
   type NavConfigValue,
+  SITE_INFO_KEYS,
+  type SiteInfoValues,
+  type ProfileConfigValue,
 } from '@mizuki/shared';
-import { Node } from 'ts-morph';
+import { IndentationText, Node, type ObjectLiteralExpression, type SourceFile } from 'ts-morph';
 import { atomicWriteFile } from '../../common/fs/atomic-write';
 import { requireMizukiRoot } from '../../common/fs/mizuki-root';
 
@@ -45,6 +49,7 @@ import {
   extractSimpleConsts,
   getVariableDeclarationOrThrow,
   loadSourceFile,
+  unwrapExpression,
 } from '../data-files/evaluator';
 import { valueToTsLiteral } from '../data-files/serializer';
 import { ThemeRegistryService } from '../theme/theme-registry.service';
@@ -63,6 +68,21 @@ export interface AdminSiteConfigView {
   nav: NavConfigValue | null;
   /** [Phase4-D3] 基线 nav 解析值（真实主题含 LinkPreset 标识符 → 不可得 null，降级分支） */
   baselineNav: NavConfigValue | null;
+  /**
+   * [U3-P1] 站点信息档：override 态优先（整档写入 = 管理权转移），无 override 时取
+   * 基线逐键解析值；基线可缺键（可选键未写 / 未支持字面量键省略）→ 面板对应字段空档起步。
+   */
+  siteInfo: Partial<SiteInfoValues> | null;
+  /** [U3-P1] 基线 siteInfo 逐键解析值（15 键中可求值者；声明缺失/形态不符 → null） */
+  baselineSiteInfo: Partial<SiteInfoValues> | null;
+  /** [U3-P1] 个人资料档：override ?? 基线整体求值（commentConfig 同构） */
+  profile: ProfileConfigValue | null;
+  /** [U3-P1] 基线个人资料档解析值 */
+  baselineProfile: ProfileConfigValue | null;
+  /** [U3-P1] 公告档：override ?? 基线整体求值 */
+  announcement: AnnouncementConfigValue | null;
+  /** [U3-P1] 基线公告档解析值 */
+  baselineAnnouncement: AnnouncementConfigValue | null;
 }
 
 /** override 侧车位置（[Phase4-D4/C3] 三级优先，事故根因加固 2026-09-07/08）：
@@ -112,6 +132,13 @@ export class SiteConfigService {
       commentConfig: carrier.commentConfig ?? baseline.commentConfig,
       nav: carrier.nav ?? baseline.nav,
       baselineNav: baseline.nav,
+      // [U3-P1] 四新字段（K4）：siteInfo 支持「基线可缺键 → 面板空字段起步」
+      siteInfo: carrier.siteInfo ?? baseline.siteInfo,
+      baselineSiteInfo: baseline.siteInfo,
+      profile: carrier.profile ?? baseline.profile,
+      baselineProfile: baseline.profile,
+      announcement: carrier.announcement ?? baseline.announcement,
+      baselineAnnouncement: baseline.announcement,
     };
   }
 
@@ -185,6 +212,67 @@ export class SiteConfigService {
       logger.info({ configPath, count: links.length }, 'nav override 已物化');
     }
     this.writeOverride(carrier);
+    return this.getConfig();
+  }
+
+  // ── 写（[U3-P1] PUT site-info / profile / announcement） ──
+
+  /**
+   * PUT /admin/config/site-info（U3-P1，K1/K2）：15 键整档全量覆盖写入。
+   * - 物化 = siteConfig 对象内**逐属性置换**（lang 先例）：受管 15 键各自
+   *   setInitializer，其余声明/属性零触碰；基线缺可选属性而 body 含该键 →
+   *   追加属性到对象字面量末尾（缺失插入）；
+   * - 可选键在 body 中缺省（undefined）→ 该键零触碰（不新增、不改写）——
+   *   避免把面板空档写成语义不同的默认值；
+   * - originals 留档：键名 `siteConfig.<key>`，仅首次（原属性文本；原本缺失的属性
+   *   无原文本可留档 → 不写条目，还原语义 = 删除属性，留待后续批次）；
+   * - 校验已在管道层完成（SiteInfoSchema，越界键 400 零物化）。
+   */
+  async putSiteInfo(siteInfo: Partial<SiteInfoValues>): Promise<AdminSiteConfigView> {
+    // [Phase4-E3a] 物化前置探针门禁（T4，ADR-024）：探针失败 → 409 零物化
+    await this.themeRegistry.assertProbesPass([
+      'siteConfig',
+      'siteConfig.siteInfo',
+      ...SITE_INFO_KEYS.map((key) => `siteConfig.${key}`),
+    ]);
+    const configPath = configTsPath();
+    const carrier = this.readOverride();
+    await this.spliceSiteInfo(configPath, carrier, siteInfo);
+    // 侧车合并（整档覆盖语义：本次提交的键集即 override 态；未提交键不落侧车）
+    carrier.siteInfo = { ...siteInfo };
+    this.writeOverride(carrier);
+    logger.info({ configPath, keys: Object.keys(siteInfo).length }, 'siteInfo override 已物化');
+    return this.getConfig();
+  }
+
+  /**
+   * PUT /admin/config/profile（U3-P1，K1/K3）：声明级整档覆盖写入
+   * （commentConfig / navBarConfig 先例），originals['profileConfig'] 首次留档。
+   * 无整档清除端点（覆盖写入即管理权转移；留档供未来批次还原）。
+   */
+  async putProfile(profile: ProfileConfigValue): Promise<AdminSiteConfigView> {
+    await this.themeRegistry.assertProbesPass(['profileConfig']);
+    const configPath = configTsPath();
+    const carrier = this.readOverride();
+    await this.spliceProfileConfig(configPath, carrier, profile);
+    carrier.profile = profile;
+    this.writeOverride(carrier);
+    logger.info({ configPath, links: profile.links.length }, 'profileConfig override 已物化');
+    return this.getConfig();
+  }
+
+  /**
+   * PUT /admin/config/announcement（U3-P1，K1/K3）：声明级整档覆盖写入
+   * （profileConfig 同构），originals['announcementConfig'] 首次留档。
+   */
+  async putAnnouncement(announcement: AnnouncementConfigValue): Promise<AdminSiteConfigView> {
+    await this.themeRegistry.assertProbesPass(['announcementConfig']);
+    const configPath = configTsPath();
+    const carrier = this.readOverride();
+    await this.spliceAnnouncementConfig(configPath, carrier, announcement);
+    carrier.announcement = announcement;
+    this.writeOverride(carrier);
+    logger.info({ configPath }, 'announcementConfig override 已物化');
     return this.getConfig();
   }
 
@@ -264,6 +352,9 @@ export class SiteConfigService {
     siteLang: string | null;
     commentConfig: CommentConfigValue | null;
     nav: NavConfigValue | null;
+    siteInfo: Partial<SiteInfoValues> | null;
+    profile: ProfileConfigValue | null;
+    announcement: AnnouncementConfigValue | null;
   } {
     const configPath = configTsPath();
     if (!fs.existsSync(configPath)) {
@@ -332,7 +423,85 @@ export class SiteConfigService {
         }
       }
     }
-    return { siteLang, commentConfig, nav };
+    // [U3-P1] siteInfo 基线：初始化器为对象字面量才逐键解析（形态不符 → null）
+    const siteUnwrapped = siteInit !== undefined ? unwrapExpression(siteInit) : undefined;
+    const siteInfo =
+      siteUnwrapped !== undefined && Node.isObjectLiteralExpression(siteUnwrapped)
+        ? this.readSiteInfoBaseline(siteUnwrapped, configPath, consts)
+        : null;
+    const profile = this.evalDeclarationValue<ProfileConfigValue>(
+      'profileConfig',
+      sf,
+      configPath,
+      consts,
+    );
+    const announcement = this.evalDeclarationValue<AnnouncementConfigValue>(
+      'announcementConfig',
+      sf,
+      configPath,
+      consts,
+    );
+    return { siteLang, commentConfig, nav, siteInfo, profile, announcement };
+  }
+
+  /**
+   * [U3-P1] 基线 siteInfo 逐键解析（K2/T2.1）：仅取受管 15 键，逐键常量代入求值；
+   * 未支持字面量键 → 省略 + warn（面板该字段空档起步）。求值须逐属性进行——
+   * 真实 siteConfig 声明含 keywords/anime/bangumi 等大量非受管键，整体求值会被
+   * 任一处未支持节点牵连为「整档不可得」。
+   */
+  private readSiteInfoBaseline(
+    siteObj: ObjectLiteralExpression,
+    configPath: string,
+    consts: Map<string, string | number>,
+  ): Partial<SiteInfoValues> {
+    const out: Record<string, unknown> = {};
+    for (const key of SITE_INFO_KEYS) {
+      const prop = siteObj.getProperty(key);
+      if (prop === undefined || !Node.isPropertyAssignment(prop)) {
+        continue;
+      }
+      try {
+        const value = astToValueWithConsts(prop.getInitializerOrThrow(), configPath, consts);
+        if (value !== undefined) {
+          out[key] = value;
+        }
+      } catch (error) {
+        if (error instanceof UnsupportedLiteralError) {
+          logger.warn(
+            { configPath, key, line: error.line },
+            'siteInfo 基线键含未支持节点，该键基线视为不可得',
+          );
+          continue;
+        }
+        throw error;
+      }
+    }
+    return out as Partial<SiteInfoValues>;
+  }
+
+  /** [U3-P1] 声明级整档基线求值（profileConfig / announcementConfig 与 commentConfig 同构） */
+  private evalDeclarationValue<T>(
+    declName: string,
+    sf: SourceFile,
+    configPath: string,
+    consts: Map<string, string | number>,
+  ): T | null {
+    const decl = sf.getVariableDeclaration(declName);
+    const init = decl?.getInitializer();
+    if (init === undefined) {
+      return null;
+    }
+    try {
+      const value = astToValueWithConsts(init, configPath, consts);
+      return (value ?? null) as T | null;
+    } catch (error) {
+      if (error instanceof UnsupportedLiteralError) {
+        logger.warn({ configPath, line: error.line }, `${declName} 基线含未支持节点，基线视为不可得`);
+        return null;
+      }
+      throw error;
+    }
   }
 
   /**
@@ -418,6 +587,137 @@ export class SiteConfigService {
       decl.setInitializer(valueToTsLiteral({ links: value }));
     }
     await this.persistConfigTs(configPath, text, sf.getFullText(), 'navBarConfig');
+  }
+
+  // ── [U3-P1] 内部：siteInfo / profile / announcement 定点置换 ──
+
+  /**
+   * 物化 siteInfo（K2）：siteConfig 对象内 15 受管键**逐属性置换**（lang 先例），
+   * 非受管键与其余声明零触碰。
+   * - 属性存在 → setInitializer（首次覆盖前留档原文本 originals['siteConfig.<key>']）；
+   * - 属性缺失且 body 含该键 → addPropertyAssignment 追加（对象字面量末尾）；
+   * - body 未含该键（可选键）→ 零触碰（不新增、不改写，保留站点原语义）。
+   * 多行字面量续行按属性缩进对齐（缩进单位取自同层既有属性，制表符/空格自适）。
+   */
+  private async spliceSiteInfo(
+    configPath: string,
+    carrier: ConfigOverrideFile,
+    values: Partial<SiteInfoValues>,
+  ): Promise<void> {
+    const text = this.readConfigTs(configPath);
+    const sf = loadSourceFile(configPath, text);
+    const decl = getVariableDeclarationOrThrow(sf, 'siteConfig', CONFIG_TS_DISPLAY);
+    const init = decl.getInitializer();
+    const unwrapped = init !== undefined ? unwrapExpression(init) : undefined;
+    if (unwrapped === undefined || !Node.isObjectLiteralExpression(unwrapped)) {
+      throw new NotFoundException(`siteConfig 初始化器形态不符（${CONFIG_TS_DISPLAY}）`);
+    }
+    const siteObj = unwrapped;
+    const props = siteObj.getProperties();
+    const firstProp = props[0];
+    // 新属性缩进单位 = 同层既有属性缩进（无既有属性时按文件首个缩进行推断）
+    const indentUnit =
+      firstProp !== undefined
+        ? this.indentationOf(text, firstProp)
+        : /^[ \t]/m.test(text)
+          ? (/^[ \t]+/m.exec(text)?.[0] ?? '  ')
+          : '  ';
+    sf.getProject().manipulationSettings.set({ indentationText: this.toIndentationText(indentUnit) });
+    const originals = { ...(carrier.originals ?? {}) };
+    for (const key of SITE_INFO_KEYS) {
+      const value = values[key];
+      if (value === undefined) {
+        continue; // 可选键未提交 → 零触碰
+      }
+      const literal = valueToTsLiteral(value);
+      const prop = siteObj.getProperty(key);
+      if (prop === undefined) {
+        siteObj.addPropertyAssignment({ name: key, initializer: literal });
+        continue; // 原本无属性 → 无原文本可留档（还原语义 = 删除属性，后批处理）
+      }
+      if (!Node.isPropertyAssignment(prop)) {
+        throw new NotFoundException(`siteConfig.${key} 非属性赋值（${CONFIG_TS_DISPLAY}）`);
+      }
+      const originalKey = `siteConfig.${key}`;
+      if (originals[originalKey] === undefined) {
+        originals[originalKey] = prop.getInitializerOrThrow().getText();
+      }
+      prop.setInitializer(literal);
+    }
+    carrier.originals = originals;
+    await this.persistConfigTs(configPath, text, sf.getFullText(), 'siteInfo');
+  }
+
+  /**
+   * 物化 profileConfig（K3）：声明级整档置换（commentConfig 同构）。
+   * 声明缺失/无初始化器 → 404（基线源被破坏语义，不新建声明）。
+   */
+  private async spliceProfileConfig(
+    configPath: string,
+    carrier: ConfigOverrideFile,
+    value: ProfileConfigValue,
+  ): Promise<void> {
+    await this.spliceWholeDeclaration(
+      configPath,
+      carrier,
+      'profileConfig',
+      valueToTsLiteral(value),
+    );
+  }
+
+  /** 物化 announcementConfig（K3）：声明级整档置换（profileConfig 同构） */
+  private async spliceAnnouncementConfig(
+    configPath: string,
+    carrier: ConfigOverrideFile,
+    value: AnnouncementConfigValue,
+  ): Promise<void> {
+    await this.spliceWholeDeclaration(
+      configPath,
+      carrier,
+      'announcementConfig',
+      valueToTsLiteral(value),
+    );
+  }
+
+  /** 声明级整档置换（读取 + 留档 + 置换 + 备份 + 原子写；原文本留档键 = 声明名） */
+  private async spliceWholeDeclaration(
+    configPath: string,
+    carrier: ConfigOverrideFile,
+    declName: string,
+    literal: string,
+  ): Promise<void> {
+    const text = this.readConfigTs(configPath);
+    const sf = loadSourceFile(configPath, text);
+    const decl = getVariableDeclarationOrThrow(sf, declName, CONFIG_TS_DISPLAY);
+    const init = decl.getInitializer();
+    if (init === undefined) {
+      throw new NotFoundException(`${declName} 初始化器形态不符（${CONFIG_TS_DISPLAY}）`);
+    }
+    const originals = { ...(carrier.originals ?? {}) };
+    if (originals[declName] === undefined) {
+      originals[declName] = init.getText();
+    }
+    carrier.originals = originals;
+    decl.setInitializer(literal);
+    await this.persistConfigTs(configPath, text, sf.getFullText(), declName);
+  }
+
+  /** 节点所在行行首缩进（非空白前缀 → 兜底 2 空格） */
+  private indentationOf(text: string, node: Node): string {
+    const start = node.getStart();
+    const prefix = text.slice(text.lastIndexOf('\n', Math.max(0, start - 1)) + 1, start);
+    return /^[ \t]*$/.test(prefix) ? prefix : '  ';
+  }
+
+  /** 缩进串 → ts-morph 缩进枚举（Tab / 8 / 4 / 2 空格四档） */
+  private toIndentationText(unit: string): IndentationText {
+    if (unit.includes('\t')) {
+      return IndentationText.Tab;
+    }
+    if (unit.length >= 8) {
+      return IndentationText.EightSpaces;
+    }
+    return unit.length >= 4 ? IndentationText.FourSpaces : IndentationText.TwoSpaces;
   }
 
   /** 备份 + 原子写（文本与现读一致时跳过写入——清除还原至原文即等价 no-op） */

@@ -225,8 +225,11 @@ export function extractSimpleConsts(sf: SourceFile): Map<string, string | number
  * AST → JS 值（astToValue 的常量代入变体）：分派表同型（自包含字面量），
  * 唯一差异——Identifier 节点查常量表代入（config.ts 允许 `lang: SITE_LANG` 式
  * 引用）；常量表未命中的标识符与其他未支持节点 → UnsupportedLiteralError
- * （调用方按「基线不可得」处置）。注意：无数组字面量分支（navBarConfig.links
- * 原始态含 LinkPreset 标识符 → 恒抛 → 降级分支，D3 实测）。
+ * （调用方按「基线不可得」处置）。
+ * [U3-P1] 数组字面量分支补齐（与 astToValue 同型）：站点信息档的 banner.src /
+ * font.localFonts / profileConfig.links 均为字面量数组，缺分支时整键不可求值
+ * （ADR-020 追加节原记的降级根因）；navBarConfig.links 的真实主题态仍因
+ * LinkPreset.Home 属 PropertyAccess 节点而失败，D3 降级语义不变。
  */
 export function astToValueWithConsts(
   node: Node,
@@ -234,6 +237,10 @@ export function astToValueWithConsts(
   consts: Map<string, string | number>,
 ): unknown {
   switch (node.getKind()) {
+    case SyntaxKind.ArrayLiteralExpression: {
+      const arr = node as ArrayLiteralExpression;
+      return arr.getElements().map((element) => astToValueWithConsts(element, filePath, consts));
+    }
     case SyntaxKind.ObjectLiteralExpression: {
       const obj = node as ObjectLiteralExpression;
       const result: Record<string, unknown> = {};

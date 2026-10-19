@@ -6,13 +6,26 @@
  *   驱动，字段面对齐主题类型定义零删减；commentConfig 无真 secret 键 → 无脱敏
  *   语义，T1.1 结论）。一页一查一存：GET /admin/config 整体读，保存经
  *   PUT lang + PUT comments 分立写。
+ * [U3-P1] 配置域一期：新增三档区（K8 五区 el-collapse）——
+ *   站点信息（siteConfig 15 受管键：13 键 schema-form + banner/font 两个 JSON
+ *   textarea，整档一个 PUT = K9 一次请求）/ 个人资料（profileConfig，links 走
+ *   mapper 既有 json widget）/ 公告（announcementConfig），各自独立保存按钮；
+ *   评论与导航两区行为不变（导航仍保「还原主题默认」通道）。
  * [边界] 仅受控子集；其余 config.ts 字段不在面板管理面（.strict() 兜底禁蔓延）；
+ *   三档均无逐键/清除入口（K1 裁剪，侧车原文留档仍在服务端）；
  *   保存后需经「构建预览」执行 build 任务才反映到站点 dist（生效链）。
  */
 import { onMounted, ref } from 'vue';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import type { ZodObject, ZodType } from 'zod';
-import { CommentConfigSchema, MizukiTier1Profile, SITE_LANG_PATTERN } from '@mizuki/shared';
+import {
+  AnnouncementConfigSchema,
+  CommentConfigSchema,
+  MizukiTier1Profile,
+  ProfileConfigSchema,
+  SITE_LANG_PATTERN,
+  SiteInfoSchema,
+} from '@mizuki/shared';
 import { configApi } from '../../api/config';
 import { ApiError } from '../../api/http';
 import { SchemaForm, emptyValueFromSchema } from '../../lib/schema-form';
@@ -40,9 +53,51 @@ const baselineNavText = ref<string | null>(null);
 /** 基线不可得（真实主题 navbar 含 LinkPreset 标识符 → 降级分支，ADR-020 追加节） */
 const navBaselineUnavailable = ref(false);
 
+// ── [U3-P1] K8 五区折叠：站点信息 / 评论 / 导航 / 个人资料 / 公告 ──
+/** 展开区（默认展开站点信息；评论与导航两个既有区保持可折叠但默认收起） */
+const activeSections = ref<string[]>(['site-info']);
+
+// ── [U3-P1] 站点信息档（siteConfig 15 受管键；K5 分派：13 键 schema-form + banner/font JSON） ──
+/**
+ * 13 表单键视图：整档 schema 去 banner/font 两键——两键形态为联合/嵌套对象
+ * （banner.src 三种形态、font 两档字体），K5 判定由 JSON textarea 承载，故不
+ * 进 schema-form（omit 产物仍 .strict()，字段面零删减、零改名）。
+ */
+const SITE_INFO_FORM_SCHEMA = SiteInfoSchema.omit({
+  banner: true,
+  font: true,
+}) as unknown as ZodObject<Record<string, ZodType>>;
+/** 可选键集（K7 口径：siteStartDate / navbarTitle / pageScaling / tagStyle /
+ *  wallpaperMode）——基线缺该键时表单不送（零触碰，禁凭空落键）；运行时自
+ *  schema 内省（ZodOptional 包装判定），不与 shared 语义重复维护。 */
+const SITE_INFO_OPTIONAL_KEYS = new Set(
+  Object.entries(SITE_INFO_FORM_SCHEMA.shape)
+    .filter(([, type]) => type.constructor.name === 'ZodOptional')
+    .map(([key]) => key),
+);
+const siteFormValue = ref<Record<string, unknown>>(emptyValueFromSchema(SITE_INFO_FORM_SCHEMA));
+const siteBannerJson = ref('{}');
+const siteFontJson = ref('{}');
+/** 声明形态不符（siteConfig 非对象字面量）→ 基线不可得；门禁会 409，面板显式警示 */
+const siteInfoUnavailable = ref(false);
+const baselineSiteInfoText = ref<string | null>(null);
+const savingSite = ref(false);
+
+// ── [U3-P1] 个人资料档 / 公告档 ──
+const profileFormValue = ref<Record<string, unknown>>(
+  emptyValueFromSchema(ProfileConfigSchema as ZodObject<Record<string, ZodType>>),
+);
+const profileUnavailable = ref(false);
+const savingProfile = ref(false);
+const announcementFormValue = ref<Record<string, unknown>>(
+  emptyValueFromSchema(AnnouncementConfigSchema as ZodObject<Record<string, ZodType>>),
+);
+const announcementUnavailable = ref(false);
+const savingAnnouncement = ref(false);
+
 /** 页面级标签覆盖（[Phase3-C7] describeSchema labels 参数；不污染全局覆盖表） */
 const CONFIG_LABELS: Record<string, string> = {
-  enable: '启用评论',
+  enable: '启用',
   system: '评论系统',
   twikoo: 'Twikoo 配置',
   giscus: 'Giscus 配置',
@@ -60,6 +115,57 @@ const CONFIG_LABELS: Record<string, string> = {
   inputPosition: '输入框位置',
   theme: '主题配色',
   loading: '加载方式',
+  // [U3-P1] 站点信息档 / 个人资料档 / 公告档（同名键取上下文中性标签：面板分区已给出语义）
+  title: '标题',
+  subtitle: '副标题',
+  siteURL: '站点地址（siteURL）',
+  siteStartDate: '建站日期',
+  timeZone: '时区偏移（-12~12）',
+  themeColor: '主题色',
+  hue: '色相（0~360）',
+  fixed: '固定色相',
+  featurePages: '功能页开关',
+  anime: '番剧页',
+  diary: '日记页',
+  friends: '友链页',
+  projects: '项目页',
+  skills: '技能页',
+  timeline: '时间线页',
+  albums: '相册页',
+  devices: '设备页',
+  navbarTitle: '导航栏标题',
+  mode: '展示模式',
+  text: '文字',
+  icon: '图标（iconify）',
+  logo: 'Logo 路径',
+  postListLayout: '文章列表布局',
+  defaultMode: '默认布局',
+  allowSwitch: '允许切换布局',
+  categoryBar: '分类栏',
+  tagStyle: '标签样式',
+  useNewStyle: '使用新标签样式',
+  wallpaperMode: '壁纸模式',
+  showModeSwitchOnMobile: '移动端模式切换器',
+  pageScaling: '页面缩放',
+  targetWidth: '目标宽度（px）',
+  toc: '目录（TOC）',
+  mobileTop: '移动端顶部目录',
+  desktopSidebar: '桌面端侧栏目录',
+  floating: '浮动目录',
+  depth: '目录深度（1~3）',
+  useJapaneseBadge: '日语标签徽章',
+  name: '名称（昵称）',
+  avatar: '头像地址',
+  bio: '个性签名',
+  links: '社交链接',
+  typewriter: '打字机效果',
+  speed: '速度',
+  url: '链接地址',
+  external: '新窗口打开',
+  content: '内容',
+  type: '类型',
+  closable: '可关闭',
+  link: '公告链接',
 };
 
 async function fetchConfig(): Promise<void> {
@@ -77,11 +183,73 @@ async function fetchConfig(): Promise<void> {
     navBaselineUnavailable.value = view.baselineNav === null;
     navJson.value = JSON.stringify(view.nav?.links ?? [], null, 2);
     baselineNavText.value = view.baselineNav ? JSON.stringify(view.baselineNav.links, null, 2) : null;
+    // [U3-P1] 站点信息档：13 键进表单、banner/font 进 JSON textarea、基线只读对照
+    siteInfoUnavailable.value = view.siteInfo === null;
+    siteFormValue.value = siteFormValueOf(view.siteInfo);
+    siteBannerJson.value = JSON.stringify(view.siteInfo?.['banner'] ?? {}, null, 2);
+    siteFontJson.value = JSON.stringify(view.siteInfo?.['font'] ?? {}, null, 2);
+    baselineSiteInfoText.value = view.baselineSiteInfo
+      ? JSON.stringify(view.baselineSiteInfo, null, 2)
+      : null;
+    // [U3-P1] 个人资料 / 公告：override 优先，否则基线，均不可得 = 空表单起步
+    profileUnavailable.value = view.profile === null;
+    profileFormValue.value =
+      (view.profile as Record<string, unknown> | null) ??
+      emptyValueFromSchema(ProfileConfigSchema as ZodObject<Record<string, ZodType>>);
+    announcementUnavailable.value = view.announcement === null;
+    announcementFormValue.value =
+      (view.announcement as Record<string, unknown> | null) ??
+      emptyValueFromSchema(AnnouncementConfigSchema as ZodObject<Record<string, ZodType>>);
   } catch (e) {
     notifyApiError(e, '加载站点配置失败');
   } finally {
     loading.value = false;
   }
+}
+
+/**
+ * [U3-P1] siteInfo 表单初值：schema 空值起步 + 服务端视图（override 优先）逐键覆盖。
+ * 基线缺该键时的两态（K7/additive 语义）：
+ * - 可选键（siteStartDate / navbarTitle / pageScaling / tagStyle / wallpaperMode）→
+ *   置 undefined 不送（零触碰，禁凭空落键）；注意空值起步会把日期键填成「今天」，
+ *   故必须显式抹回 undefined；
+ * - 必填键 → 保留 schema 空值（提交时由本地/服务端校验拦下，不会静默落错值）。
+ */
+function siteFormValueOf(info: Record<string, unknown> | null): Record<string, unknown> {
+  const out: Record<string, unknown> = emptyValueFromSchema(SITE_INFO_FORM_SCHEMA);
+  for (const key of Object.keys(SITE_INFO_FORM_SCHEMA.shape)) {
+    const value = info?.[key];
+    if (value !== undefined) {
+      out[key] = value;
+    } else if (SITE_INFO_OPTIONAL_KEYS.has(key)) {
+      out[key] = undefined;
+    }
+  }
+  return out;
+}
+
+/** [U3-P1] banner/font JSON textarea 解析（非法 JSON / 非对象 → null，字段级形状由 schema 权威兜底） */
+function parseJsonObject(text: string): Record<string, unknown> | null {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    return null;
+  }
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+    return null;
+  }
+  return parsed as Record<string, unknown>;
+}
+
+/** 校验失败 → 首条 issue 的路径 + 文案（面板只给首条，与 schema-form 口径一致） */
+function firstIssueOf(error: { issues: { path: PropertyKey[]; message: string }[] }): string {
+  const issue = error.issues[0];
+  if (issue === undefined) {
+    return '配置校验未通过';
+  }
+  const path = issue.path.map((part) => String(part)).join('.');
+  return path === '' ? issue.message : `${path}：${issue.message}`;
 }
 
 /**
@@ -200,6 +368,77 @@ async function onResetNav(): Promise<void> {
 }
 
 
+/**
+ * [U3-P1/K9] 保存站点信息：13 表单键（schema-form 已本地校验）+ banner/font 两个
+ * JSON textarea → 整档 zod 校验 → **一个** PUT /admin/config/site-info（15 键整档）。
+ * JSON 解析失败或整档校验不过一律不发请求（K9 前置校验）。
+ */
+async function onSaveSiteInfo(value: Record<string, unknown>): Promise<void> {
+  const banner = parseJsonObject(siteBannerJson.value);
+  if (banner === null) {
+    ElMessage.warning('banner 配置须为 JSON 对象（如 { "src": "/images/banner.webp", "credit": { … } }）');
+    return;
+  }
+  const font = parseJsonObject(siteFontJson.value);
+  if (font === null) {
+    ElMessage.warning('font 配置须为 JSON 对象（如 { "asciiFont": { … }, "cjkFont": { … } }）');
+    return;
+  }
+  const parsed = SiteInfoSchema.safeParse({ ...value, banner, font });
+  if (!parsed.success) {
+    ElMessage.warning(`站点信息校验未通过：${firstIssueOf(parsed.error)}`);
+    return;
+  }
+  savingSite.value = true;
+  try {
+    await configApi.putSiteInfo(parsed.data as Record<string, unknown>);
+    ElMessage.success('站点信息已保存；如需反映到站点请在「构建预览」执行 build');
+    await fetchConfig();
+  } catch (e) {
+    notifyApiError(e, '保存站点信息失败');
+  } finally {
+    savingSite.value = false;
+  }
+}
+
+/** [U3-P1/K9] 保存个人资料（独立按钮；links 由 mapper 既有 json widget 承载，[] = 合法清空） */
+async function onSaveProfile(value: Record<string, unknown>): Promise<void> {
+  const parsed = ProfileConfigSchema.safeParse(value);
+  if (!parsed.success) {
+    ElMessage.warning(`个人资料校验未通过：${firstIssueOf(parsed.error)}`);
+    return;
+  }
+  savingProfile.value = true;
+  try {
+    await configApi.putProfile(parsed.data as Record<string, unknown>);
+    ElMessage.success('个人资料已保存；如需反映到站点请在「构建预览」执行 build');
+    await fetchConfig();
+  } catch (e) {
+    notifyApiError(e, '保存个人资料失败');
+  } finally {
+    savingProfile.value = false;
+  }
+}
+
+/** [U3-P1/K9] 保存公告（独立按钮；content 非空必填由 schema 兜底） */
+async function onSaveAnnouncement(value: Record<string, unknown>): Promise<void> {
+  const parsed = AnnouncementConfigSchema.safeParse(value);
+  if (!parsed.success) {
+    ElMessage.warning(`公告校验未通过：${firstIssueOf(parsed.error)}`);
+    return;
+  }
+  savingAnnouncement.value = true;
+  try {
+    await configApi.putAnnouncement(parsed.data as Record<string, unknown>);
+    ElMessage.success('公告已保存；如需反映到站点请在「构建预览」执行 build');
+    await fetchConfig();
+  } catch (e) {
+    notifyApiError(e, '保存公告失败');
+  } finally {
+    savingAnnouncement.value = false;
+  }
+}
+
 onMounted(() => {
   void fetchConfig();
 });
@@ -215,82 +454,192 @@ onMounted(() => {
       type="info"
       :closable="false"
       show-icon
-      title="受控子集：站点语言与评论配置"
-      description="仅管理主题 config.ts 的 siteConfig.lang 与 commentConfig，其余字段不受影响；commentConfig 值为公开性质（随构建烘入站点前端，无敏感键）。保存后请在「构建预览」执行 build 任务使站点生效。"
+      title="受控子集：站点信息 / 评论 / 导航 / 个人资料 / 公告"
+      description="仅管理主题 config.ts 的 siteConfig（含 15 个站点信息键）、commentConfig、navBarConfig、profileConfig、announcementConfig，其余字段不受影响；配置值均为公开性质（随构建烘入站点前端，无敏感键）。保存后请在「构建预览」执行 build 任务使站点生效。"
       class="page-alert"
-    />
-    <el-form label-width="140px" class="lang-form">
-      <el-form-item label="语言">
-        <!-- [Phase4-D4/配套2] el-select（allow-create + filterable + clearable）：
-             选项 = 主题实测支持集；自行输入保留（schema 双兼容为权威）；清空 = 站点默认 -->
-        <el-select
-          v-model="lang"
-          placeholder="en"
-          allow-create
-          filterable
-          default-first-option
-          clearable
-          class="lang-input"
-          @clear="lang = ''"
-        >
-          <el-option v-for="code in langOptions" :key="code" :label="code" :value="code" />
-        </el-select>
-        <div class="field-help">
-          可选；空 = 站点默认（当前基线：{{ baselineLang ?? '未知' }}），可从常用语言选择或自行输入（连字符/下划线分段由服务端校验）
-        </div>
-      </el-form-item>
-    </el-form>
-    <el-alert
-      v-if="baselineUnavailable"
-      type="warning"
-      :closable="false"
-      show-icon
-      title="评论配置基线不可得"
-      description="主题 config.ts 缺 commentConfig 声明或含未支持的写法，表单以空值起步；填写全量字段保存后即由面板接管。"
-      class="page-alert"
-    />
-    <SchemaForm
-      :schema="CommentConfigSchema as ZodObject<Record<string, ZodType>>"
-      :model-value="formValue"
-      :labels="CONFIG_LABELS"
-      :loading="saving"
-      submit-label="保存站点配置"
-      @update:model-value="(v: Record<string, unknown>) => (formValue = v)"
-      @submit="onSubmit"
-      @cancel="fetchConfig"
     />
 
-    <!-- [Phase4-D3] 导航管理区（#8；JSON textarea 兜底，C2b links 先例同构） -->
-    <el-divider content-position="left">导航管理</el-divider>
-    <el-alert
-      v-if="navBaselineUnavailable"
-      type="warning"
-      :closable="false"
-      show-icon
-      title="导航基线不可得"
-      description="主题 config.ts 的 navBarConfig 含预设标识符（LinkPreset）等未支持写法，基线无法解析为可编辑数据；编辑器以空表单起步，首次保存即由面板接管（保存前原文已留档，可随时还原）。"
-      class="page-alert"
-    />
-    <div class="nav-help">
-      以 JSON 数组编辑导航项：每项含 <code>name</code>（必填，≤64 字）、<code>url</code>（必填，≤512
-      字符，仅支持 http/https、/ 开头站内路径、#）；可选 <code>icon</code>（iconify 标识符，≤128）、
-      <code>external</code>（布尔）、<code>children</code>（子菜单，最多一层）。
-    </div>
-    <el-input
-      v-model="navJson"
-      type="textarea"
-      :rows="14"
-      spellcheck="false"
-      class="nav-textarea"
-      aria-label="导航 JSON"
-    />
-    <div class="nav-actions">
-      <el-button type="primary" :loading="saving" class="btn-gradient-primary" @click="onSaveNav">保存导航</el-button>
-      <el-button :loading="saving" @click="onResetNav">还原主题默认</el-button>
-    </div>
-    <el-collapse v-if="baselineNavText" class="nav-baseline">
-      <el-collapse-item title="主题默认导航（基线对照，只读）">
-        <pre class="nav-baseline-pre">{{ baselineNavText }}</pre>
+    <!-- [U3-P1/K8] 五区折叠：站点信息 / 评论 / 导航 / 个人资料 / 公告（无新路由、无新菜单） -->
+    <el-collapse v-model="activeSections" class="config-collapse">
+      <!-- ① 站点信息：siteConfig 15 受管键（13 表单键 + banner/font JSON） -->
+      <el-collapse-item name="site-info" title="站点信息">
+        <el-alert
+          v-if="siteInfoUnavailable"
+          type="warning"
+          :closable="false"
+          show-icon
+          title="站点信息基线不可得"
+          description="主题 config.ts 的 siteConfig 声明不是对象字面量（缺声明/含未支持的写法），基线无法解析为可编辑数据；表单以空值起步，且写入门禁会先拒绝（探针失败 409）。请先修复主题声明形态。"
+          class="page-alert"
+        />
+        <div class="nav-help">
+          <code>banner</code>（轮播图）与 <code>font</code>（两档字体）形态复杂——banner.src 支持
+          单串 / 串数组 / 桌面-移动分档对象，故以 JSON 编辑；其余 13 键用下方表单。
+          保存时两段 JSON 与表单值合并后整体过一遍 schema 校验，未通过不发请求。
+        </div>
+        <el-form label-width="140px">
+          <el-form-item label="banner（JSON）">
+            <el-input
+              v-model="siteBannerJson"
+              type="textarea"
+              :rows="10"
+              spellcheck="false"
+              class="nav-textarea"
+              aria-label="banner JSON"
+            />
+          </el-form-item>
+          <el-form-item label="font（JSON）">
+            <el-input
+              v-model="siteFontJson"
+              type="textarea"
+              :rows="8"
+              spellcheck="false"
+              class="nav-textarea"
+              aria-label="font JSON"
+            />
+          </el-form-item>
+        </el-form>
+        <SchemaForm
+          :schema="SITE_INFO_FORM_SCHEMA"
+          :model-value="siteFormValue"
+          :labels="CONFIG_LABELS"
+          :loading="savingSite"
+          submit-label="保存站点信息"
+          @update:model-value="(v: Record<string, unknown>) => (siteFormValue = v)"
+          @submit="onSaveSiteInfo"
+          @cancel="fetchConfig"
+        />
+        <el-collapse class="nav-baseline">
+          <el-collapse-item title="主题基线站点信息（基线对照，只读）">
+            <pre class="nav-baseline-pre">{{ baselineSiteInfoText ?? '基线不可得' }}</pre>
+          </el-collapse-item>
+        </el-collapse>
+      </el-collapse-item>
+
+      <!-- ② 评论（现状不动：站点语言 + commentConfig 同存） -->
+      <el-collapse-item name="comments" title="评论">
+        <el-form label-width="140px" class="lang-form">
+          <el-form-item label="语言">
+            <!-- [Phase4-D4/配套2] el-select（allow-create + filterable + clearable）：
+                 选项 = 主题实测支持集；自行输入保留（schema 双兼容为权威）；清空 = 站点默认 -->
+            <el-select
+              v-model="lang"
+              placeholder="en"
+              allow-create
+              filterable
+              default-first-option
+              clearable
+              class="lang-input"
+              @clear="lang = ''"
+            >
+              <el-option v-for="code in langOptions" :key="code" :label="code" :value="code" />
+            </el-select>
+            <div class="field-help">
+              可选；空 = 站点默认（当前基线：{{ baselineLang ?? '未知' }}），可从常用语言选择或自行输入（连字符/下划线分段由服务端校验）
+            </div>
+          </el-form-item>
+        </el-form>
+        <el-alert
+          v-if="baselineUnavailable"
+          type="warning"
+          :closable="false"
+          show-icon
+          title="评论配置基线不可得"
+          description="主题 config.ts 缺 commentConfig 声明或含未支持的写法，表单以空值起步；填写全量字段保存后即由面板接管。"
+          class="page-alert"
+        />
+        <SchemaForm
+          :schema="CommentConfigSchema as ZodObject<Record<string, ZodType>>"
+          :model-value="formValue"
+          :labels="CONFIG_LABELS"
+          :loading="saving"
+          submit-label="保存站点配置"
+          @update:model-value="(v: Record<string, unknown>) => (formValue = v)"
+          @submit="onSubmit"
+          @cancel="fetchConfig"
+        />
+      </el-collapse-item>
+
+      <!-- ③ 导航（现状不动；仍保「还原主题默认」通道） -->
+      <el-collapse-item name="nav" title="导航">
+        <!-- [Phase4-D3] 导航管理区（#8；JSON textarea 兜底，C2b links 先例同构） -->
+        <el-alert
+          v-if="navBaselineUnavailable"
+          type="warning"
+          :closable="false"
+          show-icon
+          title="导航基线不可得"
+          description="主题 config.ts 的 navBarConfig 含预设标识符（LinkPreset）等未支持写法，基线无法解析为可编辑数据；编辑器以空表单起步，首次保存即由面板接管（保存前原文已留档，可随时还原）。"
+          class="page-alert"
+        />
+        <div class="nav-help">
+          以 JSON 数组编辑导航项：每项含 <code>name</code>（必填，≤64 字）、<code>url</code>（必填，≤512
+          字符，仅支持 http/https、/ 开头站内路径、#）；可选 <code>icon</code>（iconify 标识符，≤128）、
+          <code>external</code>（布尔）、<code>children</code>（子菜单，最多一层）。
+        </div>
+        <el-input
+          v-model="navJson"
+          type="textarea"
+          :rows="14"
+          spellcheck="false"
+          class="nav-textarea"
+          aria-label="导航 JSON"
+        />
+        <div class="nav-actions">
+          <el-button type="primary" :loading="saving" class="btn-gradient-primary" @click="onSaveNav">保存导航</el-button>
+          <el-button :loading="saving" @click="onResetNav">还原主题默认</el-button>
+        </div>
+        <el-collapse v-if="baselineNavText" class="nav-baseline">
+          <el-collapse-item title="主题默认导航（基线对照，只读）">
+            <pre class="nav-baseline-pre">{{ baselineNavText }}</pre>
+          </el-collapse-item>
+        </el-collapse>
+      </el-collapse-item>
+
+      <!-- ④ 个人资料：profileConfig（links 由 mapper 既有 json widget 承载） -->
+      <el-collapse-item name="profile" title="个人资料">
+        <el-alert
+          v-if="profileUnavailable"
+          type="warning"
+          :closable="false"
+          show-icon
+          title="个人资料基线不可得"
+          description="主题 config.ts 缺 profileConfig 声明或含未支持的写法，表单以空值起步；填写全量字段保存后即由面板接管。"
+          class="page-alert"
+        />
+        <SchemaForm
+          :schema="ProfileConfigSchema as ZodObject<Record<string, ZodType>>"
+          :model-value="profileFormValue"
+          :labels="CONFIG_LABELS"
+          :loading="savingProfile"
+          submit-label="保存个人资料"
+          @update:model-value="(v: Record<string, unknown>) => (profileFormValue = v)"
+          @submit="onSaveProfile"
+          @cancel="fetchConfig"
+        />
+      </el-collapse-item>
+
+      <!-- ⑤ 公告：announcementConfig（content 非空必填） -->
+      <el-collapse-item name="announcement" title="公告">
+        <el-alert
+          v-if="announcementUnavailable"
+          type="warning"
+          :closable="false"
+          show-icon
+          title="公告基线不可得"
+          description="主题 config.ts 缺 announcementConfig 声明或含未支持的写法，表单以空值起步；填写全量字段保存后即由面板接管。"
+          class="page-alert"
+        />
+        <SchemaForm
+          :schema="AnnouncementConfigSchema as ZodObject<Record<string, ZodType>>"
+          :model-value="announcementFormValue"
+          :labels="CONFIG_LABELS"
+          :loading="savingAnnouncement"
+          submit-label="保存公告"
+          @update:model-value="(v: Record<string, unknown>) => (announcementFormValue = v)"
+          @submit="onSaveAnnouncement"
+          @cancel="fetchConfig"
+        />
       </el-collapse-item>
     </el-collapse>
   </div>
@@ -316,6 +665,11 @@ onMounted(() => {
 }
 .lang-form {
   margin-bottom: 8px;
+}
+/* [U3-P1/K8] 五区折叠容器（间距走既有 token，无新增色值/圆角/阴影） */
+.config-collapse {
+  margin-top: 4px;
+  border-top: none;
 }
 .lang-input {
   max-width: 240px;

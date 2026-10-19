@@ -513,4 +513,99 @@ DEV（裁决在案、规格文本未修订）：minimal 菜单范围、timeline 
 - 全部改动（9 产品文件 + `eslint.config.mjs` + 本台账 + CHANGELOG + `docs/audits/feature-alignment/` 报告）**未提交、未 push**，待 PM 手验后一笔提交。
 - 建议提交信息：`fix(panel+server): 对齐缺陷批 U3-D — devices 面板/published 预填/备份漏收/文案订正（含对齐核查报告入库）`。
 - PM 手验点：设备集合页渲染与 CRUD；新建文章默认发布日期=当日；全量备份含 bilibili-data.json；相册页与媒体上传处文案。
+- 【2026-10-19 追记】PM 裁定提交，已提交 **36c55cb**（未 push）。
 
+
+---
+
+# 批次 U3-P1 交付报告 — 配置域一期：站点信息档 + 侧栏内容（2026-10-19）
+
+> [签发] 架构师 2026-10-19 指令包 `docs/prompts-ui/U3-P1-site-config-domain.md`（K1~K10）；
+> 用户当轮授权「根据提示词完成任务，不用验收」（验收由架构师复核）。
+> [结论] 受控面 **3 对象 → 6 对象**：新增 `siteInfo`（siteConfig 的 15 个非-lang 键，
+> 逐属性置换 / 缺失插入）+ `profileConfig` / `announcementConfig`（整声明置换），
+> 复用 ADR-020 既有链路（schema → zod 管道 → 探针门禁 → 定点物化 → 侧车留档 → 面板表单），
+> **零新机制、零新依赖**。验收三连：`pnpm build` exit 0 / `pnpm lint` 0·0 /
+> `pnpm test` **505/505（58 文件）**。
+
+## 数账
+- 测试基线 **490 → 505**（+15 = 新增 e2e `test/p7i-site-sidepanel-override.e2e-spec.ts` 15 条）；
+  文件 **57 → 58**。全量单批 `vitest run --maxWorkers=1` 265.50s 全绿。
+- **本机首次全绿**：此前台账记的 484/490（p9 进程链 6 例环境性失败）本轮不再出现——
+  本机 PATH 现含系统 node（v26.11.1）与用户 pnpm（12.10.1），`MIZUKI_PM_*` 解析链可满足。
+- 改动面：11 改 + 1 新增（shared×2 / server×4 / web×3 / test×1 / docs×2），详见
+  `docs/audits/u3-p1/README.md` §8；`pnpm-lock.yaml`、两处 `package.json`、`vite.config.ts`、
+  路由表 / 菜单 / `MainLayout.vue`、`/public/**`、`backup.service.ts` **零变动**。
+
+## 交付面
+| 对象 | 端点（新） | 物化 | originals |
+|---|---|---|---|
+| `siteConfig` 15 键 | `PUT /admin/config/site-info` | 对象内逐属性置换 / 基线缺可选键则追加 | `siteConfig.<key>` × 15（首次） |
+| `profileConfig` | `PUT /admin/config/profile` | 整声明置换（`links: []` = 合法清空） | `profileConfig` |
+| `announcementConfig` | `PUT /admin/config/announcement` | 整声明置换 | `announcementConfig` |
+
+- 侧车 `ConfigOverrideFileSchema` 增三**可选**键，`version` 仍 = `1`，旧侧车零迁移可读（p7i ⑮）。
+- 探针门禁（I5）：`PUT site-info` 17 靶点、`profile` / `announcement` 各 1 靶点；
+  `PROBE_SCHEMAS` 四映射；siteInfo 走**宽松探针视图**（真实声明含 20+ 非受管键，`.strict()` 子集恒失败）。
+  `profileVersion` 未升版、漂移轴未重置（ADR-024 两轴正交）。
+- 面板：`SiteConfigPage.vue` 五区 `el-collapse`（站点信息 / 评论 / 导航 / 个人资料 / 公告），
+  K5 分派（13 键 schema-form + `banner`/`font` JSON textarea + `profileConfig.links` 走 mapper 既有
+  json widget），K9 编排（站点信息 = 一个请求 15 键整档；profile / announcement 各自保存按钮）。
+  评论与导航两区行为不变（导航仍保「还原主题默认」通道）。
+
+## 已知限制（均有主，K1/K8 已裁剪）
+1. 三新档**无逐键 / 整档清除端点**（覆盖写入即管理权转移；`originals` 留档待未来批次做还原 UI）。
+2. 基线缺可选键而 body 含该键 → `addPropertyAssignment` 追加，此时无原文本可归档（该键此前不存在）。
+3. siteInfo 区**不做逐键 diff UI**，仅尾部只读折叠 `<pre>` 呈现 `baselineSiteInfo`（null 显示「基线不可得」）。
+4. 物化多行值保留 JSON 的 2 空格相对缩进（`\t\t  hue: 120,`）——与既有 nav / commentConfig 物化同型同源，
+   AST 语义与构建不受影响。
+5. 基线 `siteConfig` 声明非对象字面量 → 视图 null + 表单空值起步 + 门禁 409 兜底（面板显式警示条）。
+
+## 偏差（§6.8 未列文件改动 + 字面偏差，全文见审计报告 §0/§7）
+- `evaluator.ts` 补 `ArrayLiteralExpression` 分支（banner.src / localFonts 基线求值前置能力）；
+- `SchemaForm.vue` 分组分支由「number/其余=el-input」改为「行表递归 + switch/select/number 分派」
+  （分组内布尔/枚举/二层嵌套的前置能力，分组外路径零改动）；
+- `p4e3a` 内联基线 additive 补两条声明（新探针靶点使「完好 fixture 全绿」断言需要它们；未改既有断言语义）；
+- siteInfo 可选性取 K7（更具体）而非 K1 字面「15 键全必填」；`toc.depth` 落 `number().int().min(1).max(3)`；
+- `CONFIG_LABELS.enable` 由「启用评论」收敛为「启用」（该表按键名索引且跨五区共用）；
+- 未抽 `sections/` 子组件（K8 允许非必须）。
+
+## 工作树状态
+- 全部改动**留在工作树**：未 commit、未 push（红线 §6.1）。
+- 一次性探针 `zz-tmp-format-probe.spec.ts` 已移出 `test/`（→ gitignored `.test-tmp/zz-probe/`，未删除），
+  最终 `test/` 下只新增 p7i 一个文件。
+- 建议提交信息（待架构师验收后一笔提交）：
+  `feat(config): U3-P1 配置域一期 — siteInfo 15 键 / profileConfig / announcementConfig 受控面（含 p7i e2e 15 条）`。
+
+---
+
+## 批次 U3-P1 验收轮 — 配置域一期（2026-10-19，架构师复核）
+
+> [输入] 执行方交付报告（上节）+ `docs/audits/u3-p1/README.md` + 工作树实物。
+> [方法] 不接受报告面值：红线触碰逐路径 grep、全量 diff 审读、验收三连独立复跑。
+> [结论] **通过**——零红线触碰；11 条偏差全部有据；数账链 490 → **505（+15 = p7i）**独立复现。
+
+### 1. 实物核验摘要
+
+- **红线零触碰**：禁改清单（backup/posts/media/albums/collections/router/MainLayout/vite.config/lockfile/package.json×3/common/config）git diff 逐路径确认零变更；`/public/**` 零触碰。
+- **p7i 数账**：15 条真用例（①–⑮）实证（架构师首查 grep 到 16 处 `it(` 系 `app.init()` 误报，已排除）；fixture mkdtemp 隔离 + `MIZUKI_CONFIG_PATH`/`MIZUKI_CONFIG_OVERRIDE_PATH` env 注入（红线 §6.4 合规）。
+- **未列文件三处**（evaluator 数组分支 / SchemaForm 分组行表 / p4e3a additive）逐行审读：均为前置能力补齐且理由成立；SchemaForm 既有唯一分组消费面（评论区 twikoo/giscus，全字符串字段）行为保持，分组外渲染路径零改动。
+- **物化器**：siteInfo 逐属性置换 + 缺失插入 + 首次留档 + `before===after` 跳写与 K2 逐条对齐；profile/announcement 整声明置换与 K3 对齐（`spliceWholeDeclaration` 复用 `persistConfigTs`，preWriteBackup + 原子写不变）；探针接线 17/1/1 靶与报告一致；侧车 `SiteInfoSchema.partial()` 仅存储态，写路径仍 `.strict()`。
+- **K8/K9 页面**：五区 el-collapse；三独立保存；banner/font textarea 经 `SiteInfoSchema.safeParse` 现场校验后并入 payload；四个保存提示均带「构建预览执行 build」生效链文案。
+
+### 2. 验收轮新发现（执行报告未披露，1 条，低危）
+
+- **wallpaperMode 可选性与主题类型不符**：主题 `types/config.ts` 该键必填（无 `?`），schema 落 `.optional()`——报告偏差②虽列出该键，但「逐字对齐主题类型」的依据陈述在这一点上不成立。实际影响：缺键 → 零触碰（不误删站点壁纸配置），面板路径值恒全，无用户可见危害；仅 API 直调路径放宽了必填约束。**处置：本批不改**（收益小于重跑成本），U3-P2 或后续批次收紧 schema 时一并处理。
+
+### 3. 验收三连（架构师独立复跑，2026-10-19 16:42）
+
+- `pnpm build`：exit 0（1914 modules / 21.77s，vue-tsc 0 错）
+- `pnpm lint`：exit 0（0 error / 0 warning）
+- `pnpm test -- --maxWorkers=1`：**58/58 文件，505/505 全绿**（46.48s）；回归锚 p7f 14/14、p7h 1/1、p4e3a 14/14 独立复绿。
+- **数账链更新：基线 490 → 505**（净增 +15，全绿轮采信；下一批以 505 起算）。
+
+### 4. 提交状态与手验点
+
+- 全部改动（11 改 + 3 新增：p7i spec / `docs/audits/u3-p1/` / `docs/prompts-ui/U3-P1-site-config-domain.md` 指令包）**未提交、未 push**，待 PM 手验后一笔提交。
+- 建议提交信息：`feat(config): U3-P1 配置域一期 — 站点信息档/个人资料/公告三档受控管理（受控面 3→6 对象，基线 505）`。
+- PM 手验点：设置页五区折叠回显（基线值正确起步）；改 title / 主题色 hue → 保存 → `config.ts` 物化点查；banner / font textarea 合法 JSON 保存与非法 JSON 拦截；profile links 清空保存；越界键 400 提示；主题基线对照折叠区显示。

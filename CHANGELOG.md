@@ -1,5 +1,21 @@
 # 变更日志
 
+## 批次 U3-P1：配置域一期 — 站点信息档 + 侧栏内容
+
+- **目标**：把「config.ts 受控面 = 3 对象」推进到「6 对象」，**零新机制、零新依赖**：复用 ADR-020 既有链路（schema → zod 管道 → 探针门禁 → 定点物化 → 侧车留档 → 面板表单）。
+- **新增受控面（3 个 PUT）**：
+  - `PUT /admin/config/site-info`（`SiteInfoSchema` 直载）——`siteConfig` 内 **15 个非-lang 键**（title/subtitle/siteURL/siteStartDate/timeZone/themeColor/featurePages/navbarTitle/postListLayout/tagStyle/wallpaperMode/banner/pageScaling/font/toc）**逐属性置换**（lang 先例），基线缺可选键而 body 含该键 → 追加属性到对象字面量末尾；`lang` 与 keywords/bangumi/bilibili/anime/showCoverInContent/generateOgImages/favicon/showLastModified/pageProgressBar/thirdPartyAnalytics **一概不受管**（`.strict()` 400 兜底）。
+  - `PUT /admin/config/profile`（`ProfileConfigSchema` 直载）——整声明置换，`links: []` 为合法清空。
+  - `PUT /admin/config/announcement`（`AnnouncementConfigSchema` 直载）——整声明置换，`content` 非空必填。
+- **物化与留档**：三档全走既有 `splice*` + `preWriteBackup` + `atomicWriteFile`；`originals` 键 = `siteConfig.<key>` × 15（首次覆盖前留档，仅首次）/ `profileConfig` / `announcementConfig`。**无 per-key / 整档清除端点**（K1 裁剪，覆盖写入即管理权转移）。
+- **侧车**：`ConfigOverrideFileSchema` 仅增**可选**键 `siteInfo` / `profile` / `announcement`，`version` 仍 = `1`，**旧侧车文件零迁移可解析**（e2e 实证）。
+- **探针门禁（I5）**：档案 `declarationProbes` 增 `siteConfig` / `siteConfig.siteInfo` / `siteConfig.<15 键>` / `profileConfig` / `announcementConfig`（additive，`profileVersion` 未升版）；`PROBE_SCHEMAS` 扩为四映射；siteInfo 用**宽松探针视图**（真实声明含 20+ 非受管键，整体过 `.strict()` 15 键子集恒失败），该视图**禁用于写路径**。漂移轴未重置（ADR-024 两轴正交）。
+- **面板**：`SiteConfigPage.vue` 改 `el-collapse` 五区（站点信息 / 评论【现状不动】/ 导航【现状不动】/ 个人资料 / 公告）；站点信息 = 13 键 schema-form + `banner`/`font` 两个 JSON textarea（保存前整档 zod 校验，不过不发请求）→ **一个请求**落 15 键；profile / announcement 各自独立保存按钮；siteInfo 区尾只读基线折叠 `<pre>`（null → 「基线不可得」，本批不做逐键 diff UI）。无新路由、无新菜单、无新组件文件、无新增硬编码色值/圆角/阴影。
+- **前置能力补齐（未列文件，报告已说明）**：`evaluator.ts` 增数组字面量求值分支（banner.src / localFonts 基线解析前置）；`SchemaForm.vue` 分组分支改为「路径化行表递归 + switch/select/number 分派」（分组内布尔/枚举/二层嵌套可渲染，分组外路径零改动）。
+- **测试**：新增 `apps/server/test/p7i-site-sidepanel-override.e2e-spec.ts` **15 条**（往返物化 / 合并语义 / 缺失插入 / 可选键零触碰 / 五类 400 / profile 与 announcement 往返与 400 / 两条 409 门禁含零物化 / 旧侧车兼容）；`p4e3a` 内联基线 additive 补两条声明以承载新探针靶点。
+- **验收三连**：`pnpm build` exit 0（shared→server→web，vue-tsc 0 错）/ `pnpm lint` 0·0 / `pnpm test` **505/505（58 文件）**——**本机首次全绿**（此前 484/490 的 p9 进程链环境性失败本轮不出现）。
+- **红线核对**：`/public/**`、`backup.service.ts`、posts/media/albums/collections 模块、路由表、`MainLayout.vue`、`vite.config.ts`、`pnpm-lock.yaml`、两处 `package.json` 零变动；零新增依赖。
+
 ## 批次 U3-D：对齐核查缺陷先行修复（DEF-01..05）
 
 - **背景**：功能-文档对齐核查（`docs/audits/feature-alignment/README.md`）裁定的缺陷级发现先行直修，PM 批准。

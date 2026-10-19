@@ -17,6 +17,8 @@
  *     原始态与物化态均须通过，禁写特定配置值为预期（v2.2 裁决）。
  */
 import { z } from 'zod';
+// [U3-P1] siteInfo 键序单源（探针目标派生自 schema shape，禁手工重排/漏键）
+import { SITE_INFO_KEYS } from './site-config';
 
 /** 指纹条目角色（T1.2 编目来源四类） */
 export const FINGERPRINT_ROLES = [
@@ -198,6 +200,17 @@ export type ThemeDriftItem = z.infer<typeof ThemeDriftItemSchema>;
 export type ThemeStatusView = z.infer<typeof ThemeStatusViewSchema>;
 
 /**
+ * [U3-P1] 站点信息档 15 键的声明探针（declaration-exists 级：siteConfig 声明存在
+ * 即通过）。刻意不下探到 property-exists——基线可缺可选项（navbarTitle / pageScaling /
+ * tagStyle / siteStartDate / wallpaperMode），K2 的物化语义是「缺失即插入」，
+ * 属性级探针会把合法基线判失败。条目由 SITE_INFO_KEYS 派生（键序单源）。
+ */
+const SITE_INFO_DECLARATION_PROBES: DeclarationProbeSpec[] = SITE_INFO_KEYS.map((key) => ({
+  target: `siteConfig.${key}`,
+  checks: ['declaration-exists'],
+}));
+
+/**
  * Mizuki Tier 1 档案（真实主题实测采集，2026-09-02）。
  * 指纹种子哈希为采集时点实测（v2.2 裁决锚：config.ts 含走查期 commentConfig
  * 物化态 = 用户真实站点配置，管理权转移，ADR-020 设计行为）。
@@ -236,9 +249,23 @@ export const MizukiTier1Profile: ThemeProfile = {
   declarationProbes: [
     { target: 'siteConfig', checks: ['declaration-exists', 'initializer-object'] },
     { target: 'siteConfig.lang', property: 'lang', checks: ['property-exists', 'property-assignment'] },
+    // [U3-P1] 站点信息档：整档键面探针（siteConfig.siteInfo → PROBE_SCHEMAS.siteConfig
+    // = SiteInfoProbeSchema 宽松视图）+ 15 键 declaration-exists 条目（父声明存在即通过，
+    // 基线缺可选键不阻断物化——K2「缺失插入」语义）
+    { target: 'siteConfig.siteInfo', checks: ['declaration-exists', 'value-parses-schema'] },
+    ...SITE_INFO_DECLARATION_PROBES,
     { target: 'commentConfig', checks: ['declaration-exists', 'initializer-object', 'value-parses-schema'] },
     { target: 'navBarConfig', checks: ['declaration-exists', 'initializer-object'] },
     { target: 'navBarConfig.links', property: 'links', checks: ['property-exists', 'property-array-literal'] },
+    // [U3-P1] 个人资料 / 公告档：声明级形态 + 键面过受控 schema（commentConfig 同构）
+    {
+      target: 'profileConfig',
+      checks: ['declaration-exists', 'initializer-object', 'value-parses-schema'],
+    },
+    {
+      target: 'announcementConfig',
+      checks: ['declaration-exists', 'initializer-object', 'value-parses-schema'],
+    },
   ],
   shapeNotes: [
     'navBarConfig.links：LinkPreset 标识符引用（PropertyAccess 节点）+ 对象数组混排 + children 嵌套一层（孙级 400 拒绝，D3 受控子集值域）——navbar children 深度 = 1（D3 遗留闭环，官方示例实测同深度）',

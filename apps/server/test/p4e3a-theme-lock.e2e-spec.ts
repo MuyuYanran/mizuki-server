@@ -99,6 +99,24 @@ export const navBarConfig = {
 \t\t},
 \t],
 };
+
+// [U3-P1] 配置域一期追加声明（档案 declarationProbes 新增 profileConfig /
+// announcementConfig 两靶点；本基线为「完好 fixture」，须齐备 → additive 扩展。
+// 字段面逐字对齐受控 schema（.strict()），省略可选键保持最小形态）
+export const profileConfig = {
+  name: "Mizuki",
+  links: [
+    {
+      name: "GitHub",
+      url: "https://github.com/matsuzaka-yuki/Mizuki",
+      icon: "fa7-brands:github",
+    },
+  ],
+};
+
+export const announcementConfig = {
+  content: "欢迎",
+};
 `;
 
 // ⑫ 形态级门禁靶点：navBarConfig 顶层完好（声明 + 对象字面量），links 为字符串非数组

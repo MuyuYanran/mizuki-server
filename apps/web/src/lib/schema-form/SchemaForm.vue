@@ -202,11 +202,86 @@ watch(
   },
 );
 
-/** 嵌套对象字段更新 */
-function updateNestedField(parentKey: string, childKey: string, value: unknown): void {
-  const parent = (props.modelValue[parentKey] ?? {}) as Record<string, unknown>;
-  const nextParent = { ...parent, [childKey]: value };
-  updateField(parentKey, nextParent);
+/**
+ * [U3-P1] 分组子字段的路径化行表：分组子字段递归展开（嵌套分组不再独立成行，
+ * 其叶子直接挂父行），供分组内 switch/select/number 分派渲染。
+ * 动机：原分组分支只渲染 number/其余=el-input（codegen 时代假设——分组子字段
+ * 全为标量），siteConfig 的 themeColor/featurePages/navbarTitle/postListLayout
+ * 等档含布尔、枚举与二层嵌套，原分支会把布尔渲染成文本框、枚举渲染成自由输入。
+ */
+interface GroupRow {
+  /** 相对分组根的子路径（如 ['categoryBar','enable']） */
+  path: string[];
+  field: FieldDescriptor;
+  /** 显示标签：多层路径前缀父标签（'分类栏 · 启用'） */
+  label: string;
+}
+
+function collectGroupRows(
+  children: FieldDescriptor[] | undefined,
+  prefix: string[],
+  ancestorLabels: string[],
+): GroupRow[] {
+  const rows: GroupRow[] = [];
+  for (const child of children ?? []) {
+    if (child.widget === 'group') {
+      rows.push(
+        ...collectGroupRows(
+          child.children,
+          [...prefix, child.key],
+          [...ancestorLabels, child.label],
+        ),
+      );
+      continue;
+    }
+    rows.push({
+      path: [...prefix, child.key],
+      field: child,
+      label: [...ancestorLabels, child.label].join(' · '),
+    });
+  }
+  return rows;
+}
+
+const groupRows = computed<Record<string, GroupRow[]>>(() => {
+  const out: Record<string, GroupRow[]> = {};
+  for (const field of descriptors.value) {
+    if (field.widget === 'group') {
+      out[field.key] = collectGroupRows(field.children, [], []);
+    }
+  }
+  return out;
+});
+
+/** 分组内路径取值（逐层下钻；非对象中间态 → undefined） */
+function nestedValue(groupKey: string, path: string[]): unknown {
+  let current: unknown = props.modelValue[groupKey];
+  for (const key of path) {
+    if (typeof current !== 'object' || current === null) {
+      return undefined;
+    }
+    current = (current as Record<string, unknown>)[key];
+  }
+  return current;
+}
+
+/** 不可变写入：分组内路径赋值（逐层复制，不就地改写父级对象） */
+function setIn(target: Record<string, unknown>, path: string[], value: unknown): Record<string, unknown> {
+  const [head, ...rest] = path;
+  if (head === undefined) {
+    return target;
+  }
+  if (rest.length === 0) {
+    return { ...target, [head]: value };
+  }
+  const child = (target[head] ?? {}) as Record<string, unknown>;
+  return { ...target, [head]: setIn(child, rest, value) };
+}
+
+/** 分组内路径更新（深层嵌套亦可达） */
+function updateNestedPath(groupKey: string, path: string[], value: unknown): void {
+  const group = (props.modelValue[groupKey] ?? {}) as Record<string, unknown>;
+  updateField(groupKey, setIn(group, path, value));
 }
 
 /** [R2-9] 日期更新：清空（null）归一为 undefined（zod optional 语义） */
@@ -294,28 +369,42 @@ function errorFor(key: string, childKey?: string): string {
 <template>
   <el-form label-width="110px" @submit.prevent="onSubmit">
     <template v-for="field in descriptors" :key="field.key">
-      <!-- 嵌套对象：子字段组 -->
+      <!-- 嵌套对象：子字段组（[U3-P1] 行表递归展开 + switch/select/number 分派） -->
       <template v-if="field.widget === 'group'">
         <el-divider content-position="left">{{ field.label }}</el-divider>
         <el-form-item
-          v-for="child in field.children"
-          :key="child.key"
-          :error="errorFor(field.key, child.key) || undefined"
+          v-for="row in groupRows[field.key] ?? []"
+          :key="row.path.join('.')"
+          :error="errorFor(field.key, row.path.join('.')) || undefined"
         >
           <template #label>
-            <span class="field-label-text">{{ child.label }}</span>
-            <FieldHint v-if="child.required" :description="child.description" :label="child.label" />
+            <span class="field-label-text">{{ row.label }}</span>
+            <FieldHint v-if="row.field.required" :description="row.field.description" :label="row.label" />
           </template>
+          <el-switch
+            v-if="row.field.widget === 'switch'"
+            :model-value="(nestedValue(field.key, row.path) as boolean) ?? false"
+            @update:model-value="(v: unknown) => updateNestedPath(field.key, row.path, v)"
+          />
+          <el-select
+            v-else-if="row.field.widget === 'select'"
+            :model-value="(nestedValue(field.key, row.path) as string) ?? ''"
+            placeholder="请选择"
+            @update:model-value="(v: unknown) => updateNestedPath(field.key, row.path, v)"
+          >
+            <el-option v-for="opt in row.field.options ?? []" :key="opt" :label="opt" :value="opt" />
+          </el-select>
           <el-input-number
-            v-if="child.widget === 'number'"
-            :model-value="((modelValue[field.key] as Record<string, unknown> | undefined)?.[child.key] as number) ?? 0"
-            @update:model-value="(v: unknown) => updateNestedField(field.key, child.key, v)"
+            v-else-if="row.field.widget === 'number'"
+            :model-value="(nestedValue(field.key, row.path) as number) ?? 0"
+            @update:model-value="(v: unknown) => updateNestedPath(field.key, row.path, v)"
           />
           <el-input
             v-else
-            :model-value="((modelValue[field.key] as Record<string, unknown> | undefined)?.[child.key] as string) ?? ''"
-            @update:model-value="(v: unknown) => updateNestedField(field.key, child.key, v)"
+            :model-value="(nestedValue(field.key, row.path) as string) ?? ''"
+            @update:model-value="(v: unknown) => updateNestedPath(field.key, row.path, v)"
           />
+          <div v-if="row.field.description" class="field-help">{{ row.field.description }}</div>
         </el-form-item>
       </template>
 

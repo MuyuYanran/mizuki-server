@@ -22,10 +22,13 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { ConflictException, Injectable } from '@nestjs/common';
 import {
+  AnnouncementConfigSchema,
   CommentConfigSchema,
   type DeclarationProbeSpec,
   MizukiTier1Profile,
+  ProfileConfigSchema,
   type ProbeResult,
+  SiteInfoProbeSchema,
   type ThemeBaselineFile,
   ThemeBaselineFileSchema,
   type ThemeStatusView,
@@ -65,6 +68,12 @@ export const PROBE_GATE_GUIDANCE = [
 /** value-parses-schema 检查的受控 schema 映射（canonical 符号 → zod schema） */
 const PROBE_SCHEMAS: Record<string, z.ZodType> = {
   commentConfig: CommentConfigSchema,
+  // [U3-P1] siteConfig 键幅：探针目标 siteConfig.siteInfo 用**宽松视图**
+  // （SiteInfoProbeSchema：15 键全可选 + 允许非受管键）——真实 siteConfig 声明含
+  // 20+ 非受管键，整体值过 .strict() 的 SiteInfoSchema 恒失败（映射刻意不用它）。
+  siteConfig: SiteInfoProbeSchema,
+  profileConfig: ProfileConfigSchema,
+  announcementConfig: AnnouncementConfigSchema,
 };
 
 /** live 指纹条目（扫描输出；目录级条目 sha256 恒 null） */
