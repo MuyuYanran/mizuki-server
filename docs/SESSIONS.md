@@ -801,3 +801,6 @@ DEV（裁决在案、规格文本未修订）：minimal 菜单范围、timeline 
   exit3/good 是 shell 内建也不中招；执行位无虞（spec 自带 `ensureExecBits` 运行期补 755）。
 - 修复：假挂起改**纯 shell 忙等** `while :; do :; done`（零外部命令依赖，忙等由 probeTimeout 杀掉）；
   文件保持 LF。本地 `pm-resolver.spec.ts` 7/7 全绿（④' 371ms 过）。
+- **结果：run 11（65a25cc）success —— 本仓 CI 首绿**。此前 10 个 run 全红（9 个 shared 预构建缺失 + run 10 夹具问题），
+  两层缺陷均为「本机 Windows 绿掩盖远端 Linux 红」形态：第一层是本地 dist 已存在掩盖 shared 构建缺失，
+  第二层是 .cmd 垫片穿透掩盖外部命令 PATH 依赖。CI 通道自此可信，后续批次可直接以 CI 结果为远端数账依据。

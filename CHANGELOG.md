@@ -9,6 +9,8 @@
   `posix/hang/pnpm` 依赖外部命令 `sleep`，而探活注入的 PATH 只含候选目录，Linux runner 上 `sleep` 不可达
   （exit 127）→ 走"候选失败"路径而非超时路径，断言落空。修复：改纯 shell 忙等 `while :; do :; done`
   （零外部命令依赖）；本地该 spec 7/7 全绿。
+- **结果：run 11（65a25cc）success —— 本仓 CI 首绿**（此前 10 run 全红，两层缺陷均为
+  「本机 Windows 绿掩盖远端 Linux 红」形态）。
 
 ## 发布 v1.0.0（2026-10-20）
 
