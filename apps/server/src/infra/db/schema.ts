@@ -1,5 +1,5 @@
 /**
- * [阶段 P0b] infra/db/schema — Drizzle 全部 11 张表定义
+ * [阶段 P0b] infra/db/schema — Drizzle 全部 12 张表定义（[U3-P3/K3] +task_run）
  * [职责] 逐字对齐 MASTER-PLAN §3（表结构唯一事实来源）；
  *   时间戳统一 integer({ mode: 'timestamp' })，主键为 nanoid 文本（由写入方生成）。
  *   六类集合内容不建表（文件即数据库，REQUIREMENTS §6.0）。
@@ -154,4 +154,22 @@ export const siteSetting = sqliteTable('site_setting', {
   key: text('key').primaryKey(),
   /** JSON 文本 */
   value: text('value').notNull(),
+});
+
+/**
+ * [U3-P3/K3] 任务运行历史（控制台「历史记录」区）
+ * 启动写行（finished_at/exit_code/log_text 暂空）→ 退出时更新三字段。
+ * log_text 尾部截断保留 ≤256KB（写入时保尾截断，见 process-manager）。
+ */
+export const taskRun = sqliteTable('task_run', {
+  id: text('id').primaryKey(),
+  /** 白名单任务名（install/dev/build/preview） */
+  task: text('task').notNull(),
+  /** 执行计划快照（JSON 文本：{ file, args }），与 pino plan* 字段同源 */
+  commandSnapshot: text('command_snapshot').notNull(),
+  startedAt: integer('started_at', { mode: 'timestamp' }).notNull(),
+  finishedAt: integer('finished_at', { mode: 'timestamp' }),
+  exitCode: integer('exit_code'),
+  /** 环形缓冲全量日志（保尾截断 ≤256KB） */
+  logText: text('log_text'),
 });

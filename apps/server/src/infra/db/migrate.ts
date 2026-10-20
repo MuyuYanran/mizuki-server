@@ -6,7 +6,7 @@
  * [状态] ACTIVE
  *
  * 说明：migrate() 会在库中维护 __drizzle_migrations 记账表（迁移簿记，
- * 非 11 张业务表之一，见 ADR-002）。
+ * 非 12 张业务表之一，见 ADR-002）。
  */
 import fs from 'node:fs';
 import path from 'node:path';

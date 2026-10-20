@@ -25,18 +25,27 @@ import spawn from 'cross-spawn';
 import type { ChildProcess, SpawnOptions } from 'node:child_process';
 import { nanoid } from 'nanoid';
 import treeKill from 'tree-kill';
+import { eq } from 'drizzle-orm';
 import { z } from 'zod';
-import { EVENTS, ProcessFinishedPayload } from '@mizuki/shared';
+import { EVENTS, ProcessFinishedPayload, TASK_WHITELIST, type ProcessTaskName } from '@mizuki/shared';
 import { toMizukiAbs } from '../../common/fs/mizuki-root';
 import { logger } from '../../common/logger';
 import { type BackupOptions, BACKUP_OPTIONS } from '../../infra/backup/backup.service';
+import { type DrizzleDb, DRIZZLE_DB } from '../../infra/db/db.module';
+import { taskRun } from '../../infra/db/schema';
 import { PackageManagerResolver, type ResolverOptions, type SpawnPlan } from './pm-resolver';
+import { truncateLogText } from './log-truncate';
 
 // ── zod schema（全部输入边界） ──
 
-/** 任务白名单（逐字硬编码，MASTER-PLAN §7） */
-export const TASK_WHITELIST = ['install', 'dev', 'build', 'preview'] as const;
-export type ProcessTaskName = (typeof TASK_WHITELIST)[number];
+/**
+ * [U3-P3/K5] 任务白名单已升格至 packages/shared 单源（L0），
+ * 本处保留 re-export 以维持既有 import 兼容（`import { TASK_WHITELIST } from
+ * './process-manager.service'` 零改动可用），语义零变化。
+ * 升格原因：L0 的 config 层需以 z.enum 引用白名单，而 L0 不得 import L3。
+ */
+export { TASK_WHITELIST };
+export type { ProcessTaskName } from '@mizuki/shared';
 
 /** POST /admin/process/tasks body：白名单外一切拒绝（含注入串）→ 400 */
 export const StartTaskBodySchema = z.object({
@@ -84,6 +93,8 @@ interface TaskInstance {
   listeners: Set<LogListener>;
   /** DELETE 触发的 kill 标记（区分自然退出与被杀） */
   killRequested: boolean;
+  /** [U3-P3/K3] 执行计划快照（JSON 文本，与 pino plan* 字段同源）→ task_run.command_snapshot */
+  commandSnapshot: string;
 }
 
 /** 对外任务视图 */
@@ -114,6 +125,7 @@ export class ProcessManagerService implements OnApplicationShutdown {
   constructor(
     private readonly emitter: EventEmitter2,
     @Inject(BACKUP_OPTIONS) private readonly options: BackupOptions,
+    @Inject(DRIZZLE_DB) private readonly db: DrizzleDb,
   ) {}
 
   // ── 任务生命周期 ──
@@ -144,8 +156,13 @@ export class ProcessManagerService implements OnApplicationShutdown {
       partial: { stdout: '', stderr: '' },
       listeners: new Set(),
       killRequested: false,
+      commandSnapshot: JSON.stringify({ file: plan.file, args: [...plan.argsPrefix, ...args] }),
     };
     this.tasks.set(instance.id, instance);
+
+    // [U3-P3/K3] 历史写入：启动即落一行（finished_at/exit_code/log_text 暂空）。
+    // best-effort——失败只告警，绝不影响任务启动与既有事件分发。
+    await this.insertRunRow(instance);
 
     child.stdout?.on('data', (chunk: Buffer) => this.ingest(instance, 'stdout', chunk));
     child.stderr?.on('data', (chunk: Buffer) => this.ingest(instance, 'stderr', chunk));
@@ -346,6 +363,50 @@ export class ProcessManagerService implements OnApplicationShutdown {
       { id: instance.id, task: instance.task, exitCode: instance.exitCode, signal, status: instance.status },
       '任务已退出',
     );
+
+    // [U3-P3/K3] 历史更新：写 finished_at / exit_code / log_text。
+    // best-effort——失败只告警，绝不影响终态分发与既有事件（已先行发出）。
+    void this.updateRunRow(instance);
+  }
+
+  /**
+   * [U3-P3/K3] 历史写入（启动行）：失败只告警，不影响任务启动。
+   * best-effort 是硬要求：DB 异常不得把「启动成功」变成「启动失败」。
+   */
+  private async insertRunRow(instance: TaskInstance): Promise<void> {
+    try {
+      await this.db.insert(taskRun).values({
+        id: instance.id,
+        task: instance.task,
+        commandSnapshot: instance.commandSnapshot,
+        startedAt: new Date(instance.startedAt),
+        finishedAt: null,
+        exitCode: null,
+        logText: null,
+      });
+    } catch (error) {
+      logger.warn({ id: instance.id, task: instance.task, err: error }, '任务历史写入失败（best-effort，不影响任务）');
+    }
+  }
+
+  /**
+   * [U3-P3/K3] 历史更新（退出行）：写 finished_at / exit_code / log_text。
+   * log_text = 环形缓冲全量行 join('\n')，按 UTF-8 字节保尾截断 ≤256KB。
+   */
+  private async updateRunRow(instance: TaskInstance): Promise<void> {
+    try {
+      const logText = truncateLogText(instance.buffer.join('\n'));
+      await this.db
+        .update(taskRun)
+        .set({
+          finishedAt: instance.finishedAt === null ? null : new Date(instance.finishedAt),
+          exitCode: instance.exitCode,
+          logText,
+        })
+        .where(eq(taskRun.id, instance.id));
+    } catch (error) {
+      logger.warn({ id: instance.id, task: instance.task, err: error }, '任务历史更新失败（best-effort，不影响终态）');
+    }
   }
 
   private getOrThrow(id: string): TaskInstance {

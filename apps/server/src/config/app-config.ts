@@ -9,8 +9,21 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { z } from 'zod';
+import { TASK_WHITELIST } from '@mizuki/shared';
 import { atomicWriteFile } from '../common/fs/atomic-write';
 import { logger } from '../common/logger';
+
+/**
+ * [U3-P3/K5] 任务模板元素 schema：白名单任务的**命名快捷预设**。
+ * - 严格对象：含 cmd/args/shell 等越界键 → 解析失败（config 既有失败语义），
+ *   杜绝「配置文件驱动的通用命令执行器」（AGENTS §5 红线：白名单硬编码 / shell 恒 false）；
+ * - task 取值域 = TASK_WHITELIST（单源在 packages/shared，L0 config 不得 import L3）。
+ */
+const TaskTemplateSchema = z.strictObject({
+  name: z.string().min(1).max(64),
+  task: z.enum(TASK_WHITELIST),
+  description: z.string().max(200).optional(),
+});
 
 /** 配置 schema（字段基线见 P0b 提示词 §3.1，扩展须记 ADR） */
 export const AppConfigSchema = z.object({
@@ -38,6 +51,12 @@ export const AppConfigSchema = z.object({
    *   此前被完全忽略，升级不应因历史脏写法阻断启动。
    */
   corsOrigins: z.array(z.string()).catch([]),
+  /**
+   * [U3-P3/K5] 任务模板（白名单任务命名预设）——面板控制台渲染快捷按钮，
+   * 点击走既有 startTask(task) 白名单链路，零新执行面。
+   * 读取为**活取**（getAppConfig() 每请求，P11 坑 5 先例），改配置不必重启。
+   */
+  tasks: z.array(TaskTemplateSchema).default([]),
 });
 
 export type AppConfig = z.infer<typeof AppConfigSchema>;

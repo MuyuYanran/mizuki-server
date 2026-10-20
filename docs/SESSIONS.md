@@ -685,3 +685,79 @@ DEV（裁决在案、规格文本未修订）：minimal 菜单范围、timeline 
 
 - 无新增缺陷。8 条偏差全部审读采信（①为必要修正，⑥系指令包笔误，其余为合理的执行自由度）。
 - 观察项（不阻验收）：p4c ⑨ / p9 §6.5 在本机全量负载下存在偶发抖动史，后续批次验收如再遇，按本轮同法（隔离复跑 + 二次全量）判定即可，不必排查被测代码。
+- 【2026-10-19 追记】PM 放弃手验、裁定直接提交，已提交 **23c6763**（未 push）。
+
+---
+
+# 批次 U3-P3 交付报告 — 二期规格承诺兑现（2026-10-20）
+
+> 指令包：`docs/prompts-ui/U3-P3-phase2-promises.md`（K1–K10 / I1–I9 / T1–T8）。
+> 起始 HEAD = `23c6763`（U3-P2，基线 523/523、60 文件）。
+> 完整报告（含 K/I 对照、用例明细、三连实录、偏差披露）：`docs/audits/u3-p3/README.md`。
+
+## 1. 交付面
+
+| # | 条款 | 落点 |
+|---|---|---|
+| 1 | K1 | `modules/system/directory-browser.service.ts`（新）+ `system.controller.ts`（+36）+ `system.module.ts` |
+| 2 | K2 | `apps/web/src/views/InitWizardView.vue`（+215）+ `api/system.ts`（+26） |
+| 3 | K3 | `infra/db/schema.ts`（+taskRun）+ `drizzle/0002_add_task_run.sql`（新）+ `process-manager.service.ts`（+69）+ `log-truncate.ts`（新） |
+| 4 | K4 | `process/task-runs.service.ts`（新）+ `process.controller.ts`（+58）+ `process.module.ts` |
+| 5 | K5 | `packages/shared/src/process-tasks.ts`（新）+ `shared/src/index.ts` + `config/app-config.ts`（+19）+ process-manager re-export + `GET /admin/process/templates` |
+| 6 | K6 | `apps/web/src/views/process/ConsolePage.vue`（+233）+ `api/process.ts`（+61） |
+| 7 | K7 | `modules/albums/albums.service.ts`（+36，AlbumItem + buildViewFrom 统一出口） |
+| 8 | K8 | `REQUIREMENTS-PHASE2.md`（+35）+ `REQUIREMENTS.md`（+22）+ `decisions/ADR-010-upload-format-policy.md`（新） |
+| 9 | K9 | `audits/feature-alignment/README.md`（+31）+ 本卷 + CHANGELOG + `audits/u3-p3/README.md`（新） |
+| 10 | K10 | `p0a-system-browse.e2e-spec.ts`（新 8）+ `p9e-process-runs.e2e-spec.ts`（新 8）+ `p7c` 增量 +4 |
+
+**两处架构师再裁的执行落点**：① browse-dirs 走 **@Public + 未初始化门**（init 前 200 / init 后 409）；
+② 任务模板重定义为**白名单任务命名预设** `{name, task, description?}`（**零新执行面**，面板按钮走既有 `startTask(task)`）。
+
+## 2. 数账（I5）
+
+净增 **+23**：p0a 新 8 + p9e 新 8 + p7c +4 + app-config +3（另 3 个既有断言文件因新表/新键**必然连带修订**，
+非弱化）。**523 → 546，60 → 62 文件**。逐用例明细见 `docs/audits/u3-p3/README.md` §3。
+
+## 3. 验收三连
+
+- `pnpm build`：exit 0（shared → server → web；vue-tsc 0 错；1915 modules / 12.89s）
+- `pnpm lint`：exit 0（0 error / 0 warning）
+- `pnpm test`（全量单批 `--maxWorkers=1`）：**62/62 文件、546/546 用例全绿**（302.98s）
+- 分批轮次（≤6 文件/批）：11 批全绿；app-config 批首次红（config 默认值断言未含新键）→ 修订后 7/7 绿。
+- **I8 老库升级实测**：本机真库 `apps/server/data/mizuki.db`（11 表老库）启动一次 → 日志「迁移执行完成」
+  → 复查真库业务表 **11 → 12**（含 `task_run`），`PRAGMA table_info(task_run)` 七列齐备。
+
+## 4. 红线核对
+
+`/public/**`、backup/posts/media/collections/articles/site-config 模块源码、`MainLayout.vue`、路由表、
+`vite.config.ts`、`pnpm-lock.yaml`、三处 `package.json` —— **零 diff**（I1 零新依赖成立）。
+**I9 安全面**：`startTask` 执行链（spawn / buildSpawnOptions / taskArgs / childEnv / pm-resolver）**零 diff**，
+唯一新增行是 `commandSnapshot` 只读快照构造（复用既有 `plan.file` / `plan.argsPrefix` / `args` 局部变量）。
+
+## 5. 已知限制
+
+1. browse-dirs 根层只枚举**存在的盘符**（不含网络驱动器/未挂载卷）。
+2. `isMizuki` 是**轻量**判据（package.json **或** astro.config.mjs），完整四项检测仍走 `POST /system/detect`。
+3. `task_run` 跨重启可见，但**正在运行**的任务只在进程内存——服务重启后该行停留 `finished_at = null`（显示「运行中」）。
+4. `log_text` **保尾**截断（丢最早输出），与 R2-10「尾部截断保留」一致。
+5. `AlbumView.items` 本批**面板不消费**（K7 明示，仅兑现 API 契约）。
+6. browse-dirs 为 @Public，靠**未初始化门**单向限制暴露面（初始化完成后永久 409）。
+
+## 6. 偏差披露（5 条，详见审计报告 §6）
+
+① 读取端补同源截断防御（首轮 p9e ⑥ 暴露 DB 直预置超长行时详情端点不设上限）；② 3 个既有断言文件因新表/新键**必然连带**
+修订（表数 11→12、config 默认值 +`tasks: []`，**未弱化语义**，另补 3 例正向覆盖）；③ p9e 做 8 例（非建议 7 例）——
+拆出 ⑥b 用真实超长输出任务证明**写入侧**保尾截断；④ p9e 另建专用大输出项目夹具，**共享 `fixtures/mini-project` 零改动**
+（它被 p9 / p9b 复用且 p9 §6.5 断言精确行）；⑤ 4 处「11 表」计数同步（MASTER-PLAN / README / docs/README / AGENTS.md）
++ 2 处源码注释——**历史 ADR 与历史提示词未动**（记录的是一期基线，改写即篡改历史）。
+
+**K5 越界键实测行为**（停工条件点名披露）：`tasks` 元素含 `cmd`/`shell` → `loadAppConfig` **抛错**
+（`tasks.0: Unrecognized keys: "cmd", "shell"`）——按 config 既有失败语义**启动即失败**，非静默忽略。
+
+## 7. 提交状态
+
+- 全部改动（**27 改 + 8 新增**）**未提交、未 push**，等架构师复核。
+- 建议提交信息：`feat(system+process+albums): U3-P3 二期规格兑现 — 向导目录点选 / 控制台历史与模板 / 相册 items（基线 546）`
+- PM 手验点：① 未初始化开 `/init` → step1 盘符列表 → 逐级点选 → 只读回填 → 检测；
+  ② 初始化后 browse-dirs → 409；③ 控制台跑一次 build → 历史区出行 → 看日志 → 删除；
+  ④ `config.json` 写 `tasks` → 控制台出现模板按钮（**无需重启**）；加 `"cmd"` → 服务下次启动拒绝启动（**预期行为**）。

@@ -19,6 +19,7 @@ describe('P0b config.json zod 校验加载（§6.2）', () => {
       uploadLimitMb: 10,
       swagger: true, // [B2/裁决 6] 新增默认字段
       corsOrigins: [], // [Wave-2/B3] 纳入 schema 的 CORS 扩展白名单（原为被 strip 的死代码）
+      tasks: [], // [U3-P3/K5] 任务模板默认空数组
     });
   });
 
@@ -42,7 +43,43 @@ describe('P0b config.json zod 校验加载（§6.2）', () => {
       uploadLimitMb: 5,
       swagger: true, // [B2/裁决 6] 缺省补默认 true
       corsOrigins: [], // [Wave-2/B3] 缺省补默认空数组
+      tasks: [], // [U3-P3/K5] 缺省补默认空数组
     });
+  });
+
+  it('任务模板合法值 → 解析通过（[U3-P3/K5] 命名快捷预设）', () => {
+    const file = path.join(dir, 'config.json');
+    fs.writeFileSync(
+      file,
+      JSON.stringify({
+        tasks: [{ name: '构建产物', task: 'build', description: '出静态产物' }],
+      }),
+      'utf8',
+    );
+    const config = loadAppConfig(file);
+    expect(config.tasks).toEqual([
+      { name: '构建产物', task: 'build', description: '出静态产物' },
+    ]);
+  });
+
+  it('任务模板越界键（cmd/args/shell）→ 抛出含字段路径的错误（[U3-P3/K5] 再裁 B）', () => {
+    const file = path.join(dir, 'config.json');
+    fs.writeFileSync(
+      file,
+      JSON.stringify({ tasks: [{ name: '越界', task: 'build', cmd: 'powershell' }] }),
+      'utf8',
+    );
+    expect(() => loadAppConfig(file)).toThrow(/tasks/);
+  });
+
+  it('任务模板 task 非白名单值 → 抛出含字段路径的错误', () => {
+    const file = path.join(dir, 'config.json');
+    fs.writeFileSync(
+      file,
+      JSON.stringify({ tasks: [{ name: '越界', task: 'rm' }] }),
+      'utf8',
+    );
+    expect(() => loadAppConfig(file)).toThrow(/tasks/);
   });
 
   it('非法值（uploadLimitMb: "abc"）→ 抛出含字段路径的错误', () => {

@@ -4,17 +4,19 @@
  * [阶段 P6] 提供并导出 MizukiDetectorService（auth 模块的 init 流程使用）；
  *   经 forwardRef(AuthModule) 取得 AuthService（init 端点），
  *   AuthModule → SystemModule 为常规导入，反向以 forwardRef 打破循环。
+ * [U3-P3/K1] 增补 DirectoryBrowserService（初始化向导目录点选器后端）。
  * [状态] ACTIVE
  */
 import { forwardRef, Module } from '@nestjs/common';
 import { AuthModule } from '../auth/auth.module';
+import { DirectoryBrowserService } from './directory-browser.service';
 import { MizukiDetectorService } from './mizuki-detector.service';
 import { SystemController } from './system.controller';
 
 @Module({
   imports: [forwardRef(() => AuthModule)],
   controllers: [SystemController],
-  providers: [MizukiDetectorService],
+  providers: [MizukiDetectorService, DirectoryBrowserService],
   exports: [MizukiDetectorService],
 })
 export class SystemModule {}

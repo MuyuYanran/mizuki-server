@@ -179,11 +179,24 @@ export const UpdateAlbumBodySchema = z
   })
   .refine((value) => Object.keys(value).length > 0, { message: '至少提供一个待修改字段' });
 
+/**
+ * [U3-P3/K7 / R2-14] 相册统一 items 元素：
+ *   - 本地照片 → { type:'file', name }（name 为相册目录内的文件名）
+ *   - 外链照片 → { type:'url', url }（url 为 photos[].src 原值）
+ * 两模式互斥（本地相册无 photos，外链相册无本地文件），故不混排。
+ */
+export type AlbumItem = { type: 'file'; name: string } | { type: 'url'; url: string };
+
 /** 对外相册视图 */
 export interface AlbumView {
   name: string;
   info: AlbumInfo;
   images: string[];
+  /**
+   * [U3-P3/K7] 统一 items 数组（additive：images 原样保留，公开/管理 API 形状不变）。
+   * 顺序 = 本地 listImages 序在前 + 外链 photos[] 序在后。
+   */
+  items: AlbumItem[];
 }
 
 @Injectable()
@@ -268,7 +281,7 @@ export class AlbumsService implements MediaReferenceContributor {
         logger.warn({ album: entry.name }, '相册缺少合法 info.json，列表跳过');
         continue;
       }
-      albums.push({ name: entry.name, info, images: this.listImages(entry.name) });
+      albums.push(this.buildViewFrom(entry.name, info));
     }
     return albums.sort((a, b) => a.name.localeCompare(b.name));
   }
@@ -300,7 +313,7 @@ export class AlbumsService implements MediaReferenceContributor {
     atomicWriteFile(infoAbs, JSON.stringify(info, null, 2));
     this.emitAlbumChanged(name);
     logger.info({ album: name, mode: info.mode ?? 'local' }, '相册创建完成');
-    return { name, info, images: [] };
+    return this.buildViewFrom(name, info);
   }
 
   /**
@@ -336,7 +349,7 @@ export class AlbumsService implements MediaReferenceContributor {
     atomicWriteFile(infoAbs, JSON.stringify(merged, null, 2));
     this.emitAlbumChanged(validatedName);
     logger.info({ album: validatedName, mode: merged.mode ?? 'local' }, '相册元信息更新完成');
-    return { name: validatedName, info: merged, images: this.listImages(validatedName) };
+    return this.buildViewFrom(validatedName, merged);
   }
 
   /** [R2-14] 模式切换精确规则（双向 409 拒绝条件） */
@@ -612,7 +625,22 @@ export class AlbumsService implements MediaReferenceContributor {
 
   /** 对外相册视图组装（外链照片 CRUD 等写操作后的统一返回出口） */
   private buildView(name: string): AlbumView {
-    return { name, info: this.readInfoOrThrow(name), images: this.listImages(name) };
+    return this.buildViewFrom(name, this.readInfoOrThrow(name));
+  }
+
+  /**
+   * [U3-P3/K7] 相册视图组装（items 统一输出的唯一出口）。
+   * 顺序：本地 listImages 序在前 + 外链 photos[] 序在后。
+   * images 字段原样保留（additive，公开 API 形状不变）。
+   */
+  private buildViewFrom(name: string, info: AlbumInfo): AlbumView {
+    const images = this.listImages(name);
+    const external = (info as AlbumInfoExternal).mode === 'external' ? (info as AlbumInfoExternal).photos : [];
+    const items: AlbumItem[] = [
+      ...images.map((fileName): AlbumItem => ({ type: 'file', name: fileName })),
+      ...external.map((photo): AlbumItem => ({ type: 'url', url: photo.src })),
+    ];
+    return { name, info, images, items };
   }
 
   /**

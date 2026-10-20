@@ -78,9 +78,9 @@
 
 | 编号 | 缺口 | 规格依据 | 实现侧证据 | 备注 |
 |---|---|---|---|---|
-| B-P1-01 | R2-2 向导目录点选器整条未落地（GET /admin/system/browse-dirs + 树形点选 UI） | REQUIREMENTS-PHASE2:17-29 | system.controller.ts 六路由无 browse-dirs；InitWizardView.vue:186 仍为 el-input | B2 终版报告三期输入增量未提此项 |
-| B-P1-02 | R2-10 控制台历史持久化 + 任务模板整条未落地（task_run 表 + /admin/process/runs + config 模板 + 面板历史区） | REQUIREMENTS-PHASE2:72-89 | schema.ts 11 表无 task_run；process.controller 无 /runs；app-config.ts 无 tasks 键 | C3 仅裁决了 command_snapshot 内存承载，四件均无裁剪记录 |
-| B-P1-03 | R2-14 子项「列表端点输出统一 items 数组」未实现 | REQUIREMENTS-PHASE2:120 | AlbumView={name,info,images[]}，本地与外链未合并输出 | **UNSURE**：B2 终版提示词不在仓，无法证实是否有意裁剪；建议补裁决 |
+| B-P1-01 | ~~R2-2 向导目录点选器整条未落地~~ **立项闭环（U3-P3）**：GET /admin/system/browse-dirs 落地（@Public + 未初始化门，再裁 A）+ 向导 step1 树形点选（高级模式折叠） | REQUIREMENTS-PHASE2:17-29 | `modules/system/directory-browser.service.ts` + `system.controller.ts`；`InitWizardView.vue` step1；test/p0a-system-browse.e2e-spec.ts（8 例） | **闭环**（鉴权形态按再裁 A 修订规格文本） |
+| B-P1-02 | ~~R2-10 控制台历史持久化 + 任务模板整条未落地~~ **立项闭环（U3-P3）**：task_run 表 + 迁移 0002 + /admin/process/runs 三端点 + /admin/process/templates + 面板历史区/模板区 | REQUIREMENTS-PHASE2:72-89 | `infra/db/schema.ts`（taskRun）+ `drizzle/0002_add_task_run.sql`；`process/task-runs.service.ts`；`ConsolePage.vue`；test/p9e-process-runs.e2e-spec.ts（8 例） | **闭环**（模板按再裁 B 重定义为命名预设） |
+| B-P1-03 | ~~R2-14 子项「列表端点输出统一 items 数组」未实现~~ **立项闭环（U3-P3）**：AlbumView additive 增 `items`（本地 file 序在前 + 外链 url 序在后），images 原样保留 | REQUIREMENTS-PHASE2:120 | `modules/albums/albums.service.ts`（AlbumItem + buildViewFrom）；test/p7c-album-fields.e2e-spec.ts（+4 例） | **闭环**（面板本批不消费 items） |
 
 ### P2（清单/规划级承诺，措辞较软，无裁剪记录）
 
@@ -90,10 +90,10 @@
 | B-P2-02 | config.json 服务参数（API/端口/上传上限/备份目录）无面板编辑入口 | REQUIREMENTS:320 | SettingsPage.vue:9-11 明示「不在此修改」；无管理端点 |
 | B-P2-03 | 媒体「重命名、格式转换」未实现（二期「媒体库完善」整体无裁剪记录） | REQUIREMENTS:321、386 | MediaLibraryPage 操作列仅复制/删除 |
 | B-P2-04 | 自动备份未实现（规格：手动/自动） | REQUIREMENTS:322 | backup.controller 4 路由无调度器 |
-| B-P2-05 | anime.mode/bangumi/bilibili 归 C7，C7 实落未含，三期文档内部口径张力未销账（≡ A-GAP-11） | REQUIREMENTS-PHASE3:90、ADR-018:37,51 | server/shared grep 零命中 |
+| B-P2-05 | anime.mode/bangumi/bilibili 归 C7，C7 实落未含，三期文档内部口径张力未销账（≡ A-GAP-11）——**立项排期（U3-P4 / U4 路线）**，U3-P3 仅落台账注记 | REQUIREMENTS-PHASE3:90、ADR-018:37,51 | server/shared grep 零命中 |
 | B-P2-06 | 二期清单「友链申请审核、文件 diff」未实现且无裁剪记录（评论系统已由 ADR-016 有意关闭，不计） | REQUIREMENTS:386 | 全仓 grep 仅规格原文一处 |
-| B-P2-07 | 「模式二/三前端侧接入」仅有模式枚举/菜单过滤，无「向主题写入 API 客户端/组件」行为 | REQUIREMENTS:79-85、386 | **UNSURE**：若解读为主题侧工作则不属本仓缺口，建议裁决划界 |
-| B-P2-08 | 一期路线图「三期」八项（浏览量/点赞/说说/全文搜索/访客分析/RSS/缓存/PG-MySQL）被实际三期规格静默跳过 | REQUIREMENTS:387 | PHASE3 全文无一项 |
+| B-P2-07 | 「模式二/三前端侧接入」仅有模式枚举/菜单过滤，无「向主题写入 API 客户端/组件」行为——**立项排期（U3-P4 / U4 路线）**，U3-P3 仅落台账注记 | REQUIREMENTS:79-85、386 | **UNSURE**：若解读为主题侧工作则不属本仓缺口，建议裁决划界 |
+| B-P2-08 | 一期路线图「三期」八项（浏览量/点赞/说说/全文搜索/访客分析/RSS/缓存/PG-MySQL）被实际三期规格静默跳过——**立项排期（U3-P4 / U4 路线）**，U3-P3 仅落台账注记 | REQUIREMENTS:387 | PHASE3 全文无一项 |
 | B-P2-09 | ~~外链相册封面未纳入媒体引用注册表~~ **已闭环（U3-P2/K4）**：collectReferences 实装，cover + photos[].src 双注册（`album-cover` / `album-photo`），media 模块零改动，p7j 8 用例 | REQUIREMENTS:431-432；PHASE2:114 | albums.service.ts（collectReferences + toMediaPath）；test/p7j-*.e2e-spec.ts | **闭环** |
 
 ### P3 状态确认（有意裁剪/显式移交/冻结，有据，非缺口）
@@ -110,10 +110,10 @@
 
 | 编号 | 偏差 | 裁决依据 | 欠账 |
 |---|---|---|---|
-| B-DEV-01 | minimal 菜单只隐藏富文本（规格文本写「与六类集合」） | B2 终版裁决 7 | 修订 PHASE2:40 |
-| B-DEV-02 | timeline type 用官方四值 + 载入迁移（一期基线表未修订） | ADR-018 | 修订 REQUIREMENTS:222 |
-| B-DEV-03 | posts 封面维持转 JPG（R2-7 点名应撰的 ADR-010 文件缺失） | B2 裁决 2/3 | 补 ADR-010 或以 ADR-028 记录归并 |
-| B-DEV-04 | 富文本「导出 Markdown」为 HTML 包降级实现 | P10c §3.3 授权降级 | 修订 REQUIREMENTS:318 加注 |
+| B-DEV-01 | minimal 菜单只隐藏富文本（规格文本写「与六类集合」） | B2 终版裁决 7 | ~~修订 PHASE2:40~~ **闭环（U3-P3，规格修订）**：PHASE2 R2-5 加修订注记（「六类集合」一句作废） |
+| B-DEV-02 | timeline type 用官方四值 + 载入迁移（一期基线表未修订） | ADR-018 | ~~修订 REQUIREMENTS:222~~ **闭环（U3-P3，规格修订）**：REQUIREMENTS §6.6 基线表改为官方四值 + ADR-018 迁移注记 |
+| B-DEV-03 | posts 封面维持转 JPG（R2-7 点名应撰的 ADR-010 文件缺失） | B2 裁决 2/3 | ~~补 ADR-010~~ **闭环（U3-P3，ADR-010 补建）**：`docs/decisions/ADR-010-upload-format-policy.md`（全弧：P5 一律转 JPG → R2-7 废止为媒体/相册保留原格式 → posts 封面维持转 JPG） |
+| B-DEV-04 | 富文本「导出 Markdown」为 HTML 包降级实现 | P10c §3.3 授权降级 | ~~修订 REQUIREMENTS:318 加注~~ **闭环（U3-P3，规格修订）**：REQUIREMENTS §7-4 加降级注记（HTML 包降级，P10c §3.3 授权） |
 
 ---
 
@@ -135,7 +135,7 @@
 | **U3-D（缺陷先行）** | DEF-01 devices 登记、DEF-02 published 预填、DEF-03 备份收 *.json、DEF-04/05 文案订正 | 小（3 行级修复 + 2 文案） |
 | **U3-P1（配置域一期）** | A-GAP-01 站点信息档 + A-GAP-02 侧栏内容（即对接报告 U3-P1/P2 档） | 中（schema+物化器+表单） |
 | **U3-P2（构建与杂项）** | ~~A-GAP-06 pagefind 后置钩子~~（改判销案）、A-GAP-09 frontmatter 补 7 键表单、B-P2-09 相册封面注册表、A-GAP-10 LinkPreset 警示强化 | 中（已交付，见 §6） |
-| **U3-P3（裁定销账）** | B-P1-01/02/03 补裁决或立项、B-P2-05/07/08 划界裁决、DEV 四项规格文本修订 | 文档轮 |
+| **U3-P3（裁定销账）** | **已交付**（2026-10-20，PM 裁定「全部立项实现」）：B-P1-01 向导目录点选（browse-dirs + 树形点选 UI）、B-P1-02 控制台历史 + 任务模板（task_run 表 + 迁移 0002 + runs 三端点 + templates 端点 + 面板两区）、B-P1-03 相册 items 统一输出；B-P2-05/07/08 立项排期（U3-P4 / U4 路线，本批仅台账注记）；DEV 四项规格文本修订 + ADR-010 补建 | 中（后端 2 新模块 + 1 迁移 + 面板 2 页 + 文档 4 件；见 §7） |
 | **U3-P4（低优档）** | A-GAP-03/04/05/07/11/12、A-GAP-13 导入器（待表态） | 大，逐项独立裁定 |
 
 ---
@@ -165,6 +165,15 @@
 **连带记录（防后续误判）**：主题 `.npmrc` 有 `manage-package-manager-versions = true`、
 `packageManager=pnpm@10.22.0`，宿主 pnpm 12 会自切到 10.22.0 执行；这**与本裁断无关**
 （pagefind 在主脚本而非 pre/post 钩子，任何 pnpm 版本行为一致），单独记下来以免下次又被当成变量。
+
+---
+
+## 7. U3-P3 交付小结（2026-10-20）
+
+PM 裁定「全部立项实现」后，B-P1-01/02/03 三条 P1 缺口本批**立项闭环**，
+B-P2-05/07/08 转入 U3-P4 / U4 路线（仅台账注记），DEV 四项规格文本修订 +
+ADR-010 补建同批闭环。完整交付报告（证据行编号、K/I 对照、用例明细、
+三连实录、偏差披露）见 **`docs/audits/u3-p3/README.md`**。
 
 ---
 

@@ -26,3 +26,6 @@ export * from './nav-config';
 
 // [Phase4-E3a] 主题档案 schema + Mizuki Tier 1 内置档案（theme-lock 机制，ADR-024）
 export * from './theme-profile';
+
+// [U3-P3/K5] 任务白名单单源（从 L3 process 升格，供 L0 config 引用；模板再裁 B）
+export * from './process-tasks';

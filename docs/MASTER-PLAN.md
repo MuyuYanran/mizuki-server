@@ -39,7 +39,7 @@
    （共享底层，非模块耦合，套 Port 属过度设计）。
 ---
 ## 3. 数据库表设计
-共 11 张表。时间戳统一用 `integer({ mode: 'timestamp' })`，主键用 nanoid 文本。
+共 12 张表（[U3-P3/K3] +task_run；一期基线为 11 张）。时间戳统一用 `integer({ mode: 'timestamp' })`，主键用 nanoid 文本。
 ### 3.1 表清单
 **admin_user** — 管理员
 | 列                                                           | 类型                                  | 说明                                |
@@ -86,6 +86,8 @@
 | **media_file** — 媒体索引                                    |                                       |                                     |
 | id, path UNIQUE（相对 Mizuki 根）, original_name, mime, size, width?, height?, sha256, created_at |                                       |                                     |
 | **site_setting**：key text PK, value text(JSON)。仅存运行态配置；启动配置存 `data/config.json`（DB 可用之前就需要）。 |                                       |                                     |
+| **task_run** — 任务运行历史（[U3-P3/K3]，R2-10）              |                                       |                                     |
+| id text PK, task, command_snapshot, started_at, finished_at?, exit_code?, log_text?（尾部截断 ≤256KB） |                                       |                                     |
 ### 3.2 Drizzle 示例（article 表，其余照此模式）
 ```ts
 export const article = sqliteTable('article', {

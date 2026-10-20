@@ -11,6 +11,13 @@
  * - DELETE /admin/process/tasks/:id → TaskView（停止）；
  * - GET /admin/process/tasks/:id/logs → SSE（先回放缓冲，再实时推送，终态 exit）；
  * - GET /admin/process/ports/:port → PortProbeResult。
+ *
+ * [U3-P3/K4] 增补任务运行历史（纯增量）：
+ * - GET /admin/process/runs?page=&limit= → TaskRunPage（不含 log_text）；
+ * - GET /admin/process/runs/:id → TaskRunDetail（含 log_text）；
+ * - DELETE /admin/process/runs/:id → { deleted: true }。
+ * [U3-P3/K5] 增补任务模板：
+ * - GET /admin/process/templates → { items: TaskTemplate[] }。
  */
 import { API_PREFIX, request } from './http';
 import { getAccessToken } from '../stores/auth';
@@ -49,6 +56,40 @@ export interface LogStreamCallbacks {
   onError(error: unknown): void;
 }
 
+/** [U3-P3/K4] 任务运行历史列表项（不含 log_text） */
+export interface TaskRunListItem {
+  id: string;
+  task: string;
+  commandSnapshot: string;
+  startedAt: string;
+  finishedAt: string | null;
+  exitCode: number | null;
+  status: 'running' | 'exited' | 'failed';
+}
+
+/** [U3-P3/K4] 任务运行历史详情（含完整 log_text） */
+export interface TaskRunDetail extends TaskRunListItem {
+  logText: string | null;
+}
+
+/** [U3-P3/K4] 历史分页响应 */
+export interface TaskRunPage {
+  page: number;
+  limit: number;
+  total: number;
+  items: TaskRunListItem[];
+}
+
+/**
+ * [U3-P3/K5] 任务模板（白名单任务命名预设）。
+ * 模板不含 cmd/args/shell——按钮点击走既有 startTask(task) 白名单链路。
+ */
+export interface TaskTemplate {
+  name: string;
+  task: ProcessTaskName;
+  description?: string;
+}
+
 export const processApi = {
   startTask(task: ProcessTaskName): Promise<TaskView> {
     return request<TaskView>('POST', '/admin/process/tasks', { task });
@@ -64,6 +105,26 @@ export const processApi = {
 
   probePort(port: number): Promise<PortProbeResult> {
     return request<PortProbeResult>('GET', `/admin/process/ports/${port}`);
+  },
+
+  /** [U3-P3/K4] 历史分页列表（started_at 倒序） */
+  listRuns(page = 1, limit = 20): Promise<TaskRunPage> {
+    return request<TaskRunPage>('GET', `/admin/process/runs?page=${page}&limit=${limit}`);
+  },
+
+  /** [U3-P3/K4] 历史详情（含 log_text） */
+  getRun(id: string): Promise<TaskRunDetail> {
+    return request<TaskRunDetail>('GET', `/admin/process/runs/${encodeURIComponent(id)}`);
+  },
+
+  /** [U3-P3/K4] 删除单条历史 */
+  deleteRun(id: string): Promise<{ deleted: true }> {
+    return request<{ deleted: true }>('DELETE', `/admin/process/runs/${encodeURIComponent(id)}`);
+  },
+
+  /** [U3-P3/K5] 任务模板列表 */
+  listTemplates(): Promise<{ items: TaskTemplate[] }> {
+    return request<{ items: TaskTemplate[] }>('GET', '/admin/process/templates');
   },
 };
 

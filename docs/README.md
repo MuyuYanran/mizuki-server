@@ -2,7 +2,7 @@
 
 为 [Mizuki](https://github.com)（Astro 静态博客主题）配套的**本地优先管理服务端**：接管站点配置与内容（文章/日记/友链/项目/时间线/技能/设备/相册/媒体），驱动 npm 构建预览，并提供带认证的管理 API 与限流的公开 REST API，内置同源管理面板（Vue 3）。
 
-**架构一句话**：pnpm monorepo —— `apps/server`（NestJS 11 + Drizzle/SQLite，API 与面板同源 20154）+ `apps/web`（Vue 3 + Element Plus + TipTap/CodeMirror 管理面板）+ `packages/shared`（前后端共享 zod schema 与事件契约）；六类集合内容「文件即数据库」（ts-morph AST 改写），文章索引/富文本/用户/日志入 SQLite（11 张表）。
+**架构一句话**：pnpm monorepo —— `apps/server`（NestJS 11 + Drizzle/SQLite，API 与面板同源 20154）+ `apps/web`（Vue 3 + Element Plus + TipTap/CodeMirror 管理面板）+ `packages/shared`（前后端共享 zod schema 与事件契约）；六类集合内容「文件即数据库」（ts-morph AST 改写），文章索引/富文本/用户/日志入 SQLite（12 张表）。
 
 ## 目录速览
 

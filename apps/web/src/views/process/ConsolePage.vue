@@ -9,14 +9,25 @@
  *   mizuki_preview_jwt + 端口下发）→ 新窗口打开 `${protocol}//${hostname}:${port}/`
  *   ——hostname 一律 window.location.hostname 派生（禁硬编码 127.0.0.1），
  *   port 来自票据响应（禁前端硬编码）。白名单 'preview' 任务本体未动。
+ * [U3-P3/K6] 控制台增补两区（纯增量，SSE 实时区/启停交互/端口检测一行不动）：
+ *   ① 历史记录区——分页表格、查看全文日志 dialog、单条删除（带确认）；
+ *   ② 模板区——GET /admin/process/templates 渲染快捷按钮（点击走既有
+ *      startTask(task) 白名单链路）；空数组不显示该区。
  * [状态] ACTIVE
  *
  * SSE 经 fetch 流携带 Bearer token（process.ts）；LogTerminal 在 exit 事件后
  * emit 'finished'，本页据以刷新任务终态。
  */
-import { ref } from 'vue';
-import { ElMessage } from 'element-plus';
-import { processApi, type ProcessTaskName, type TaskView, type PortProbeResult } from '../../api/process';
+import { onMounted, ref } from 'vue';
+import { ElMessage, ElMessageBox } from 'element-plus';
+import {
+  processApi,
+  type ProcessTaskName,
+  type TaskView,
+  type PortProbeResult,
+  type TaskRunListItem,
+  type TaskTemplate,
+} from '../../api/process';
 import { previewApi } from '../../api/preview';
 import { ApiError } from '../../api/http';
 import LogTerminal from '../../components/LogTerminal.vue';
@@ -130,6 +141,127 @@ async function checkPort(): Promise<void> {
   }
 }
 
+// ── [U3-P3/K6] 模板区 ──
+
+/** 任务模板（白名单任务命名预设；点击走既有 startTask 白名单链路） */
+const templates = ref<TaskTemplate[]>([]);
+
+async function loadTemplates(): Promise<void> {
+  try {
+    const result = await processApi.listTemplates();
+    templates.value = result.items;
+  } catch (e) {
+    notifyApiError(e, '任务模板加载失败');
+  }
+}
+
+/** 点击模板按钮 → 启动其绑定的白名单任务 */
+async function runTemplate(task: ProcessTaskName): Promise<void> {
+  await startTask(task);
+}
+
+// ── [U3-P3/K6] 历史记录区 ──
+
+/** 历史列表 */
+const runItems = ref<TaskRunListItem[]>([]);
+/** 历史总数 */
+const runTotal = ref(0);
+/** 历史分页（页码从 1 起） */
+const runPage = ref(1);
+/** 历史每页条数 */
+const runLimit = 20;
+/** 历史加载中 */
+const runsLoading = ref(false);
+/** 日志全文对话框可见 */
+const logDialogVisible = ref(false);
+/** 日志全文内容 */
+const logText = ref('');
+/** 日志对话框标题（任务 + 起始时间） */
+const logDialogTitle = ref('');
+
+async function loadRuns(): Promise<void> {
+  runsLoading.value = true;
+  try {
+    const page = await processApi.listRuns(runPage.value, runLimit);
+    runItems.value = page.items;
+    runTotal.value = page.total;
+  } catch (e) {
+    notifyApiError(e, '任务历史加载失败');
+  } finally {
+    runsLoading.value = false;
+  }
+}
+
+/** 翻页 */
+async function changeRunPage(page: number): Promise<void> {
+  runPage.value = page;
+  await loadRuns();
+}
+
+/** 查看全文日志（详情端点才给 log_text） */
+async function openLog(row: TaskRunListItem): Promise<void> {
+  try {
+    const detail = await processApi.getRun(row.id);
+    logText.value = detail.logText ?? '（本次运行无日志输出）';
+    logDialogTitle.value = `${row.task} · ${formatTime(row.startedAt)}`;
+    logDialogVisible.value = true;
+  } catch (e) {
+    notifyApiError(e, '任务日志加载失败');
+  }
+}
+
+/** 单条删除（带确认） */
+async function removeRun(row: TaskRunListItem): Promise<void> {
+  try {
+    await ElMessageBox.confirm(`确认删除该条任务历史？此操作不可恢复。`, '删除确认', {
+      type: 'warning',
+      confirmButtonText: '删除',
+      cancelButtonText: '取消',
+    });
+  } catch {
+    return; // 用户取消
+  }
+  try {
+    await processApi.deleteRun(row.id);
+    ElMessage.success('已删除');
+    // 删掉当前页最后一条时回退一页
+    if (runItems.value.length === 1 && runPage.value > 1) {
+      runPage.value -= 1;
+    }
+    await loadRuns();
+  } catch (e) {
+    notifyApiError(e, '删除任务历史失败');
+  }
+}
+
+/** 历史状态标签类型 */
+function runStatusType(status: TaskRunListItem['status']): 'success' | 'info' | 'danger' {
+  if (status === 'running') return 'success';
+  if (status === 'failed') return 'danger';
+  return 'info';
+}
+
+const RUN_STATUS_LABELS: Record<TaskRunListItem['status'], string> = {
+  running: '运行中',
+  exited: '成功',
+  failed: '失败',
+};
+
+/** 耗时（毫秒 → 展示文本） */
+function runDuration(row: TaskRunListItem): string {
+  if (row.finishedAt === null) {
+    return '—';
+  }
+  const ms = new Date(row.finishedAt).getTime() - new Date(row.startedAt).getTime();
+  if (ms < 1000) return `${ms} ms`;
+  if (ms < 60_000) return `${(ms / 1000).toFixed(1)} s`;
+  return `${Math.floor(ms / 60_000)} 分 ${Math.round((ms % 60_000) / 1000)} 秒`;
+}
+
+onMounted(() => {
+  void loadTemplates();
+  void loadRuns();
+});
 
 </script>
 
@@ -180,7 +312,69 @@ async function checkPort(): Promise<void> {
         端口 {{ portResult.port }}：{{ portResult.inUse ? '占用' : '空闲' }}
       </span>
     </div>
+
+    <!-- [U3-P3/K6] 模板区：白名单任务命名预设（空数组不显示该区） -->
+    <el-divider v-if="templates.length > 0" content-position="left">任务模板</el-divider>
+    <div v-if="templates.length > 0" class="template-bar">
+      <el-tooltip
+        v-for="tpl in templates"
+        :key="tpl.name"
+        :content="tpl.description ?? `执行 ${tpl.task}`"
+        placement="top"
+      >
+        <el-button :loading="starting" @click="runTemplate(tpl.task)">{{ tpl.name }}</el-button>
+      </el-tooltip>
+    </div>
+
+    <!-- [U3-P3/K6] 历史记录区 -->
+    <el-divider content-position="left">历史记录</el-divider>
+    <el-table v-loading="runsLoading" :data="runItems" size="small" border class="run-table">
+      <el-table-column label="任务" prop="task" width="110" />
+      <el-table-column label="开始时间" width="180">
+        <template #default="{ row }">{{ formatTime(row.startedAt) }}</template>
+      </el-table-column>
+      <el-table-column label="状态" width="90">
+        <template #default="{ row }">
+          <el-tag :type="runStatusType(row.status)" size="small">
+            {{ RUN_STATUS_LABELS[row.status as TaskRunListItem['status']] ?? row.status }}
+          </el-tag>
+        </template>
+      </el-table-column>
+      <el-table-column label="退出码" width="80">
+        <template #default="{ row }">{{ row.exitCode ?? '—' }}</template>
+      </el-table-column>
+      <el-table-column label="耗时" width="120">
+        <template #default="{ row }">{{ runDuration(row) }}</template>
+      </el-table-column>
+      <el-table-column label="操作" width="180">
+        <template #default="{ row }">
+          <el-button size="small" @click="openLog(row)">查看日志</el-button>
+          <el-button size="small" type="danger" @click="removeRun(row)">删除</el-button>
+        </template>
+      </el-table-column>
+    </el-table>
+    <el-pagination
+      v-if="runTotal > runLimit"
+      layout="prev, pager, next, total"
+      :total="runTotal"
+      :page-size="runLimit"
+      :current-page="runPage"
+      class="run-pagination"
+      @current-change="changeRunPage"
+    />
   </el-card>
+
+  <!-- [U3-P3/K6] 日志全文对话框（纯文本展示，禁 v-html） -->
+  <el-dialog
+    v-model="logDialogVisible"
+    v-dialog-resize
+    draggable
+    title="任务日志全文"
+    width="720px"
+  >
+    <p class="log-dialog-title">{{ logDialogTitle }}</p>
+    <pre class="log-dialog-text">{{ logText }}</pre>
+  </el-dialog>
 </template>
 
 <style scoped>
@@ -224,5 +418,38 @@ async function checkPort(): Promise<void> {
 .port-result {
   color: var(--el-text-color-secondary);
   font-size: 13px;
+}
+/* [U3-P3/K6] 模板区 / 历史区 */
+.template-bar {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+.run-table {
+  width: 100%;
+}
+.run-pagination {
+  margin-top: 12px;
+  justify-content: flex-end;
+}
+.log-dialog-title {
+  margin: 0 0 8px;
+  font-size: 13px;
+  color: var(--el-text-color-secondary);
+}
+.log-dialog-text {
+  margin: 0;
+  max-height: 60vh;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+  font-family: var(--el-font-family-monospace, monospace);
+  font-size: 12px;
+  line-height: 1.6;
+  background: var(--el-fill-color-extra-light);
+  border: 1px solid var(--mizuki-border-hairline);
+  border-radius: var(--mizuki-radius-control);
+  padding: 10px 12px;
 }
 </style>

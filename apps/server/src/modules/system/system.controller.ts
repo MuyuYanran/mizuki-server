@@ -8,7 +8,18 @@
  */
 import fs from 'node:fs';
 import path from 'node:path';
-import { Body, Controller, Get, HttpCode, HttpStatus, Inject, Patch, Post, Query } from '@nestjs/common';
+import {
+  Body,
+  ConflictException,
+  Controller,
+  Get,
+  HttpCode,
+  HttpStatus,
+  Inject,
+  Patch,
+  Post,
+  Query,
+} from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { desc, sql } from 'drizzle-orm';
 import { Public } from '../../common/decorators/public.decorator';
@@ -19,6 +30,7 @@ import { type DrizzleDb, DRIZZLE_DB } from '../../infra/db/db.module';
 import { operationLog } from '../../infra/db/schema';
 import { z } from 'zod';
 import { AuthService, InitBodySchema, type InitBody } from '../auth/auth.service';
+import { DirectoryBrowserService, type BrowseDirsResult } from './directory-browser.service';
 import { MizukiDetectorService, type DetectResult } from './mizuki-detector.service';
 
 /** POST /system/detect body */
@@ -41,6 +53,7 @@ export class SystemController {
     @Inject(DRIZZLE_DB) private readonly db: DrizzleDb,
     private readonly authService: AuthService,
     private readonly detector: MizukiDetectorService,
+    private readonly browser: DirectoryBrowserService,
   ) {}
 
   /** 健康检查（@Public）：P6 起附加 initialized（admin_user 是否存在行） */
@@ -85,6 +98,27 @@ export class SystemController {
   @Post('system/init')
   init(@Body(new ZodValidationPipe(InitBodySchema)) body: InitBody) {
     return this.authService.initialize(body);
+  }
+
+  /**
+   * [U3-P3/K1] 目录浏览（初始化向导点选器后端）。
+   *
+   * 鉴权形态（架构师再裁 A，R2-2 规格修订注记见 T6）：
+   *   R2-2 原文写「需认证端点 / 无 Token 401」，但该端点的唯一消费方是
+   *   初始化向导——向导是 **pre-auth** 流程（detect/init 均 @Public，
+   *   init 前无账号可登录），规格自矛盾。故取：@Public + **未初始化门**：
+   *   系统已初始化（admin_user 有行）→ 409（与 init 同款守卫）；
+   *   未初始化窗口内可用。安全余量：全局限流照常（先限流后鉴权）、
+   *   仅返回目录名不返回文件、单次 200 上限、本服务 local-first。
+   */
+  @ApiOperation({ summary: '目录浏览（公开，仅初始化向导期可用；已初始化 → 409）' })
+  @Public()
+  @Get('admin/system/browse-dirs')
+  async browseDirs(@Query('path') pathRaw?: string): Promise<BrowseDirsResult> {
+    if (await this.authService.isInitialized()) {
+      throw new ConflictException('系统已初始化，目录浏览仅在初始化向导期可用');
+    }
+    return this.browser.browse(pathRaw);
   }
 
   /**

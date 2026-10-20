@@ -4,12 +4,18 @@
  * 欢迎 → 选择 Mizuki 目录（detect 展示每项检查明细）→ 选择运行模式
  * （三模式说明）→ 设置管理员账号 → POST /system/init → 跳登录页。
  * 已初始化（409）→ 提示并跳登录。
+ *
+ * [U3-P3/K2] step1 重构为**树形钻取点选**为主入口（对齐 R2-2）：
+ *   根层（盘符 / POSIX '/'）→ 逐级进入子目录 → 「选择此目录」回填完整路径；
+ *   选中后路径以**只读**展示；手动输入折叠为「高级模式」；
+ *   加载失败（404 / 409 / 网络）降级为提示 + 高级模式手输仍可用。
+ *   detect 按钮 / 检测结果区 / 后续步骤零改动。
  */
-import { computed, reactive, ref } from 'vue';
+import { computed, onMounted, reactive, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { ElMessage } from 'element-plus';
 import { ApiError } from '../api/http';
-import { systemApi, type DetectResult, type RunMode } from '../api/system';
+import { systemApi, type BrowseDirsResult, type DetectResult, type RunMode } from '../api/system';
 
 const router = useRouter();
 const step = ref(0);
@@ -18,6 +24,83 @@ const submitting = ref(false);
 
 const mizukiRoot = ref('');
 const detection = ref<DetectResult | null>(null);
+
+// ── [U3-P3/K2] 目录点选器状态 ──
+
+/** 当前所在目录（null = 根层） */
+const browsePath = ref<string | null>(null);
+/** 当前层目录列表 */
+const browseItems = ref<BrowseDirsResult['items']>([]);
+/** 当前层是否有更多项（被 200 上限截断） */
+const browseTruncated = ref(false);
+/** 上级目录（null = 根层） */
+const browseParent = ref<string | null>(null);
+/** 目录列表加载中 */
+const browsing = ref(false);
+/** 目录浏览失败（降级提示；高级模式手输仍可用） */
+const browseError = ref('');
+/** 高级模式（手动输入）展开状态（el-collapse v-model 为数组形态） */
+const advancedSections = ref<string[]>([]);
+
+/** 目录名拼接子路径（根层项本身就是 "C:\" 这样的绝对路径） */
+function joinPath(base: string | null, name: string): string {
+  if (base === null) {
+    return name; // 根层项即绝对路径（盘符 / '/'）
+  }
+  const sep = base.endsWith('/') || base.endsWith('\\') ? '' : base.includes('\\') ? '\\' : '/';
+  return `${base}${sep}${name}`;
+}
+
+async function loadBrowse(target: string | null): Promise<void> {
+  browsing.value = true;
+  browseError.value = '';
+  try {
+    const result = await systemApi.browseDirs(target ?? undefined);
+    browsePath.value = target;
+    browseItems.value = result.items;
+    browseTruncated.value = result.truncated;
+    browseParent.value = result.parent;
+  } catch (error) {
+    browseItems.value = [];
+    browseTruncated.value = false;
+    browseError.value =
+      error instanceof ApiError
+        ? `目录加载失败：${error.message}（可展开高级模式手动输入路径）`
+        : '目录加载失败（可展开高级模式手动输入路径）';
+  } finally {
+    browsing.value = false;
+  }
+}
+
+/** 进入子目录 */
+async function enterDir(name: string): Promise<void> {
+  await loadBrowse(joinPath(browsePath.value, name));
+}
+
+/** 返回上级（根层时无操作） */
+async function goUp(): Promise<void> {
+  if (browseParent.value === null) {
+    return;
+  }
+  await loadBrowse(browseParent.value);
+}
+
+/** 选择当前目录作为 Mizuki 根（只读回填完整路径） */
+function selectCurrent(): void {
+  if (browsePath.value === null) {
+    ElMessage.warning('请先进入一个具体目录');
+    return;
+  }
+  mizukiRoot.value = browsePath.value;
+  ElMessage.success('已选择目录');
+}
+
+/** 当前层路径的展示文本（根层无选中目录） */
+const browseCurrentLabel = computed(() => browsePath.value ?? '（根目录）');
+
+onMounted(() => {
+  void loadBrowse(null);
+});
 
 const mode = ref<RunMode>('manage');
 const MODES: { value: RunMode; label: string; description: string }[] = [
@@ -181,12 +264,57 @@ async function submit(): Promise<void> {
       </div>
 
       <div v-else-if="step === 1" class="wizard-body">
-        <el-form label-position="top">
-          <el-form-item label="Mizuki 项目目录路径">
-            <el-input v-model="mizukiRoot" placeholder="例如 D:/blog/mizuki" />
+        <!-- [U3-P3/K2] 目录点选器（主入口）：逐级钻取 + 只读回填 -->
+        <div class="browse-panel">
+          <div class="browse-head">
+            <span class="browse-label">当前目录</span>
+            <span class="browse-current" :title="browseCurrentLabel">{{ browseCurrentLabel }}</span>
+          </div>
+
+          <el-alert v-if="browseError !== ''" type="warning" :closable="false" :title="browseError" class="browse-error" />
+
+          <div v-loading="browsing" class="browse-list">
+            <div class="browse-actions">
+              <el-button size="small" :disabled="browseParent === null" @click="goUp">← 返回上级</el-button>
+              <el-button size="small" type="primary" :disabled="browsePath === null" @click="selectCurrent">
+                选择此目录
+              </el-button>
+            </div>
+            <ul v-if="browseItems.length > 0" class="browse-items">
+              <li
+                v-for="item in browseItems"
+                :key="item.name"
+                class="browse-item"
+                @click="enterDir(item.name)"
+              >
+                <span class="browse-item-name">{{ item.name }}</span>
+                <el-tag v-if="item.isMizuki" type="success" size="small" class="browse-item-tag">Mizuki</el-tag>
+              </li>
+            </ul>
+            <p v-else-if="!browsing && browseError === ''" class="browse-empty">该目录下没有子目录</p>
+            <p v-if="browseTruncated" class="browse-truncated">条目过多，仅显示前 200 项（已截断）</p>
+          </div>
+        </div>
+
+        <!-- 选中结果：只读展示完整路径 -->
+        <el-form label-position="top" class="browse-selected">
+          <el-form-item label="Mizuki 项目目录路径（已选）">
+            <el-input :model-value="mizukiRoot" readonly placeholder="尚未选择目录" />
           </el-form-item>
-          <el-button type="primary" :loading="detecting" @click="runDetect">检测目录</el-button>
         </el-form>
+
+        <!-- 高级模式：手动输入（折叠） -->
+        <el-collapse v-model="advancedSections">
+          <el-collapse-item title="高级模式（手动输入路径）" name="advanced">
+            <el-form label-position="top">
+              <el-form-item label="Mizuki 项目目录路径">
+                <el-input v-model="mizukiRoot" placeholder="例如 D:/blog/mizuki" />
+              </el-form-item>
+            </el-form>
+          </el-collapse-item>
+        </el-collapse>
+
+        <el-button type="primary" :loading="detecting" @click="runDetect">检测目录</el-button>
         <div v-if="detection" class="detect-result">
           <el-alert
             :type="detection.valid ? 'success' : 'error'"
@@ -287,6 +415,81 @@ async function submit(): Promise<void> {
 .wizard-body {
   min-height: 220px;
   padding: 8px 0;
+}
+/* [U3-P3/K2] 目录点选器 */
+.browse-panel {
+  border: 1px solid var(--mizuki-border-hairline);
+  border-radius: var(--mizuki-radius-control);
+  padding: 12px 14px;
+  background: var(--el-fill-color-extra-light);
+  margin-bottom: 14px;
+}
+.browse-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.browse-label {
+  font-size: 13px;
+  color: var(--el-text-color-secondary);
+  flex-shrink: 0;
+}
+.browse-current {
+  font-family: var(--el-font-family-monospace, monospace);
+  font-size: 13px;
+  color: var(--el-text-color-primary);
+  word-break: break-all;
+}
+.browse-error {
+  margin-bottom: 8px;
+}
+.browse-list {
+  min-height: 80px;
+}
+.browse-actions {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.browse-items {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  max-height: 220px;
+  overflow-y: auto;
+  border: 1px solid var(--mizuki-border-hairline);
+  border-radius: var(--mizuki-radius-control);
+}
+.browse-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  cursor: pointer;
+  border-bottom: 1px dashed var(--mizuki-border-hairline);
+}
+.browse-item:last-child {
+  border-bottom: none;
+}
+.browse-item:hover {
+  background: var(--el-color-primary-light-9);
+}
+.browse-item-name {
+  font-size: 13px;
+  color: var(--el-text-color-primary);
+}
+.browse-item-tag {
+  flex-shrink: 0;
+}
+.browse-empty,
+.browse-truncated {
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
+  margin: 8px 0 0;
+}
+.browse-selected {
+  margin-bottom: 8px;
 }
 .detect-result {
   margin-top: 16px;

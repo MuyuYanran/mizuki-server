@@ -15,18 +15,29 @@
 - 主题系统覆盖全部页面含控制台页（ConsolePage 与 LogTerminal）：终端背景/前景色、滚动条、SSE 日志各等级行着色均走 CSS 变量，暗色模式下终端观感单独校验。
 
 ## R2-2 向导目录点选器（必须）
-- 后端新增需认证端点 GET /admin/system/browse-dirs?path=<绝对路径>：
+> [修订 2026-10-20 / U3-P3 再裁 A] 鉴权形态改为 **@Public + 未初始化门**：
+>   原文「需认证端点 / 验收无 Token 401」与该端点的唯一消费方（初始化向导）
+>   自相矛盾——向导是 **pre-auth** 流程（`system.detect` / `system.init` 均 @Public，
+>   init 前无账号可登录）。故取：@Public，且 `isInitialized()` 为真时 → 409
+>   （与 init 同款守卫）；未初始化窗口内可用。安全余量：全局限流照常
+>   （先限流后鉴权，@Public 不豁免 throttle）、仅返回目录名不返回文件、
+>   单次 200 上限、本服务 local-first（127.0.0.1）。
+>   其余条款（根列表、子目录数组、isMizuki 轻量判据、200 上限 + truncated、
+>   404、树形点选 + 高级模式折叠）逐字有效。
+- 后端新增端点 GET /admin/system/browse-dirs?path=<绝对路径>：
   - 无 path 参数：返回根列表（Windows 枚举存在的盘符；POSIX 返回 /）；
   - 有 path：返回该目录下子目录数组 [{name, isMizuki}] + parent 路径；
     仅目录不返回文件；跳过隐藏目录与符号链接目录（防循环防越界）；
     单次上限 200 条，超出截断并附 truncated 标志；
   - isMizuki 复用 MizukiDetectorService 的轻量判据（存在 package.json 或
     astro.config.mjs 即候选 ✓，完整检测仍走既有 detect 端点）；
-  - 全程 safeJoin 校验；404 当目录不存在；限流随全局；
+  - path 必须为绝对路径（相对路径/相对段注入 → 400）；404 当目录不存在；
+    限流随全局；错误文案不回显用户提交的绝对路径原文；
 - 向导「选择目录」步骤替换文本输入为主入口：树形逐级点选钻取，
   选中后回填只读展示完整路径，保留手动微调输入框（高级模式折叠）；
 - 浏览器无法获取本地绝对路径属安全设计，此端点即官方替代方案；
-- 验收：e2e 断言根列表非空、子目录枚举正确、../注入拒绝、无 Token 401。
+- 验收：e2e 断言根列表非空、子目录枚举正确、相对路径注入拒绝 400、
+  目录不存在 404、**初始化前 200 → 初始化后 409**（两阶段同 spec）。
 
 ## R2-3 向导步骤条文字换行修复（必须）
 步骤条内所有步骤标签 white-space: nowrap，必要时缩小字号保证不折行。
@@ -35,6 +46,8 @@
 三选项垂直排列、同一左缩进基准，禁用混合 tab 缩进导致的参差感。
 
 ## R2-5 运行模式驱动菜单过滤（必须）
+> [修订 2026-10-20 / U3-P3] 「六类集合」一句作废：实际只隐藏**富文本文章**菜单
+>   （B2 终版裁决 7；集合管理为本站核心能力，不在 minimal 模式下隐藏）。
 - 登录后拉取系统状态读取 mode 字段（若现状缺失则本附录授权在 status 响应
   补充 mode 只读字段，记补白）；
 - mode 为 minimal（仅管理）时：隐藏富文本文章与六类集合相关菜单入口；
@@ -82,9 +95,19 @@
   DELETE /admin/process/runs/:id；
 - 控制台页新增「历史记录」区：分页列表、点开查看完整日志、单条删除；
   实时日志走既有 SSE 不变；
-- 任务命令模板进 data/config.json（如 tasks.{dev,build,...}.{cmd,args,
-  shell}），按平台可配 pwsh/cmd/bash；仅改配置文件生效，重启读取；
-  config schema 相应扩展并过 zod 校验；
+> [修订 2026-10-20 / U3-P3 再裁 B] 「任务命令模板」**重定义为白名单任务的命名
+>   快捷预设** `{name, task, description?}`，**不做 cmd/args/shell 可配**。
+>   原文形态 `tasks.{dev,build,...}.{cmd,args,shell}`（按平台可配 pwsh/cmd/bash）
+>   写于 P9 加固**之前**：它会把服务变成「配置文件驱动的通用命令执行器」，
+>   正面违反 AGENTS §5 硬红线（任务白名单硬编码 / shell 恒 false / 不接受用户
+>   传参）与 ADR-011 解析链架构；其想解决的 Windows 垫片问题已由 pm-resolver
+>   另行解决。重定义后：面板渲染按钮 → 点击即 `startTask(task)` 走既有白名单
+>   链路，**零新执行面**。另：模板读取为**活取**（`getAppConfig()` 每请求，
+>   P11 坑 5 先例），改配置不必重启（原文「重启读取」按此放宽）。
+>   规格验收「篡改 shell → 拒绝」以适配形态保留：tasks 元素为 strictObject，
+>   含 cmd/args/shell 键 → config 解析按既有失败语义拒绝（启动即失败）。
+- 任务模板进 data/config.json（`tasks` 键，元素 `{name, task, description?}`）；
+  config schema 相应扩展并过 zod 校验（task 取值域 = 任务白名单单源）；
 - 验收：跑一次 build → runs 列表出现且 log_text 非空；删除后 404；
   篡改模板 shell:'powershell 任意' → 启动校验拒绝非法键。
 

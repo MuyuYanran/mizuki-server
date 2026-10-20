@@ -212,20 +212,32 @@ Mizuki-Server 是为 Mizuki 博客主题（基于 Astro 的静态博客主题）
 
 ### 6.6 timeline 时间线
 
+> [修订 2026-10-20 / U3-P3] 字段面以 **ADR-018**（官方字段面逐字对齐）为准，
+>   本表为**一期基线表**，其 type 枚举与必填面已过时：官方四值为
+>   `education | work | project | achievement`（非本表所写的
+>   `education | certificate | project | other`）。载入时按 ADR-018 迁移：
+>   type `certificate`→`work`、`other`→`achievement`；id 一期 number → string
+>   （slugify 生成，编辑不可改）。schema 单源见
+>   `packages/shared/src/collections/timeline.ts`。
+
 文件 `src/data/timeline.ts`，变量 `timelineData`（数组）。
 
 | 字段 | 类型 | 必填 | 说明 |
 |---|---|---|---|
-| id | string | 是 | |
+| id | string | 是 | ADR-018：string（留空自动 slugify，编辑不可修改） |
 | title | string | 是 | |
 | description | string | 否 | |
-| type | `'education' \| 'certificate' \| 'project' \| 'other'` | 是 | |
+| type | `'education' \| 'work' \| 'project' \| 'achievement'` | 是 | 官方四值（ADR-018 修订，本表原值 `certificate`/`other` 已废） |
 | icon | string | 否 | 可按 type 自动设置 |
 | color | string | 否 | 可按 type 自动设置 |
-| startDate | string | 是 | |
+| startDate | string | 是 | YYYY-MM-DD |
+| endDate | string | 否 | YYYY-MM-DD |
 | location | string | 否 | |
 | organization | string | 否 | |
+| position | string | 否 | |
 | skills | string[] | 否 | |
+| achievements | string[] | 否 | |
+| links | {name,url,type}[] | 否 | ADR-018：对象数组（type|website/certificate/project/other） |
 | featured | boolean | 否 | |
 
 功能：CRUD；**按 type 自动设置默认 icon/color**（默认映射表实现时从 Mizuki 主题源码确认并记 ADR）。
@@ -316,6 +328,10 @@ frontmatter 字段：
 2. **仪表盘**：项目/服务状态、文章数、草稿数、日记数、友链数、相册数、备份状态、最近操作日志；
 3. **文章管理**：列表、新建（Markdown / 富文本）、编辑、删除、草稿箱、回收站、标签、分类、封面、置顶、发布时间、SEO 描述、预览；
 4. **富文本编辑器**：所见即所得，支持标题/列表/引用/代码块/图片/链接/表格，保存为结构化 JSON，可导出 HTML 与 Markdown；
+   > [修订 2026-10-20 / U3-P3] 「导出 Markdown」当前为 **HTML 包降级**实现
+   >   （把 HTML 包进 Markdown 代码块输出，不引入重型 HTML→MD 转换器）——
+   >   系 P10c §3.3 明文授权的降级，不是缺陷。HTML 导出为完整实现
+   >   （服务端 `html_cache`，无则取 `editor.getHTML()`）。
 5. **内容模块管理**：§6.3–6.11 全部能力；
 6. **设置管理**：站点、主题、导航、社交链接、功能开关、API/端口/上传/备份目录设置；
 7. **文件与媒体管理**：上传、列表、删除（**先做引用检查**）、重命名、链接复制、格式转换、防止删除被引用图片；

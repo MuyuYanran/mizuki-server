@@ -45,7 +45,12 @@ interface AlbumViewLike {
     [key: string]: unknown;
   };
   images: string[];
+  /** [U3-P3/K7] 统一 items 数组（additive） */
+  items?: AlbumItemLike[];
 }
+
+/** [U3-P3/K7] items 元素形态 */
+type AlbumItemLike = { type: 'file'; name: string } | { type: 'url'; url: string };
 
 /** 读磁盘上的 info.json（断言落盘形状用） */
 function readInfoJson(album: string): Record<string, unknown> {
@@ -265,5 +270,69 @@ describe('P7c [Phase3-C2a] 相册字段面对齐官方 e2e', () => {
       .attach('file', fake, 'fake.bmp');
     expect(res.status).toBe(400);
     expect(String(res.body.message)).toContain('魔数');
+  });
+
+  // ── [U3-P3/K7] R2-14 统一 items 数组（additive） ──
+
+  it('c-① 本地相册 items：file 形态 + 顺序与 images 一致', async () => {
+    const list = await server().get('/api/v1/admin/albums');
+    expect(list.status).toBe(200);
+    const album = (list.body as AlbumViewLike[]).find((a) => a.name === 'layout-album');
+    expect(album).toBeDefined();
+    const items = album!.items ?? [];
+    expect(items.length).toBeGreaterThan(0);
+    // 全部为 file 形态（本地相册无外链）
+    for (const item of items) {
+      expect(item.type).toBe('file');
+      if (item.type === 'file') {
+        expect(typeof item.name).toBe('string');
+      }
+    }
+    // 顺序 = images 序
+    const fileNames = items.map((i) => (i.type === 'file' ? i.name : ''));
+    expect(fileNames).toEqual(album!.images);
+  });
+
+  it('c-② 外链相册 items：url 形态 + 顺序与 photos[] 一致', async () => {
+    const list = await server().get('/api/v1/admin/albums');
+    const album = (list.body as AlbumViewLike[]).find((a) => a.name === 'full-ext');
+    expect(album).toBeDefined();
+    const items = album!.items ?? [];
+    expect(items.length).toBe(1);
+    expect(items[0]!.type).toBe('url');
+    // 顺序 = photos[] 的 src 序
+    const urls = items.map((i) => (i.type === 'url' ? i.url : ''));
+    const expected = (album!.info.photos ?? []).map((p) => p.src);
+    expect(urls).toEqual(expected);
+    expect(urls[0]).toBe('https://cdn.example.com/alpine/01.jpg');
+  });
+
+  it('c-③ images 字段仍在（additive 契约：原字段原样保留）', async () => {
+    const list = await server().get('/api/v1/admin/albums');
+    const album = (list.body as AlbumViewLike[]).find((a) => a.name === 'layout-album');
+    expect(album).toBeDefined();
+    expect(Array.isArray(album!.images)).toBe(true);
+    expect(album!.items).toBeDefined();
+    // 公开列表同样带 items（公开面 additive，形状不变）
+    const pub = await bare().get('/api/v1/public/albums');
+    expect(pub.status).toBe(200);
+    for (const item of pub.body as AlbumViewLike[]) {
+      expect(item.items).toBeDefined();
+    }
+  });
+
+  it('c-④ 空相册 items=[]（无本地文件、无外链照片）', async () => {
+    const created = await server().post('/api/v1/admin/albums').send({
+      name: 'empty-items-album',
+      info: { title: '空相册' },
+    });
+    expect(created.status).toBe(201);
+    expect(created.body.items).toEqual([]);
+    expect(created.body.images).toEqual([]);
+
+    const list = await server().get('/api/v1/admin/albums');
+    const album = (list.body as AlbumViewLike[]).find((a) => a.name === 'empty-items-album');
+    expect(album).toBeDefined();
+    expect(album!.items).toEqual([]);
   });
 });
