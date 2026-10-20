@@ -791,3 +791,13 @@ DEV（裁决在案、规格文本未修订）：minimal 菜单范围、timeline 
   同因全红（最早 2026-09-11 公开段），CI 从未绿过；本机三连全绿掩盖了它（本地 dist 早已存在）。
 - 修复：`pnpm install` 与三连之间加一步 `pnpm --filter @mizuki/shared build`（本地实测 exit 0）。
 - PM 裁定路由：架构师当轮直接修 + 提交 + 推双远端 + 盯 run 至出结果。
+
+### CI 修复二轮（同日）
+
+- run 10（b771092）：预构建步生效（step 6 绿），暴露**第二层根因**——`pm-resolver.spec.ts` ④' 探活超时用例
+  在 Linux runner 失败：fixture `posix/hang/pnpm` 用外部命令 `sleep 60`，而探活 spawn 的 PATH 被
+  `withPathEnv` 整体替换为仅含候选目录 → `sh: sleep: not found` → exit 127 → 记"候选失败"而非"探活超时"，
+  断言 `/探活超时/` 落空。Windows 不中招（.cmd 垫片穿透成绝对路径 node + 入口 cjs，PATH 无关）；
+  exit3/good 是 shell 内建也不中招；执行位无虞（spec 自带 `ensureExecBits` 运行期补 755）。
+- 修复：假挂起改**纯 shell 忙等** `while :; do :; done`（零外部命令依赖，忙等由 probeTimeout 杀掉）；
+  文件保持 LF。本地 `pm-resolver.spec.ts` 7/7 全绿（④' 371ms 过）。

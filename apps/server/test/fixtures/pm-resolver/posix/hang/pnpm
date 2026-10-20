@@ -1,2 +1,4 @@
 #!/bin/sh
-sleep 60
+# 假挂起夹具：纯 shell 忙等——探活注入的 PATH 只含本目录，外部 sleep 会 127
+# （GitHub Actions Linux runner 实测教训，2026-10-20）；忙等由 probeTimeout 杀掉。
+while :; do :; done

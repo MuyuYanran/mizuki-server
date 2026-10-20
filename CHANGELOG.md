@@ -1,11 +1,14 @@
 # 变更日志
 
-## CI 修复（2026-10-20，发布后）
+## CI 修复（2026-10-20，发布后，两轮）
 
-- `.github/workflows/ci.yml`：`pnpm install` 后新增 `pnpm --filter @mizuki/shared build` 预构建步。
-  根因：CI 中 lint/test/build 跑在 shared 构建之前，vitest 解析 `@mizuki/shared`（`main` 指 `dist/index.js`）
-  必红——回溯该仓全部 9 个 CI run 均同因失败，CI 从未绿过（本机绿是因本地 dist 已存在，属掩盖）。
-  另：runner 侧 `pnpm build`（turbo 式 `pnpm -r build`）自带依赖序所以构建本身不受此影响，红点在 test。
+- **一轮（b771092）**：`.github/workflows/ci.yml` 在 `pnpm install` 后新增 `pnpm --filter @mizuki/shared build`
+  预构建步。根因：CI 中 lint/test/build 跑在 shared 构建之前，vitest 解析 `@mizuki/shared`（`main` 指
+  `dist/index.js`）必红——回溯该仓全部 9 个 CI run 均同因失败，CI 从未绿过（本机绿是因本地 dist 已存在，属掩盖）。
+- **二轮（同日）**：预构建步生效后暴露第二层根因——`pm-resolver.spec.ts` ④' 探活超时用例的假挂起夹具
+  `posix/hang/pnpm` 依赖外部命令 `sleep`，而探活注入的 PATH 只含候选目录，Linux runner 上 `sleep` 不可达
+  （exit 127）→ 走"候选失败"路径而非超时路径，断言落空。修复：改纯 shell 忙等 `while :; do :; done`
+  （零外部命令依赖）；本地该 spec 7/7 全绿。
 
 ## 发布 v1.0.0（2026-10-20）
 
