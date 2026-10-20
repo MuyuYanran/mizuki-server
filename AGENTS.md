@@ -33,7 +33,7 @@ packages/shared  zod schema + 事件目录（前后端唯一共享面）
 docs/            规格、决策、台账、阶段提示词（见 §10）
 ```
 
-`.github/workflows/ci.yml`：push 时 `pnpm install --frozen-lockfile` → `pnpm lint && pnpm test && pnpm build`（Node 22 / pnpm 9）。
+`.github/workflows/ci.yml`：push 时 `pnpm install --frozen-lockfile` → `pnpm --filter @mizuki/shared build`（**必须先构建 shared**：server 的 vitest 直接解析其 `dist/` 产物）→ `pnpm lint && pnpm test && pnpm build`（Node 22 / pnpm 9）。
 
 ## 3. 命令与验证（先看这条警告）
 

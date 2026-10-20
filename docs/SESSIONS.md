@@ -782,3 +782,12 @@ DEV（裁决在案、规格文本未修订）：minimal 菜单范围、timeline 
   HANDOFF-ARCHITECT / feature-alignment 残留清理；AGENTS §9 状态更新；CHANGELOG 发布节；本追记。
 - **发布后建议**：admin 密码再轮换一次（密码在本地明文台账躺过一段时间；公网暴露史见 HANDOFF 八）。
 - tag `v1.0.0` → 推 origin（GitHub）+ gitee → 插件 API 建 GitHub Release。
+
+## 发布后补丁：CI 预构建修复（2026-10-20）
+
+- v1.0.0 推送后 CI run 9/8 双红。根因：`.github/workflows/ci.yml` 里 `pnpm lint && pnpm test && pnpm build`
+  跑在 `@mizuki/shared` 构建之前——server 的 vitest 经 node 解析 `@mizuki/shared` 的 `main: dist/index.js`，
+  dist 不存在即 "Failed to resolve entry for package"。**系统性缺陷**：GitHub API 回溯证实该仓全部 9 个 CI run
+  同因全红（最早 2026-09-11 公开段），CI 从未绿过；本机三连全绿掩盖了它（本地 dist 早已存在）。
+- 修复：`pnpm install` 与三连之间加一步 `pnpm --filter @mizuki/shared build`（本地实测 exit 0）。
+- PM 裁定路由：架构师当轮直接修 + 提交 + 推双远端 + 盯 run 至出结果。

@@ -1,5 +1,12 @@
 # 变更日志
 
+## CI 修复（2026-10-20，发布后）
+
+- `.github/workflows/ci.yml`：`pnpm install` 后新增 `pnpm --filter @mizuki/shared build` 预构建步。
+  根因：CI 中 lint/test/build 跑在 shared 构建之前，vitest 解析 `@mizuki/shared`（`main` 指 `dist/index.js`）
+  必红——回溯该仓全部 9 个 CI run 均同因失败，CI 从未绿过（本机绿是因本地 dist 已存在，属掩盖）。
+  另：runner 侧 `pnpm build`（turbo 式 `pnpm -r build`）自带依赖序所以构建本身不受此影响，红点在 test。
+
 ## 发布 v1.0.0（2026-10-20）
 
 - **首个正式版本标签**：`v1.0.0`（git tag）。四处 `package.json` 版本 0.0.0 → **1.0.0**（根 / server / web / shared）。

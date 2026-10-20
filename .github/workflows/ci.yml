@@ -13,4 +13,5 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @mizuki/shared build
       - run: pnpm lint && pnpm test && pnpm build
