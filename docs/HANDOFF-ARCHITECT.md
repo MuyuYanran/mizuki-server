@@ -10,7 +10,7 @@
 ## 一、项目概况
 - 目标：给 Mizuki 博客主题（Astro）做管理后台。官方文档 docs.mizuki.mysqil.com
   已快照至 docs/refs/mizuki-docs/*.md——**快照是唯一规格依据，禁访问外网**。
-- 仓库：D:/_paths/Workspace/Projects/BlogFiles/Mizuki-Ts-Server（pnpm monorepo）
+- 仓库：<repo-root>（pnpm monorepo）
 - 结构：apps/server（NestJS+SQLite data/mizuki.db，端口 20154）、
   apps/web（Vue3+element-plus+pinia）、packages/shared（zod schema，
   六类集合 diary/projects/timeline/skills/devices/friends 为 mapper 驱动）
@@ -112,7 +112,7 @@
 ## 八、安全事件与遗留
 - 2026-08-27 cpolar http 明文公网暴露：四边界公网实证完好（管理API 401/
   site-assets 401/穿越外层401内层404/公开面最小化），无泄露路径；但
-  凭据 MuyuYanran/wodeshijie111 已进对话与明文网络记录。
+  凭据 MuyuYanran/<redacted> 已进对话与明文网络记录。
 - **⚠️ B2 改密功能上线后第一件事：用户立即改密**。
 - 再暴露公网用 https + cpolar HttpAuth 双层；生产部署 Swagger 置 false。
 

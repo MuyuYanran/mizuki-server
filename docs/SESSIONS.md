@@ -756,8 +756,29 @@ DEV（裁决在案、规格文本未修订）：minimal 菜单范围、timeline 
 
 ## 7. 提交状态
 
-- 全部改动（**27 改 + 8 新增**）**未提交、未 push**，等架构师复核。
-- 建议提交信息：`feat(system+process+albums): U3-P3 二期规格兑现 — 向导目录点选 / 控制台历史与模板 / 相册 items（基线 546）`
+- U3-P3 批已提交（提交信息即上文建议稿）。**架构师验收通过（2026-10-20）**：红线 grep 全零、I9 安全面零 diff、
+  独立三连全绿（build 1915 modules / test 546·62 / lint 0·0）、5 条偏差全采信；两处再裁 A/B 落点逐字核对一致。
 - PM 手验点：① 未初始化开 `/init` → step1 盘符列表 → 逐级点选 → 只读回填 → 检测；
   ② 初始化后 browse-dirs → 409；③ 控制台跑一次 build → 历史区出行 → 看日志 → 删除；
   ④ `config.json` 写 `tasks` → 控制台出现模板按钮（**无需重启**）；加 `"cmd"` → 服务下次启动拒绝启动（**预期行为**）。
+
+---
+
+# 发布 v1.0.0（2026-10-20）
+
+- **PM 裁定**：U3-P3 验收通过后即刻发布；版本号 v1.0.0；gitee 与 GitHub 双远端同推；推送通道走 dsh-git-credentials
+  插件 token（本地 credential helper 解密注入，token 不进对话上下文）。
+- **发布前安全扫描（架构师执行）**：未推送段扫出——现行 admin 密码明文（SESSIONS:341）、真实姓名形用户名路径、
+  本机盘符绝对路径（仓库根/用户主目录/系统临时目录等形态）约 15 行、f3f98a8 提交信息含系统临时目录路径；**无任何 token/密钥**。
+  另确认已公开段（origin/main）旧事故行含一个 2026-08-27 的旧密码（应为已重置的死密码，泄漏事实已存在）。
+- **处置（方案 B，PM 裁定）**：`git filter-repo --refs bd3b1fa..main --replace-text` 两轮重写未推送段
+  （密码→`<redacted>`、绝对路径→占位符）；重写前建备份分支 `pre-scrub-backup-20261020` + 全量 bundle（`.test-tmp/`）。
+  复扫：范围内零密码零绝对路径；已公开 blob 携带的 2 行（HANDOFF-ARCHITECT:13/115）与 origin 现状逐字相同
+  （推送零新增暴露），在发布提交里做前向清洁。
+- **提交哈希重映射**（脱敏重写必然结果，台账引用以 `git log` 为准）：U3-P3 d99ab9d→（两轮重写后随发布链）；
+  U3-P2 23c6763→17794c8；U3-P1 2b22479→2e8790c；U3-D 36c55cb→3df8c1a；UI-U2 237cd06→0912a2d；
+  UI-U1 e420492→eba9709；ADR-026/027 批 f3f98a8→643273c；262a5ed 不变（bd3b1fa 之前的公开段未动）。
+- **发布提交内容**：4×package.json 1.0.0；`README.en.md`（英文，双 README 规则）+ 中文版顶部互链；
+  HANDOFF-ARCHITECT / feature-alignment 残留清理；AGENTS §9 状态更新；CHANGELOG 发布节；本追记。
+- **发布后建议**：admin 密码再轮换一次（密码在本地明文台账躺过一段时间；公网暴露史见 HANDOFF 八）。
+- tag `v1.0.0` → 推 origin（GitHub）+ gitee → 插件 API 建 GitHub Release。

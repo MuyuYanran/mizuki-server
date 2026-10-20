@@ -174,12 +174,16 @@ docs/            规格、决策、台账、阶段提示词（见 §10）
 
 ## 9. 工作树现状与未清项（进仓先看一眼）
 
-- HEAD = `23c6763`（U3-P2，未 push）。**工作树有未提交改动：U3-P3 批**
-  （二期规格承诺兑现 —— 向导目录点选 / 控制台历史与模板 / 相册 items 统一输出；
-  27 改 + 8 新增，交付报告 `docs/audits/u3-p3/README.md`，数账 **546/546、62 文件**，
-  三连全绿）。**未 push**（用户约定：需明确许可才推）。
+- HEAD = 发布提交 **v1.0.0**（2026-10-20；含 U3-P3 二期规格兑现批：向导目录点选 / 控制台历史与模板 / 相册 items 统一输出，
+  交付报告 `docs/audits/u3-p3/README.md`，数账 **546/546、62 文件**，三连全绿）。
+  **版本**：`v1.0.0` tag，四处 package.json = 1.0.0；双语 README（`README.md` 中文 + `README.en.md` 英文）。
+- **发布前历史脱敏（2026-10-20，方案 B）**：未推送段经 `git filter-repo --replace-text` 重写——密码明文→`<redacted>`、
+  本机绝对路径→占位符（`<repo-root>` / `<user-home>` / `<system-temp>` / `<pnpm-store>`）。**旧哈希已全部失效**：
+  台账/ADR 中引用的 d99ab9d、23c6763、2b22479 等对应重写后为 27b7f10、17794c8、2e8790c 等（以 `git log` 实际值为准）；
+  备份分支 `pre-scrub-backup-20261020` 与 `.test-tmp/pre-scrub-backup-20261020.bundle` 保留脱敏前原貌（**勿推送**）。
+  已公开段两处残留（HANDOFF-ARCHITECT 旧事故行）已在本发布提交做前向清洁。
 - 早前批次的已入库结论：面板自定义主题（ADR-026）+ 本机 web 构建打通（ADR-027）。
-  本批**未引入任何依赖变更**：`pnpm-lock.yaml` 与三处 `package.json` 零变动。
+  U3-P3 批**未引入任何依赖变更**：`pnpm-lock.yaml` 与三处 `package.json` 依赖清单零变动。
   （`M README.md` 媒体白名单订正已随 `bd3b1fa` 入库。）
 - **本机构建状态（2026-10-16 实测，已解决）**：`pnpm build` = `shared → server → web` **exit 0**
   （1903 modules / 18.71s），构建前后 `<system-temp>` 的 `esbuild-*` 残渣均为 0。此前的失败
