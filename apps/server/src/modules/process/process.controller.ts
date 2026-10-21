@@ -12,11 +12,15 @@
  *   DELETE /admin/process/runs/:id       删除单条历史
  * [U3-P3/K5] 增补任务模板（白名单任务命名预设，零新执行面）：
  *   GET    /admin/process/templates      模板列表（config.json tasks 键，活取）
+ * [U3-P4a/K3] 增补任务级环境变量（写后不可读，值按 secret 处理）：
+ *   GET    /admin/process/task-env       掩码列表（{ key, masked }，按 key 字典序）
+ *   PUT    /admin/process/task-env       整表替换（{} = 清空；越界 400 零写盘）
  * [状态] ACTIVE
  */
-import { Body, Controller, Delete, Get, HttpCode, HttpStatus, type MessageEvent, Param, Post, Query, Sse } from '@nestjs/common';
+import { Body, Controller, Delete, Get, HttpCode, HttpStatus, type MessageEvent, Param, Post, Put, Query, Sse } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { Observable } from 'rxjs';
+import { PutTaskEnvBodySchema, type PutTaskEnvBody, type TaskEnvView } from '@mizuki/shared';
 import { clampIntParam } from '../../common/http/pagination';
 import { ZodValidationPipe } from '../../common/pipes/zod-validation.pipe';
 import { getAppConfig } from '../../config/app-config';
@@ -122,5 +126,32 @@ export class ProcessController {
   @Get('templates')
   listTemplates(): { items: { name: string; task: ProcessTaskName; description?: string }[] } {
     return { items: getAppConfig().tasks };
+  }
+
+  // ── [U3-P4a/K3] 任务级环境变量（写后不可读） ──
+
+  /**
+   * 掩码列表：`{ items: [{ key, masked }] }`，按 key 字典序；空表 → `items: []`。
+   * [K4/I5] 明文永不出现在任何响应里——连 PUT 的回执也只有掩码。
+   */
+  @ApiOperation({ summary: '任务环境变量列表（掩码，按 key 字典序，明文永不回显）' })
+  @Get('task-env')
+  listTaskEnv(): TaskEnvView {
+    return this.manager.listTaskEnv();
+  }
+
+  /**
+   * 整表替换任务环境变量：body `{ entries: Record<string,string> }`。
+   * - `{}` = 清空（合法）；
+   * - 三条约束由 shared 的 TaskEnvRecordSchema 在管道层校验，越界 400 且零写盘；
+   * - 成功返回与 GET 同形的掩码视图（值按 secret 处理，保存后不可再查看）。
+   */
+  @ApiOperation({ summary: '整表替换任务环境变量（{} = 清空；值保存后不可再查看）' })
+  @Put('task-env')
+  @HttpCode(HttpStatus.OK)
+  putTaskEnv(
+    @Body(new ZodValidationPipe(PutTaskEnvBodySchema)) body: PutTaskEnvBody,
+  ): TaskEnvView {
+    return this.manager.putTaskEnv(body.entries);
   }
 }

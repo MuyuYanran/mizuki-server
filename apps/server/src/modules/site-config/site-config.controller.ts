@@ -9,6 +9,7 @@
  *   [U3-P1] PUT /admin/config/site-info | profile | announcement
  *                                   配置域一期三端点（body 直载受控 schema；无逐键/
  *                                   清除端点，覆盖写入即管理权转移）
+ *   [U3-P4a/K7] PUT /admin/config/anime   番剧/B站三域（按域整对象替换；缺省域 = 还原）
  *   全部需认证（P6 全局守卫）；生效链：保存 → console build 任务 → dist。
  * [状态] ACTIVE
  */
@@ -20,11 +21,13 @@ import {
   ProfileConfigSchema,
   PutLangBodySchema,
   PutNavBodySchema,
+  PutSiteAnimeBodySchema,
   SiteInfoSchema,
   type AnnouncementConfigValue,
   type CommentConfigValue,
   type NavConfigValue,
   type ProfileConfigValue,
+  type SiteAnimeValues,
   type SiteInfoValues,
 } from '@mizuki/shared';
 import { ZodValidationPipe } from '../../common/pipes/zod-validation.pipe';
@@ -104,5 +107,22 @@ export class SiteConfigController {
     @Body(new ZodValidationPipe(AnnouncementConfigSchema)) body: AnnouncementConfigValue,
   ): Promise<AdminSiteConfigView> {
     return this.siteConfig.putAnnouncement(body);
+  }
+
+  /**
+   * [U3-P4a/K7] 番剧/B站配置档：三域**按域整对象替换**（域内不做键级 merge）。
+   * body = SiteAnimeSchema.partial()（三域均可缺省；缺省域 = 清除该域 override 并
+   * 还原留档原文，故 `{}` = 三域全部还原主题默认）；越界键 .strict() → 400 零物化。
+   * 与 PUT /site-info 的 15 键契约完全隔离（两个分区互不影响）。
+   */
+  @ApiOperation({
+    summary: '覆盖写入番剧/B站配置档（三域按域整对象替换，缺省域 = 还原主题默认，越界键 400）',
+  })
+  @Put('anime')
+  @HttpCode(HttpStatus.OK)
+  async putAnime(
+    @Body(new ZodValidationPipe(PutSiteAnimeBodySchema)) body: Partial<SiteAnimeValues>,
+  ): Promise<AdminSiteConfigView> {
+    return this.siteConfig.putSiteAnime(body);
   }
 }

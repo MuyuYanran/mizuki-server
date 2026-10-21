@@ -27,9 +27,21 @@ import { nanoid } from 'nanoid';
 import treeKill from 'tree-kill';
 import { eq } from 'drizzle-orm';
 import { z } from 'zod';
-import { EVENTS, ProcessFinishedPayload, TASK_WHITELIST, type ProcessTaskName } from '@mizuki/shared';
+import {
+  EVENTS,
+  ProcessFinishedPayload,
+  TASK_WHITELIST,
+  taskEnvViewOf,
+  type ProcessTaskName,
+  type TaskEnvView,
+} from '@mizuki/shared';
 import { toMizukiAbs } from '../../common/fs/mizuki-root';
 import { logger } from '../../common/logger';
+import {
+  getAppConfig,
+  mergeAndPersistConfig,
+  resetAppConfigCache,
+} from '../../config/app-config';
 import { type BackupOptions, BACKUP_OPTIONS } from '../../infra/backup/backup.service';
 import { type DrizzleDb, DRIZZLE_DB } from '../../infra/db/db.module';
 import { taskRun } from '../../infra/db/schema';
@@ -256,6 +268,33 @@ export class ProcessManagerService implements OnApplicationShutdown {
     });
   }
 
+  // ── [U3-P4a/K3] 任务级环境变量（写后不可读） ──
+
+  /**
+   * GET /admin/process/task-env 的服务侧实现：掩码视图（按 key 字典序）。
+   * 值**永不**离开本进程（K4/I5）：视图只含 `{ key, masked }`。
+   */
+  listTaskEnv(): TaskEnvView {
+    return taskEnvViewOf(getAppConfig().taskEnv);
+  }
+
+  /**
+   * PUT /admin/process/task-env 的服务侧实现：**整表替换**（`{}` = 清空，合法）。
+   * - 三条约束已在管道层（PutTaskEnvBodySchema）完成，越界 400 且零写盘；
+   * - 写盘走 config 既有原子写单源 `mergeAndPersistConfig`（禁裸 fs.writeFile，AGENTS §4-1），
+   *   它只记 `keys`（= 'taskEnv' 这个字面量），不记值；
+   * - `resetAppConfigCache()` 使变更随下一次 getAppConfig() 活取生效（P11 坑 5 先例），
+   *   子进程与 pm-resolver 探活同一次生效（childEnv 单点）；
+   * - 返回与 GET 同形的掩码视图（明文不出本函数）。
+   */
+  putTaskEnv(entries: Record<string, string>): TaskEnvView {
+    mergeAndPersistConfig({ taskEnv: entries });
+    resetAppConfigCache();
+    // K4：日志只记条数（键名可留，值绝不入日志）
+    logger.info({ count: Object.keys(entries).length }, 'taskEnv 已整表替换');
+    return this.listTaskEnv();
+  }
+
   // ── 优雅停机（P9 §3.4b，经 main.ts enableShutdownHooks 传入信号） ──
 
   async onApplicationShutdown(signal?: string): Promise<void> {
@@ -472,7 +511,16 @@ export function taskArgs(task: ProcessTaskName, packageManager: 'pnpm' | 'yarn' 
   return ['run', task];
 }
 
-/** env 仅透传 PATH / HOME / APPDATA（MASTER-PLAN §7），并恒定注入 CI=true（Phase4-D4 配套1） */
+/**
+ * env 仅透传 PATH / HOME / APPDATA（MASTER-PLAN §7），合并配置根级 taskEnv，
+ * 并**恒定**注入 CI=true（Phase4-D4 配套1）。
+ * [U3-P4a/K2] 注入顺序不可变：透传 → taskEnv → 恒写 CI。
+ *   · taskEnv 对**所有**白名单任务一致生效（install/dev/build/preview，配置根级而非模板级）；
+ *   · 末位恒写 CI 保证 taskEnv 永远不能覆盖 CI 常量（K1 ② 在 schema 层已拒绝，
+ *     此处顺序是第二道保险——即便配置被手工改坏也不会改写 CI）；
+ *   · 本函数是 env 的唯一注入点：buildSpawnOptions 与 pm-resolver 探活共用，
+ *     故指令链两路自动一致（K2 单点）。
+ */
 export function childEnv(): Record<string, string> {
   const env: Record<string, string> = {};
   const passthrough = ['PATH', 'HOME', 'APPDATA'] as const;
@@ -482,6 +530,8 @@ export function childEnv(): Record<string, string> {
       env[key] = value;
     }
   }
+  // [U3-P4a/K2] 任务级环境变量（活取 getAppConfig()，改配置免重启；值不回显）
+  Object.assign(env, getAppConfig().taskEnv);
   // [Phase4-D4 / 配套1] CI=true 为**固定字面量**注入，非宿主 env 透传：
   //   · 目的：包管理器与构建脚本在 CI 模式下关闭交互式提示（pnpm install 询问、
   //     vite build 的 TTY 探测等），避免托管任务在无 TTY 的托管环境挂起。

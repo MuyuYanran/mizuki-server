@@ -9,7 +9,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { z } from 'zod';
-import { TASK_WHITELIST } from '@mizuki/shared';
+import { TaskEnvRecordSchema, TASK_WHITELIST } from '@mizuki/shared';
 import { atomicWriteFile } from '../common/fs/atomic-write';
 import { logger } from '../common/logger';
 
@@ -57,6 +57,16 @@ export const AppConfigSchema = z.object({
    * 读取为**活取**（getAppConfig() 每请求，P11 坑 5 先例），改配置不必重启。
    */
   tasks: z.array(TaskTemplateSchema).default([]),
+  /**
+   * [U3-P4a/K1] 任务级环境变量（配置**根级**，对所有白名单任务子进程恒生效）。
+   * - 形态 `Record<string, string>`；缺键 → `{}`（向后兼容，零迁移）；
+   * - 三条硬约束（前缀白名单 / 禁覆盖 PATH·HOME·APPDATA·CI / 键数≤16·键名≤64·值≤4096）
+   *   由 shared 的 TaskEnvRecordSchema 单源实现（与 PUT 端点共用，禁两处漂移）；
+   * - 值按 secret 处理（再裁 B）：任何响应/日志/异常 detail 都不得回显值（K4）；
+   * - 非法写法走**既有失败语义**：loadAppConfig 的 safeParse 失败 → logger.error +
+   *   抛错（启动即失败），不静默丢弃（与 tasks 等键的处置一致）。
+   */
+  taskEnv: TaskEnvRecordSchema.default({}),
 });
 
 export type AppConfig = z.infer<typeof AppConfigSchema>;

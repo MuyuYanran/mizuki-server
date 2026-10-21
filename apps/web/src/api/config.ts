@@ -37,6 +37,15 @@ export interface SiteConfigView {
   announcement: Record<string, unknown> | null;
   /** [U3-P1] 基线公告档（整档求值） */
   baselineAnnouncement: Record<string, unknown> | null;
+  /**
+   * [U3-P4a/K7] 番剧/B站配置档（siteConfig 的 anime / bangumi / bilibili 三键）。
+   * `effective` = 逐域 override 优先、基线回落（域内不做键级 merge——物化是整对象替换，
+   * 面板据此全字段回填后整表提交）；`override` = 侧车态（null = 三域均未被面板接管）。
+   */
+  anime: {
+    effective: Record<string, Record<string, unknown>>;
+    override: Record<string, Record<string, unknown>> | null;
+  };
 }
 
 export const configApi = {
@@ -75,5 +84,13 @@ export const configApi = {
   /** [U3-P1] 公告档整档覆盖（content 非空必填） */
   putAnnouncement(announcement: Record<string, unknown>): Promise<SiteConfigView> {
     return request<SiteConfigView>('PUT', '/admin/config/announcement', announcement);
+  },
+
+  /**
+   * [U3-P4a/K7] 番剧/B站配置档：三域**按域整对象替换**（域内不做键级 merge）。
+   * 缺省域 = 清除该域 override 并还原留档原文本；`{}` = 三域全部还原主题默认。
+   */
+  putSiteAnime(siteAnime: Record<string, unknown>): Promise<SiteConfigView> {
+    return request<SiteConfigView>('PUT', '/admin/config/anime', siteAnime);
   },
 };

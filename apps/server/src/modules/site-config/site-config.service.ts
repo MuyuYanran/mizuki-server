@@ -30,7 +30,9 @@ import {
   type ConfigOverrideFile,
   ConfigOverrideFileSchema,
   type NavConfigValue,
+  SITE_ANIME_KEYS,
   SITE_INFO_KEYS,
+  type SiteAnimeValues,
   type SiteInfoValues,
   type ProfileConfigValue,
 } from '@mizuki/shared';
@@ -89,6 +91,16 @@ export interface AdminSiteConfigView {
   announcement: AnnouncementConfigValue | null;
   /** [U3-P1] 基线公告档解析值 */
   baselineAnnouncement: AnnouncementConfigValue | null;
+  /**
+   * [U3-P4a/K7] 番剧/B站配置档（siteConfig 三键，按域整对象语义）：
+   * - `effective`：逐域 override 优先、基线回落（域内**不**做键级 merge——物化是
+   *   整对象替换，键级 merge 会与落盘结果不一致，面板据此全字段回填后提交）；
+   * - `override`：侧车 override 态（null = 三域均未被面板接管）。
+   */
+  anime: {
+    effective: Partial<SiteAnimeValues>;
+    override: Partial<SiteAnimeValues> | null;
+  };
 }
 
 /** override 侧车位置（[Phase4-D4/C3] 三级优先，事故根因加固 2026-09-07/08）：
@@ -130,6 +142,22 @@ export class SiteConfigService {
   getConfig(): AdminSiteConfigView {
     const carrier = this.readOverride();
     const baseline = this.readBaseline(carrier.originals);
+    // [U3-P4a/K7] 番剧/B站档：逐域 override 优先、基线回落（域内不键级 merge）
+    const animeOverride = carrier.siteAnime ?? null;
+    const animeBaseline = baseline.siteAnime ?? null;
+    const animeEffective: Partial<SiteAnimeValues> = {};
+    const effectiveAnimeDomain = animeOverride?.anime ?? animeBaseline?.anime;
+    if (effectiveAnimeDomain !== undefined) {
+      animeEffective.anime = effectiveAnimeDomain;
+    }
+    const effectiveBangumiDomain = animeOverride?.bangumi ?? animeBaseline?.bangumi;
+    if (effectiveBangumiDomain !== undefined) {
+      animeEffective.bangumi = effectiveBangumiDomain;
+    }
+    const effectiveBilibiliDomain = animeOverride?.bilibili ?? animeBaseline?.bilibili;
+    if (effectiveBilibiliDomain !== undefined) {
+      animeEffective.bilibili = effectiveBilibiliDomain;
+    }
     return {
       siteConfig: {
         lang: carrier.siteConfig?.lang ?? null,
@@ -146,6 +174,8 @@ export class SiteConfigService {
       baselineProfile: baseline.profile,
       announcement: carrier.announcement ?? baseline.announcement,
       baselineAnnouncement: baseline.announcement,
+      // [U3-P4a/K7] 番剧/B站档（effective = 逐域 override ?? 基线；override = 侧车态）
+      anime: { effective: animeEffective, override: animeOverride },
     };
   }
 
@@ -249,6 +279,40 @@ export class SiteConfigService {
     carrier.siteInfo = { ...siteInfo };
     this.writeOverride(carrier);
     logger.info({ configPath, keys: Object.keys(siteInfo).length }, 'siteInfo override 已物化');
+    return this.getConfig();
+  }
+
+  /**
+   * PUT /admin/config/anime（U3-P4a/K7）：番剧/B站配置档，**按域整对象替换**。
+   * - 域键有值 → 该域整档物化（首次覆盖前留档 originals['siteConfig.<域>']）；
+   * - 域键缺省 → 该域清除 override 并**还原留档原文本**（无留档 = 零触碰），
+   *   故 `PUT {}` = 三域全部还原主题默认；
+   * - 侧车只写「本次提交的域」（缺省域不落键 = 基线生效），与 siteInfo 的整档语义同构；
+   * - 校验已在管道层完成（PutSiteAnimeBodySchema = SiteAnimeSchema.partial() + .strict()，
+   *   越界键 400 零物化）。
+   * 不变量（K7）：PUT /site-info 的 15 键契约、SITE_INFO_KEYS、既有 originals 键形零变化。
+   */
+  async putSiteAnime(values: Partial<SiteAnimeValues>): Promise<AdminSiteConfigView> {
+    // [Phase4-E3a] 物化前置探针门禁（T4，ADR-024）：探针失败 → 409 零物化
+    await this.themeRegistry.assertProbesPass(['siteConfig']);
+    const configPath = configTsPath();
+    const carrier = this.readOverride();
+    await this.spliceSiteAnime(configPath, carrier, values);
+    const nextOverride: Partial<SiteAnimeValues> = {
+      ...(values.anime !== undefined ? { anime: values.anime } : {}),
+      ...(values.bangumi !== undefined ? { bangumi: values.bangumi } : {}),
+      ...(values.bilibili !== undefined ? { bilibili: values.bilibili } : {}),
+    };
+    if (Object.keys(nextOverride).length === 0) {
+      delete carrier.siteAnime;
+    } else {
+      carrier.siteAnime = nextOverride;
+    }
+    this.writeOverride(carrier);
+    logger.info(
+      { configPath, domains: Object.keys(nextOverride).length },
+      'siteAnime override 已物化',
+    );
     return this.getConfig();
   }
 
@@ -361,6 +425,7 @@ export class SiteConfigService {
     nav: NavConfigValue | null;
     navRaw: string | null;
     siteInfo: Partial<SiteInfoValues> | null;
+    siteAnime: Partial<SiteAnimeValues> | null;
     profile: ProfileConfigValue | null;
     announcement: AnnouncementConfigValue | null;
   } {
@@ -439,6 +504,11 @@ export class SiteConfigService {
       siteUnwrapped !== undefined && Node.isObjectLiteralExpression(siteUnwrapped)
         ? this.readSiteInfoBaseline(siteUnwrapped, configPath, consts)
         : null;
+    // [U3-P4a/K7] 番剧/B站基线：同上逐属性求值（三域互不牵连）
+    const siteAnime =
+      siteUnwrapped !== undefined && Node.isObjectLiteralExpression(siteUnwrapped)
+        ? this.readSiteAnimeBaseline(siteUnwrapped, configPath, consts)
+        : null;
     const profile = this.evalDeclarationValue<ProfileConfigValue>(
       'profileConfig',
       sf,
@@ -451,7 +521,7 @@ export class SiteConfigService {
       configPath,
       consts,
     );
-    return { siteLang, commentConfig, nav, navRaw, siteInfo, profile, announcement };
+    return { siteLang, commentConfig, nav, navRaw, siteInfo, siteAnime, profile, announcement };
   }
 
   /**
@@ -488,6 +558,42 @@ export class SiteConfigService {
       }
     }
     return out as Partial<SiteInfoValues>;
+  }
+
+  /**
+   * [U3-P4a/K7] 基线番剧/B站档逐域解析：仅取 SITE_ANIME_KEYS 三键，逐属性常量代入求值。
+   * 必须逐属性求值——三域互不牵连（某域含未支持节点时，其余域仍可编辑）；
+   * 未支持字面量/非属性赋值 → 该域省略 + warn（面板该域空档起步）；
+   * 三域全不可得 → null（与 siteInfo 的「声明形态不符 → null」同语义）。
+   */
+  private readSiteAnimeBaseline(
+    siteObj: ObjectLiteralExpression,
+    configPath: string,
+    consts: Map<string, string | number>,
+  ): Partial<SiteAnimeValues> | null {
+    const out: Record<string, unknown> = {};
+    for (const key of SITE_ANIME_KEYS) {
+      const prop = siteObj.getProperty(key);
+      if (prop === undefined || !Node.isPropertyAssignment(prop)) {
+        continue;
+      }
+      try {
+        const value = astToValueWithConsts(prop.getInitializerOrThrow(), configPath, consts);
+        if (value !== undefined) {
+          out[key] = value;
+        }
+      } catch (error) {
+        if (error instanceof UnsupportedLiteralError) {
+          logger.warn(
+            { configPath, key, line: error.line },
+            'siteAnime 基线域含未支持节点，该域基线视为不可得',
+          );
+          continue;
+        }
+        throw error;
+      }
+    }
+    return Object.keys(out).length > 0 ? (out as Partial<SiteAnimeValues>) : null;
   }
 
   /** [U3-P1] 声明级整档基线求值（profileConfig / announcementConfig 与 commentConfig 同构） */
@@ -607,12 +713,48 @@ export class SiteConfigService {
    * - 属性存在 → setInitializer（首次覆盖前留档原文本 originals['siteConfig.<key>']）；
    * - 属性缺失且 body 含该键 → addPropertyAssignment 追加（对象字面量末尾）；
    * - body 未含该键（可选键）→ 零触碰（不新增、不改写，保留站点原语义）。
-   * 多行字面量续行按属性缩进对齐（缩进单位取自同层既有属性，制表符/空格自适）。
+   * [U3-P4a/K7] 循环体已抽为 spliceSiteKeys（行为逐字等价）；本方法保持一行委托，
+   * 语义与抽前一致（回归由既有 p7i/p7f 全量保证）。
    */
   private async spliceSiteInfo(
     configPath: string,
     carrier: ConfigOverrideFile,
     values: Partial<SiteInfoValues>,
+  ): Promise<void> {
+    await this.spliceSiteKeys(configPath, carrier, values, SITE_INFO_KEYS, 'siteInfo');
+  }
+
+  /**
+   * [U3-P4a/K7] 物化番剧/B站档（siteConfig 的 animation 三键）：按域**整对象替换**——
+   * 每个域键的初始化器整体换成 `valueToTsLiteral(域对象)`，服务端不做键级 merge
+   * （基线含标识符时求值不可靠，隐式 merge 会造出半静默行为；面板负责全字段回填）。
+   * - 域键在 body 中有值 → 置换（首次覆盖前留档 originals['siteConfig.<域>']）；
+   * - 域键缺省（未提交）→ **还原留档原文本**（= 清除该域 override；无留档则零触碰），
+   *   对齐 lang / nav 的清除语义，使 `PUT {}` 成为「全部还原」。
+   */
+  private async spliceSiteAnime(
+    configPath: string,
+    carrier: ConfigOverrideFile,
+    values: Partial<SiteAnimeValues>,
+  ): Promise<void> {
+    await this.spliceSiteKeys(configPath, carrier, values, SITE_ANIME_KEYS, 'siteAnime', true);
+  }
+
+  /**
+   * [U3-P4a/K7] siteConfig 对象内若干受管键的**逐属性置换**（原 spliceSiteInfo 循环体，
+   * 行为逐字等价；siteInfo 与 siteAnime 共用）。
+   * @param keys 置换顺序（数组序 = schema 定义序，禁手工重排）
+   * @param kind 落盘/日志标签（'siteInfo' / 'siteAnime'，只影响 persistConfigTs 的标记载荷）
+   * @param restoreMissing true = 未提交的键**还原留档原文本**（清除语义）；
+   *   false = 零触碰（siteInfo 的「可选键缺省即不写」既有语义，不可变）
+   */
+  private async spliceSiteKeys<K extends string>(
+    configPath: string,
+    carrier: ConfigOverrideFile,
+    values: Partial<Record<K, unknown>>,
+    keys: readonly K[],
+    kind: string,
+    restoreMissing = false,
   ): Promise<void> {
     const text = this.readConfigTs(configPath);
     const sf = loadSourceFile(configPath, text);
@@ -634,10 +776,14 @@ export class SiteConfigService {
           : '  ';
     sf.getProject().manipulationSettings.set({ indentationText: this.toIndentationText(indentUnit) });
     const originals = { ...(carrier.originals ?? {}) };
-    for (const key of SITE_INFO_KEYS) {
+    for (const key of keys) {
       const value = values[key];
       if (value === undefined) {
-        continue; // 可选键未提交 → 零触碰
+        // 清除语义（仅 siteAnime）：留档存在 → 还原原文本；无留档 → 零触碰
+        if (restoreMissing) {
+          this.restoreOriginal(siteObj, originals, key);
+        }
+        continue; // 默认语义：未提交 → 零触碰
       }
       const literal = valueToTsLiteral(value);
       const prop = siteObj.getProperty(key);
@@ -655,7 +801,28 @@ export class SiteConfigService {
       prop.setInitializer(literal);
     }
     carrier.originals = originals;
-    await this.persistConfigTs(configPath, text, sf.getFullText(), 'siteInfo');
+    await this.persistConfigTs(configPath, text, sf.getFullText(), kind);
+  }
+
+  /**
+   * [U3-P4a/K7] 清除语义的单键还原：留档原文本存在 → 属性初始化器还原；
+   * 属性已被删除/非属性赋值 → 零触碰（原文本无落点，不新建属性）。
+   * 留档本身保留（lang / nav 的清除路径同口径，便于二次接管）。
+   */
+  private restoreOriginal(
+    siteObj: ObjectLiteralExpression,
+    originals: Record<string, string>,
+    key: string,
+  ): void {
+    const original = originals[`siteConfig.${key}`];
+    if (original === undefined) {
+      return;
+    }
+    const prop = siteObj.getProperty(key);
+    if (prop === undefined || !Node.isPropertyAssignment(prop)) {
+      return;
+    }
+    prop.setInitializer(original);
   }
 
   /**

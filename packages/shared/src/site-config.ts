@@ -63,8 +63,10 @@ export const CommentConfigSchema = z
 // ProfileConfig / AnnouncementConfig）：零删减、零改名、零自创键；只加值域约束
 // （URL 尾斜杠、日期形、枚举、整数区间）。全部 .strict()——越界键显式 400。
 // 明确不受管（schema 与 splice 一概不碰）：siteConfig 的 lang（既有端点独占）与
-// keywords/bangumi/bilibili/anime/showCoverInContent/generateOgImages/favicon/
-// showLastModified/pageProgressBar/thirdPartyAnalytics（A-GAP-11，后批）。
+// keywords/showCoverInContent/generateOgImages/favicon/showLastModified/
+// pageProgressBar/thirdPartyAnalytics（A-GAP-11 剩余键，后批）。
+// [U3-P4a/K6] bangumi / bilibili / anime 三键**已于 U3-P4a 纳管**（见下方
+// SiteAnimeSchema 与 PUT /admin/config/anime）；本注释其余键名逐字保留，语义未变。
 
 /** themeColor：色相 + 固定色（K7 全必填） */
 export const SiteThemeColorSchema = z
@@ -283,6 +285,58 @@ for (const [key, type] of Object.entries(SiteInfoSchema.shape)) {
 }
 export const SiteInfoProbeSchema = z.object(SITE_INFO_PROBE_SHAPE);
 
+// ── [U3-P4a/K6] 番剧 / B 站配置档（siteConfig 的 anime / bangumi / bilibili 三键） ──
+// 字段面逐字对齐主题 src/types/config.ts 的 **SiteConfig 匿名内联成员**（:111-128）：
+// 三者均为可选属性，且**每个字段都可选**（真实站点可能只写 mode 一个键）。
+// 故本域 schema **零必填字段**——任何必填都会让「只写了一个键」的合法基线解析失败。
+// 三域各自 .strict()（越界键显式 400）；只加值域约束（枚举逐字 + 合理长度上限）。
+// 物化语义 = **按域整对象替换**（siteConfig.anime / .bangumi / .bilibili 各自整档置换，
+// 服务端不做隐式 merge：基线含标识符时求值不可靠，隐式 merge 会造出半静默行为）。
+
+/** anime：番剧页面模式（枚举值逐字取自主题类型源，顺序同主题写法） */
+export const AnimeConfigSchema = z
+  .object({
+    mode: z.enum(['bangumi', 'local', 'bilibili']).optional(),
+  })
+  .strict();
+
+/** bangumi：Bangumi 数据源（userId + fetchOnDev，字段与可选性逐字对齐主题） */
+export const BangumiConfigSchema = z
+  .object({
+    userId: z.string().max(512).optional(),
+    fetchOnDev: z.boolean().optional(),
+  })
+  .strict();
+
+/** bilibili：B 站数据源（vmid / fetchOnDev / coverMirror / useWebp，逐字对齐主题） */
+export const BilibiliConfigSchema = z
+  .object({
+    vmid: z.string().max(512).optional(),
+    fetchOnDev: z.boolean().optional(),
+    coverMirror: z.string().max(2048).optional(),
+    useWebp: z.boolean().optional(),
+  })
+  .strict();
+
+/**
+ * 聚合档：siteConfig 三键（序 = 定义序，禁手工重排）。
+ * 三域本身在聚合里**必填**（面板整档提交）+ `.strict()`；PUT 请求体用 `.partial()`
+ * （见 PutSiteAnimeBodySchema）以支持「只提交要管理的域」。
+ */
+export const SiteAnimeSchema = z
+  .object({
+    anime: AnimeConfigSchema,
+    bangumi: BangumiConfigSchema,
+    bilibili: BilibiliConfigSchema,
+  })
+  .strict();
+
+/** 三受管键键序（物化逐属性置换顺序 + 面板/视图单源；序 = SiteAnimeSchema 定义序） */
+export const SITE_ANIME_KEYS = ['anime', 'bangumi', 'bilibili'] as const;
+
+/** PUT /admin/config/anime 请求体：三域均可缺省（缺省 = 清除该域 override 并还原留档原文） */
+export const PutSiteAnimeBodySchema = SiteAnimeSchema.partial();
+
 /** 个人资料档（ProfileConfig 逐字对齐：name 必填，links 必填数组，[] 合法清空） */
 export const ProfileConfigSchema = z
   .object({
@@ -356,6 +410,11 @@ export const ConfigOverrideFileSchema = z
     profile: ProfileConfigSchema.optional(),
     /** [U3-P1] 公告档 override 态（缺键 = 未设置 = 基线生效） */
     announcement: AnnouncementConfigSchema.optional(),
+    /**
+     * [U3-P4a/K6] 番剧/B站配置档 override 态（缺键 = 未设置 = 基线生效）。
+     * 按域整对象替换：域键存在即整档接管，域键缺省即该域回到基线。
+     */
+    siteAnime: SiteAnimeSchema.partial().optional(),
     /** 被置换原文本留档（键 = 受控定位符，值 = config.ts 原初始化器文本，用于还原） */
     originals: z.record(z.string(), z.string()).optional(),
   })
@@ -369,3 +428,11 @@ export type SiteInfoValues = z.infer<typeof SiteInfoSchema>;
 export type ProfileConfigValue = z.infer<typeof ProfileConfigSchema>;
 /** [U3-P1] 公告档值 */
 export type AnnouncementConfigValue = z.infer<typeof AnnouncementConfigSchema>;
+/** [U3-P4a/K6] 番剧页面模式档值 */
+export type AnimeConfigValue = z.infer<typeof AnimeConfigSchema>;
+/** [U3-P4a/K6] Bangumi 数据源档值 */
+export type BangumiConfigValue = z.infer<typeof BangumiConfigSchema>;
+/** [U3-P4a/K6] B 站数据源档值 */
+export type BilibiliConfigValue = z.infer<typeof BilibiliConfigSchema>;
+/** [U3-P4a/K6] 番剧/B站聚合档值（三域必填，域内字段均可选） */
+export type SiteAnimeValues = z.infer<typeof SiteAnimeSchema>;

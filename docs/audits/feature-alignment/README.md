@@ -186,8 +186,8 @@ ADR-010 补建同批闭环。完整交付报告（证据行编号、K/I 对照�
 
 | 编号 | 裁定 | 落点 / 口径 |
 |---|---|---|
-| A-GAP-07 任务级 env 注入 | **立项（U3-P4a）** | 走 `config.json` 的 `tasks[].env`（键名白名单）+ `childEnv()` 合并注入；**写后不可读**（GET 仅回"已设置"/last4），pino 对该类键脱敏。落点安全性已核：`apps/server/data/` gitignored，且**备份面不含它**（`infra/backup/backup.service.ts:270-295` 只收 `src/data/*.ts\|*.json` + `src/content/**` + db） |
-| A-GAP-11 ≡ B-P2-05 番剧 / B站 mode | **立项（U3-P4a，与上同批）** | 纳 `anime.mode` + `bangumi.*` + `bilibili.*` 三组；复用 `site-config` **逐属性置换**模式（`site-config.service.ts:612-659` `spliceSiteInfo` 同款），**不走整档声明置换**（避免吃掉用户注释） |
+| A-GAP-07 任务级 env 注入 | **立项（U3-P4a，已交付）** | 走 `config.json` **根级 `taskEnv`**（**不是** `tasks[].env` —— 模板是一次点击的命名预设，挂模板会导致"换模板丢凭据"）+ `childEnv()` 合并注入（透传 → taskEnv → 恒写 `CI`）；键名白名单前缀、禁覆盖 `PATH/HOME/APPDATA/CI`、≤16 条 / 键≤64 / 值≤4096；**写后不可读**（GET 仅回 `{key, masked}`），pino 只记 `{count}` 与键名。落点安全性已核：`apps/server/data/` gitignored，且**备份面不含它**（`infra/backup/backup.service.ts:270-295` 只收 `src/data/*.ts\|*.json` + `src/content/**` + db） |
+| A-GAP-11 ≡ B-P2-05 番剧 / B站 mode | **立项（U3-P4a，与上同批）** | 纳 `anime.mode` + `bangumi.*` + `bilibili.*` 三组；复用 `site-config` **逐属性置换**模式（`site-config.service.ts:612-659` `spliceSiteInfo` 同款），**不走整档声明置换**（避免吃掉用户注释）。**键面订正（2026-10-21 实读主题 `src/types/config.ts:110-129`）**：三键是 `SiteConfig` 的**匿名内联成员**（无命名类型）、**全字段可选**；`anime.mode` 枚举 = `bangumi \| local \| bilibili`；审计表**漏列 `bangumi.fetchOnDev`**（主题实有，已纳入）。本仓 schema 为自建命名，但必须逐字对齐可选性 |
 | A-GAP-13 迁移导入器 | **立项（U3-P4c）★ 仅 Markdown 系** | 通用 md 目录 / 单文件 → posts；日期一律产出 `published`、封面 `image`（禁 `pubDate`/`cover`，审计已裁）；**★★★ CMS 系（Halo / Typecho / WordPress）明示不做** |
 | A-GAP-04 特效外链档 | **部分立项（U3-P4c）** | 仅 `musicPlayer` 非敏感开关（enable/mode/listId/server）+ `pio` + `sakura`；**`meting_api` 维持手改**（钥匙形状，不为单点引入 secret 机制）。**键名口径订正（2026-10-21 实测）**：`musicPlayer`/`sakura`/`pio` 是 `widgetConfigs` 的**成员名**，实体是 `config.ts` **顶层声明** `export const musicPlayerConfig`（:402）/ `sakuraConfig`（:556）/ `pioConfig`（:584），`widgetConfigs` 内为标识符引用（:623/625/627）⇒ 物化落点是**各自声明的对象字面量**，不是 `siteConfig` 成员（该 15 键契约不动） |
 | A-GAP-03 布局外观档 | **裁剪不做** | 外观类改动低频、手改 `config.ts` 可接受；`expressiveCode` **永久不做**（结构最复杂，写错=代码高亮全崩）。记裁剪注记，不再排期 |

@@ -29,3 +29,6 @@ export * from './theme-profile';
 
 // [U3-P3/K5] 任务白名单单源（从 L3 process 升格，供 L0 config 引用；模板再裁 B）
 export * from './process-tasks';
+
+// [U3-P4a/K1/K3] 任务级环境变量（config.json taskEnv 约束 + 掩码视图单源）
+export * from './task-env';

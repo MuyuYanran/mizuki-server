@@ -13,13 +13,17 @@
  *   ① 历史记录区——分页表格、查看全文日志 dialog、单条删除（带确认）；
  *   ② 模板区——GET /admin/process/templates 渲染快捷按钮（点击走既有
  *      startTask(task) 白名单链路）；空数组不显示该区。
+ * [U3-P4a/K5] 增补第三区「任务环境变量」（与模板区并列，SSE/启停/端口检测仍一行不动）：
+ *   掩码表格（key / masked / 删除）+ 新增行（key + 密码框 value）+ 「保存整表」；
+ *   值按凭据处理（GET/PUT 都只回掩码），保存前二次确认并列出将被移除的既有键。
  * [状态] ACTIVE
  *
  * SSE 经 fetch 流携带 Bearer token（process.ts）；LogTerminal 在 exit 事件后
  * emit 'finished'，本页据以刷新任务终态。
  */
-import { onMounted, ref } from 'vue';
+import { computed, onMounted, ref } from 'vue';
 import { ElMessage, ElMessageBox } from 'element-plus';
+import { maskTaskEnvValue } from '@mizuki/shared';
 import {
   processApi,
   type ProcessTaskName,
@@ -27,6 +31,7 @@ import {
   type PortProbeResult,
   type TaskRunListItem,
   type TaskTemplate,
+  type TaskEnvEntry,
 } from '../../api/process';
 import { previewApi } from '../../api/preview';
 import { ApiError } from '../../api/http';
@@ -258,9 +263,141 @@ function runDuration(row: TaskRunListItem): string {
   return `${Math.floor(ms / 60_000)} 分 ${Math.round((ms % 60_000) / 1000)} 秒`;
 }
 
+// ── [U3-P4a/K5] 任务环境变量区（与模板区并列；值按凭据处理，写后不可读） ──
+
+/**
+ * 服务端现存的掩码条目（GET 只回 `{ key, masked }`，明文永不返回）。
+ * [K3] PUT 是**整表替换**：由于既有值不可读，保持某条变量的唯一办法是在本次会话
+ * 重新输入它的值——未重输的既有键会在保存时被移除（保存前二次确认里逐条列出）。
+ */
+const taskEnvItems = ref<TaskEnvEntry[]>([]);
+/** 本次会话输入的值（**唯一**持有明文的前端状态；保存成功后立即清空，不落 localStorage） */
+const taskEnvDraft = ref<Record<string, string>>({});
+/** 本次保存将移除的既有键（表格「删除」= 打标记，不直接发请求） */
+const taskEnvRemoved = ref<string[]>([]);
+const taskEnvLoading = ref(false);
+const taskEnvSaving = ref(false);
+const newEnvKey = ref('');
+const newEnvValue = ref('');
+
+/** 表格行（既有条目 + 本次新增；掩码对草稿值同样生效——掩码规则复用 shared 单源） */
+interface TaskEnvRow {
+  key: string;
+  masked: string;
+  /** true = 本次会话输入了值（保存后才有明文存在） */
+  pending: boolean;
+}
+
+const taskEnvRows = computed<TaskEnvRow[]>(() => {
+  const rows: TaskEnvRow[] = [];
+  const existingKeys = new Set(taskEnvItems.value.map((item) => item.key));
+  for (const item of taskEnvItems.value) {
+    if (taskEnvRemoved.value.includes(item.key)) {
+      continue;
+    }
+    const draft = taskEnvDraft.value[item.key];
+    rows.push({
+      key: item.key,
+      masked: draft !== undefined ? maskTaskEnvValue(draft) : item.masked,
+      pending: draft !== undefined,
+    });
+  }
+  for (const key of Object.keys(taskEnvDraft.value)) {
+    if (!existingKeys.has(key) && !taskEnvRemoved.value.includes(key)) {
+      rows.push({ key, masked: maskTaskEnvValue(taskEnvDraft.value[key] ?? ''), pending: true });
+    }
+  }
+  return rows.sort((a, b) => a.key.localeCompare(b.key));
+});
+
+async function loadTaskEnv(): Promise<void> {
+  taskEnvLoading.value = true;
+  try {
+    const view = await processApi.listTaskEnv();
+    taskEnvItems.value = view.items;
+    taskEnvDraft.value = {};
+    taskEnvRemoved.value = [];
+  } catch (e) {
+    notifyApiError(e, '任务环境变量加载失败');
+  } finally {
+    taskEnvLoading.value = false;
+  }
+}
+
+/** 新增/重输一条：键名统一大写（服务端要求大写形态；前缀白名单由服务端权威校验） */
+function addTaskEnv(): void {
+  const key = newEnvKey.value.trim().toUpperCase();
+  if (key === '') {
+    ElMessage.warning('请填写变量名');
+    return;
+  }
+  if (newEnvValue.value === '') {
+    ElMessage.warning('请填写变量值');
+    return;
+  }
+  taskEnvDraft.value = { ...taskEnvDraft.value, [key]: newEnvValue.value };
+  taskEnvRemoved.value = taskEnvRemoved.value.filter((item) => item !== key);
+  newEnvKey.value = '';
+  newEnvValue.value = '';
+}
+
+/** 删除一行：既有键打移除标记（保存时生效），草稿键直接丢弃 */
+function removeTaskEnvRow(row: TaskEnvRow): void {
+  const draft = { ...taskEnvDraft.value };
+  delete draft[row.key];
+  taskEnvDraft.value = draft;
+  if (taskEnvItems.value.some((item) => item.key === row.key)) {
+    taskEnvRemoved.value = [...taskEnvRemoved.value, row.key];
+  }
+}
+
+/**
+ * 保存整表：提交的 entry 集 = 本次会话输入过值的键（既有值不可读，无法回传未重输的键）。
+ * 二次确认里逐条列出将被移除的既有变量——避免「以为只是加一条，结果清掉别的凭据」。
+ */
+async function saveTaskEnv(): Promise<void> {
+  const entries: Record<string, string> = {};
+  for (const [key, value] of Object.entries(taskEnvDraft.value)) {
+    if (!taskEnvRemoved.value.includes(key)) {
+      entries[key] = value;
+    }
+  }
+  const kept = Object.keys(entries).sort();
+  const dropped = taskEnvItems.value
+    .map((item) => item.key)
+    .filter((key) => !kept.includes(key));
+  const dropHint =
+    dropped.length > 0
+      ? `\n\n以下既有变量未在本次输入新值，保存后将被移除：${dropped.join('、')}`
+      : '';
+  const confirmed = await ElMessageBox.confirm(
+    `将整表保存 ${kept.length} 条任务环境变量，对所有白名单任务（install / dev / build / preview）的子进程生效。\n保存后值不可再查看。${dropHint}`,
+    '任务环境变量保存确认',
+    { type: 'warning', confirmButtonText: '确认保存', cancelButtonText: '取消' },
+  )
+    .then(() => true)
+    .catch(() => false);
+  if (!confirmed) {
+    return;
+  }
+  taskEnvSaving.value = true;
+  try {
+    const view = await processApi.putTaskEnv(entries);
+    taskEnvItems.value = view.items;
+    taskEnvDraft.value = {};
+    taskEnvRemoved.value = [];
+    ElMessage.success('任务环境变量已保存（值不可再查看）');
+  } catch (e) {
+    notifyApiError(e, '保存任务环境变量失败');
+  } finally {
+    taskEnvSaving.value = false;
+  }
+}
+
 onMounted(() => {
   void loadTemplates();
   void loadRuns();
+  void loadTaskEnv();
 });
 
 </script>
@@ -324,6 +461,59 @@ onMounted(() => {
       >
         <el-button :loading="starting" @click="runTemplate(tpl.task)">{{ tpl.name }}</el-button>
       </el-tooltip>
+    </div>
+
+    <!-- [U3-P4a/K5] 任务环境变量区（与模板区并列；值与凭据同级，写后不可读） -->
+    <el-divider content-position="left">任务环境变量</el-divider>
+    <el-alert
+      type="info"
+      :closable="false"
+      show-icon
+      title="注入所有白名单任务的子进程（install / dev / build / preview）"
+      description="值按凭据处理：保存后只显示掩码，明文不可再查看。保存为整表替换——既有变量若未在本次输入新值将被移除（保存前会二次确认并列出）。变量名仅允许 BILI_ / ANIME_ / ENABLE_ / CONTENT_ 前缀且须大写；PATH / HOME / APPDATA / CI 由服务固定管理，不允许覆盖。"
+      class="env-alert"
+    />
+    <div v-loading="taskEnvLoading" class="env-panel">
+      <el-table v-if="taskEnvRows.length > 0" :data="taskEnvRows" size="small" border class="env-table">
+        <el-table-column label="变量名" prop="key" />
+        <el-table-column label="值（掩码）" width="220">
+          <template #default="{ row }">
+            <span class="env-masked">{{ row.masked }}</span>
+            <el-tag v-if="row.pending" size="small" type="success">待保存</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="操作" width="100">
+          <template #default="{ row }">
+            <el-button size="small" type="danger" @click="removeTaskEnvRow(row)">删除</el-button>
+          </template>
+        </el-table-column>
+      </el-table>
+      <p v-else class="env-empty">
+        尚未配置任务环境变量（子进程仅透传 PATH / HOME / APPDATA，并恒写 CI=true）。
+      </p>
+      <div class="env-add-bar">
+        <el-input
+          v-model="newEnvKey"
+          placeholder="变量名（如 BILI_SESSDATA）"
+          class="env-key-input"
+          aria-label="环境变量名"
+        />
+        <el-input
+          v-model="newEnvValue"
+          type="password"
+          show-password
+          placeholder="变量值（保存后不可再查看）"
+          class="env-value-input"
+          aria-label="环境变量值"
+        />
+        <el-button @click="addTaskEnv">新增变量</el-button>
+        <el-button
+          type="primary"
+          class="btn-gradient-primary"
+          :loading="taskEnvSaving"
+          @click="saveTaskEnv"
+        >保存整表</el-button>
+      </div>
     </div>
 
     <!-- [U3-P3/K6] 历史记录区 -->
@@ -425,6 +615,39 @@ onMounted(() => {
   gap: 10px;
   flex-wrap: wrap;
   margin-bottom: 8px;
+}
+/* [U3-P4a/K5] 任务环境变量区（间距/字体沿用既有 token，无新增色值） */
+.env-alert {
+  margin-bottom: 12px;
+  border-radius: var(--mizuki-radius-control);
+}
+.env-panel {
+  margin-bottom: 8px;
+}
+.env-table {
+  width: 100%;
+  margin-bottom: 10px;
+}
+.env-masked {
+  font-family: var(--el-font-family-monospace, monospace);
+  margin-right: 6px;
+}
+.env-empty {
+  margin: 0 0 10px;
+  font-size: 13px;
+  color: var(--el-text-color-secondary);
+}
+.env-add-bar {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+.env-key-input {
+  width: 260px;
+}
+.env-value-input {
+  width: 320px;
 }
 .run-table {
   width: 100%;

@@ -20,6 +20,7 @@ describe('P0b config.json zod 校验加载（§6.2）', () => {
       swagger: true, // [B2/裁决 6] 新增默认字段
       corsOrigins: [], // [Wave-2/B3] 纳入 schema 的 CORS 扩展白名单（原为被 strip 的死代码）
       tasks: [], // [U3-P3/K5] 任务模板默认空数组
+      taskEnv: {}, // [U3-P4a/K1] 任务级环境变量默认空表
     });
   });
 
@@ -44,6 +45,7 @@ describe('P0b config.json zod 校验加载（§6.2）', () => {
       swagger: true, // [B2/裁决 6] 缺省补默认 true
       corsOrigins: [], // [Wave-2/B3] 缺省补默认空数组
       tasks: [], // [U3-P3/K5] 缺省补默认空数组
+      taskEnv: {}, // [U3-P4a/K1] 缺省补默认空表（新键零迁移）
     });
   });
 

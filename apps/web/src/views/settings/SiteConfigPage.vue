@@ -11,6 +11,10 @@
  *   textarea，整档一个 PUT = K9 一次请求）/ 个人资料（profileConfig，links 走
  *   mapper 既有 json widget）/ 公告（announcementConfig），各自独立保存按钮；
  *   评论与导航两区行为不变（导航仍保「还原主题默认」通道）。
+ * [U3-P4a/K8] 增「番剧与 B 站」分区（折叠默认收起）：anime / bangumi / bilibili 三域由
+ *   shared SiteAnimeSchema 驱动渲染（anime.mode 为下拉），保存走 PUT /admin/config/anime。
+ *   面板负责**全字段回填**（override 优先、基线回落）——服务端是「按域整对象替换」，
+ *   未回填的子键会被移除（分区内已有明确提示）。
  * [边界] 仅受控子集；其余 config.ts 字段不在面板管理面（.strict() 兜底禁蔓延）；
  *   三档均无逐键/清除入口（K1 裁剪，侧车原文留档仍在服务端）；
  *   保存后需经「构建预览」执行 build 任务才反映到站点 dist（生效链）。
@@ -23,7 +27,9 @@ import {
   CommentConfigSchema,
   MizukiTier1Profile,
   ProfileConfigSchema,
+  SITE_ANIME_KEYS,
   SITE_LANG_PATTERN,
+  SiteAnimeSchema,
   SiteInfoSchema,
 } from '@mizuki/shared';
 import { configApi } from '../../api/config';
@@ -103,6 +109,39 @@ const announcementFormValue = ref<Record<string, unknown>>(
 const announcementUnavailable = ref(false);
 const savingAnnouncement = ref(false);
 
+// ── [U3-P4a/K8] 番剧与 B 站分区（siteConfig 的 anime / bangumi / bilibili 三键） ──
+/**
+ * 表单 schema = shared 聚合档（三域必填 + 域内每字段可选 + .strict()）。
+ * 键面完全由 shared 驱动（schema-form 渲染：anime.mode → 下拉、布尔 → 开关、
+ * 字符串 → 输入框），前端不复制任何字段名。
+ */
+const ANIME_FORM_SCHEMA = SiteAnimeSchema as unknown as ZodObject<Record<string, ZodType>>;
+/** 表单初值：三域恒在（域内键按「override 优先、基线回落」全字段回填） */
+const animeFormValue = ref<Record<string, unknown>>(emptyAnimeFormValue());
+const savingAnime = ref(false);
+
+/** 空档起步：三域对象各为空（域内每字段可选，空对象是合法值） */
+function emptyAnimeFormValue(): Record<string, unknown> {
+  return { anime: {}, bangumi: {}, bilibili: {} };
+}
+
+/**
+ * [K8] 全字段回填：effective（逐域 override 优先、基线回落）→ 表单值。
+ * 必须回填**全部**已有键——物化是「按域整对象替换」，未回填的键会被移除。
+ */
+function animeFormValueOf(
+  effective: Record<string, Record<string, unknown>> | undefined,
+): Record<string, unknown> {
+  const out = emptyAnimeFormValue();
+  for (const domain of SITE_ANIME_KEYS) {
+    const value = effective?.[domain];
+    if (value !== undefined) {
+      out[domain] = { ...value };
+    }
+  }
+  return out;
+}
+
 /** 页面级标签覆盖（[Phase3-C7] describeSchema labels 参数；不污染全局覆盖表） */
 const CONFIG_LABELS: Record<string, string> = {
   enable: '启用',
@@ -174,6 +213,21 @@ const CONFIG_LABELS: Record<string, string> = {
   type: '类型',
   closable: '可关闭',
   link: '公告链接',
+  // [U3-P4a/K8] 番剧与 B 站分区（anime / mode 两个同名键在 ANIME_LABELS 内单独覆盖）
+  bangumi: 'Bangumi 数据源',
+  bilibili: 'B 站数据源',
+  userId: 'Bangumi 用户 ID（userId）',
+  vmid: 'B 站用户 ID（vmid）',
+  fetchOnDev: '开发环境也拉取数据',
+  coverMirror: '封面镜像源（coverMirror）',
+  useWebp: '使用 WebP 封面',
+};
+
+/** 番剧与 B 站分区的标签覆盖（anime / mode 与站点信息区的同名键语义不同） */
+const ANIME_LABELS: Record<string, string> = {
+  ...CONFIG_LABELS,
+  anime: '番剧页面（anime）',
+  mode: '页面模式（bangumi / local / bilibili）',
 };
 
 async function fetchConfig(): Promise<void> {
@@ -211,6 +265,8 @@ async function fetchConfig(): Promise<void> {
     announcementFormValue.value =
       (view.announcement as Record<string, unknown> | null) ??
       emptyValueFromSchema(AnnouncementConfigSchema as ZodObject<Record<string, ZodType>>);
+    // [U3-P4a/K8] 番剧与 B 站：effective 全字段回填（override 优先、基线回落）
+    animeFormValue.value = animeFormValueOf(view.anime.effective);
   } catch (e) {
     notifyApiError(e, '加载站点配置失败');
   } finally {
@@ -474,10 +530,31 @@ async function onSaveAnnouncement(value: Record<string, unknown>): Promise<void>
   }
 }
 
+/**
+ * [U3-P4a/K8] 保存番剧与 B 站：三域**按域整对象替换**（面板已全字段回填）。
+ * 本地先过一遍 SiteAnimeSchema（越界键/枚举值当场拦下，避免无谓 400）。
+ */
+async function onSaveAnime(value: Record<string, unknown>): Promise<void> {
+  const parsed = SiteAnimeSchema.safeParse(value);
+  if (!parsed.success) {
+    ElMessage.warning(`番剧与 B 站配置校验未通过：${firstIssueOf(parsed.error)}`);
+    return;
+  }
+  savingAnime.value = true;
+  try {
+    await configApi.putSiteAnime(parsed.data as Record<string, unknown>);
+    ElMessage.success('番剧与 B 站配置已保存；如需反映到站点请在「构建预览」执行 build');
+    await fetchConfig();
+  } catch (e) {
+    notifyApiError(e, '保存番剧与 B 站配置失败');
+  } finally {
+    savingAnime.value = false;
+  }
+}
+
 onMounted(() => {
   void fetchConfig();
-});
-</script>
+});</script>
 
 <template>
   <div v-loading="loading" class="site-config-page panel-card">
@@ -489,8 +566,8 @@ onMounted(() => {
       type="info"
       :closable="false"
       show-icon
-      title="受控子集：站点信息 / 评论 / 导航 / 个人资料 / 公告"
-      description="仅管理主题 config.ts 的 siteConfig（含 15 个站点信息键）、commentConfig、navBarConfig、profileConfig、announcementConfig，其余字段不受影响；配置值均为公开性质（随构建烘入站点前端，无敏感键）。保存后请在「构建预览」执行 build 任务使站点生效。"
+      title="受控子集：站点信息 / 番剧与 B 站 / 评论 / 导航 / 个人资料 / 公告"
+      description="仅管理主题 config.ts 的 siteConfig（含 15 个站点信息键与 anime / bangumi / bilibili 三键）、commentConfig、navBarConfig、profileConfig、announcementConfig，其余字段不受影响；配置值均为公开性质（随构建烘入站点前端，无敏感键）。番剧与 B 站三域按域整对象替换（面板全字段回填后提交）。保存后请在「构建预览」执行 build 任务使站点生效。"
       class="page-alert"
     />
 
@@ -551,9 +628,30 @@ onMounted(() => {
         </el-collapse>
       </el-collapse-item>
 
+      <!-- [U3-P4a/K8] 番剧与 B 站：siteConfig 的 anime / bangumi / bilibili 三键（默认收起） -->
+      <el-collapse-item name="anime" title="番剧与 B 站">
+        <el-alert
+          type="info"
+          :closable="false"
+          show-icon
+          title="按域整对象替换：未在表单出现的子键会被移除"
+          description="保存时三域各自整体替换 config.ts 中的对应对象（服务端不做键级合并），故表单已把基线/覆盖值全字段回填；清空某个子键即等于从站点配置里移除它。越界键与非法枚举由服务端 .strict() 拒绝（400）。保存后需跑一次 build 才在站点生效。"
+          class="page-alert"
+        />
+        <SchemaForm
+          :schema="ANIME_FORM_SCHEMA"
+          :model-value="animeFormValue"
+          :labels="ANIME_LABELS"
+          :loading="savingAnime"
+          submit-label="保存番剧与 B 站配置"
+          @update:model-value="(v: Record<string, unknown>) => (animeFormValue = v)"
+          @submit="onSaveAnime"
+          @cancel="fetchConfig"
+        />
+      </el-collapse-item>
+
       <!-- ② 评论（现状不动：站点语言 + commentConfig 同存） -->
-      <el-collapse-item name="comments" title="评论">
-        <el-form label-width="140px" class="lang-form">
+      <el-collapse-item name="comments" title="评论">        <el-form label-width="140px" class="lang-form">
           <el-form-item label="语言">
             <!-- [Phase4-D4/配套2] el-select（allow-create + filterable + clearable）：
                  选项 = 主题实测支持集；自行输入保留（schema 双兼容为权威）；清空 = 站点默认 -->

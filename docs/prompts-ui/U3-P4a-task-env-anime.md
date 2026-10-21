@@ -91,6 +91,17 @@
 同时 `ConfigOverrideFileSchema` 增 `siteAnime: SiteAnimeSchema.partial().optional()`（缺键 = 未设置 = 基线生效），
 并把 :65-67 的不受管注释改为「三键已于 U3-P4a 纳管，其余仍不受管」——**其余键名逐字保留**。
 
+> **【执行期裁定补充 2026-10-21，优先于上方表述】** 实读主题 `src/types/config.ts:110-129` 后确认：
+> 三键是 `SiteConfig` 的**匿名内联成员**（**无** `AnimeConfig`/`BangumiConfig`/`BilibiliConfig` 命名类型），
+> 且**全部字段可选**：
+> `bangumi?: { userId?: string; fetchOnDev?: boolean }`、`bilibili?: { vmid?: string; fetchOnDev?: boolean;
+> coverMirror?: string; useWebp?: boolean }`、`anime?: { mode?: "bangumi" | "local" | "bilibili" }`。
+> 由此三条硬约束：① 本仓 schema 名是**自建命名**，格式可保留，但**每个字段必须 `optional()`**（任何必填都会让
+> 真实基线读取与夹具失败）；② **审计表漏列 `bangumi.fetchOnDev`，本批纳入**；③ 置换语义定为
+> **按域整对象替换**（`siteConfig.anime`/`.bangumi`/`.bilibili` 的 initializer 整体换字面量），
+> **服务端禁做隐式 merge**（基线含标识符时求值不可靠）；对应面板义务：**全字段回填**后才提交，
+> 且 `GET /admin/config` 的 `anime` 视图必须给 `effective` 供核对；文档须明写「整对象替换：未在表单出现的子键会被移除」。
+
 **K7（站点配置物化与路由）**：`site-config.service.ts`：
 - 新增 `SITE_ANIME_KEYS = ['anime','bangumi','bilibili'] as const`（shared，序 = 定义序）；
 - 把 `spliceSiteInfo` 的循环体抽成 `spliceSiteKeys(configPath, carrier, values, keys, kind)`（**行为逐字等价**，

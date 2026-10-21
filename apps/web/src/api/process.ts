@@ -19,8 +19,15 @@
  * [U3-P3/K5] 增补任务模板：
  * - GET /admin/process/templates → { items: TaskTemplate[] }。
  */
+import type { TaskEnvView } from '@mizuki/shared';
 import { API_PREFIX, request } from './http';
 import { getAccessToken } from '../stores/auth';
+
+/**
+ * [U3-P4a/K3] 任务环境变量的响应视图**直接引用 shared 单源**
+ * （TaskEnvViewSchema 推导类型）——前端零本地类型复制（键名/形状漂移不可能发生）。
+ */
+export type { TaskEnvEntry, TaskEnvView } from '@mizuki/shared';
 
 /** 任务白名单（与后端 TASK_WHITELIST 对齐） */
 export type ProcessTaskName = 'install' | 'dev' | 'build' | 'preview';
@@ -125,6 +132,23 @@ export const processApi = {
   /** [U3-P3/K5] 任务模板列表 */
   listTemplates(): Promise<{ items: TaskTemplate[] }> {
     return request<{ items: TaskTemplate[] }>('GET', '/admin/process/templates');
+  },
+
+  /**
+   * [U3-P4a/K3] 任务环境变量掩码列表（按 key 字典序）。
+   * 值按 secret 处理：响应只含 `{ key, masked }`，明文永不返回。
+   */
+  listTaskEnv(): Promise<TaskEnvView> {
+    return request<TaskEnvView>('GET', '/admin/process/task-env');
+  },
+
+  /**
+   * [U3-P4a/K3] 整表替换任务环境变量（`{}` = 清空，合法）。
+   * 服务端校验三条约束（前缀白名单 / 禁覆盖 PATH·HOME·APPDATA·CI / 条数与长度上限），
+   * 返回与 GET 同形的掩码视图（保存后不可再查看明文）。
+   */
+  putTaskEnv(entries: Record<string, string>): Promise<TaskEnvView> {
+    return request<TaskEnvView>('PUT', '/admin/process/task-env', { entries });
   },
 };
 
