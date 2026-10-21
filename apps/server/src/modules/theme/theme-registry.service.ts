@@ -41,6 +41,8 @@ import { z } from 'zod';
 import { sha256File } from '../../common/crypto/hash';
 import { atomicWriteFile } from '../../common/fs/atomic-write';
 import { requireMizukiRoot } from '../../common/fs/mizuki-root';
+import { projectInternalPath } from '../../common/fs/path-projection';
+import { logger } from '../../common/logger';
 import { getAppConfig } from '../../config/app-config';
 import {
   UnsupportedLiteralError,
@@ -221,9 +223,11 @@ export class ThemeRegistryService {
     try {
       raw = JSON.parse(fs.readFileSync(baselinePath, 'utf8'));
     } catch (error) {
+      // [U3-P4b/DEF-06] 对外文案只带投影形态；绝对路径进 pino（AGENTS §4-6）
+      logger.error({ baselinePath, err: error }, '主题基线 JSON 解析失败');
       return {
         state: 'parse-error',
-        detail: `基线 JSON 解析失败（${baselinePath}）: ${error instanceof Error ? error.message : String(error)}`,
+        detail: `基线 JSON 解析失败（${projectInternalPath(baselinePath)}）: ${error instanceof Error ? error.message : String(error)}`,
       };
     }
     const parsed = ThemeBaselineFileSchema.safeParse(raw);
@@ -231,9 +235,17 @@ export class ThemeRegistryService {
       const issues = parsed.error.issues
         .map((issue) => `${issue.path.join('.') || '(root)'}: ${issue.message}`)
         .join('; ');
-      return { state: 'parse-error', detail: `基线校验失败（${baselinePath}）: ${issues}` };
+      logger.error({ baselinePath, issues }, '主题基线校验失败');
+      return {
+        state: 'parse-error',
+        detail: `基线校验失败（${projectInternalPath(baselinePath)}）: ${issues}`,
+      };
     }
     if (parsed.data.profileVersion !== MizukiTier1Profile.profileVersion) {
+      logger.error(
+        { baselinePath, profileVersion: parsed.data.profileVersion },
+        '主题基线档案版本失配（拒绝加载）',
+      );
       return {
         state: 'version-mismatch',
         file: parsed.data,

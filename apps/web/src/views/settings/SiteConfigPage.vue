@@ -25,7 +25,7 @@
  *   三档均无逐键/清除入口（K1 裁剪，侧车原文留档仍在服务端）；
  *   保存后需经「构建预览」执行 build 任务才反映到站点 dist（生效链）。
  */
-import { onMounted, ref } from 'vue';
+import { computed, onMounted, ref } from 'vue';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import { z, type ZodObject, type ZodType } from 'zod';
 import {
@@ -47,6 +47,7 @@ import { configApi, type SiteEffectsDomainMap } from '../../api/config';
 import { ApiError } from '../../api/http';
 import { SchemaForm, emptyValueFromSchema } from '../../lib/schema-form';
 import { notifyApiError } from '../../lib/notify';
+import { classifyOverrides, type OverrideAlertModel } from '../../lib/config-overrides';
 
 const loading = ref(false);
 const saving = ref(false);
@@ -119,6 +120,32 @@ const announcementFormValue = ref<Record<string, unknown>>(
 );
 const announcementUnavailable = ref(false);
 const savingAnnouncement = ref(false);
+
+// ── [U3-P4b/K2] 物化态只读警示条（数据源 = GET /admin/config 的 additive 字段 overrides） ──
+/**
+ * 四格语义（R3 铁律，逐格可验收；**只**用 `view.overrides` 判定）：
+ * - 键缺失（`undefined`，旧后端/缓存响应）→ 不渲染（fail-open，不猜「已接管/未接管」）；
+ * - 空（六域全 false 且 originalsKeys 为空）→ info「当前无物化…」；
+ * - 非法（非对象 / 任一域非 boolean / siteInfo.keys 非字符串数组 / originalsKeys 非数组）
+ *   → 中性一行「物化态未知（视图字段异常）」，不渲染任何结论、**不发额外请求**；
+ * - 合法（至少一域 true）→ warning，列已物化域 + 常量不再传导 + 分域还原措辞。
+ * 补充（同格内细分，不另立格）：
+ * - 「空值接管」标注：`nav = {links: []}` / `siteInfo = {}`（active 且 keys 为空）都算
+ *   「已接管且值为空」，照常显示并追加标注；
+ * - 「六域全 false 但 originalsKeys 非空」是可达态（例：`PUT lang ''` 清除后留档键仍在，
+ *   服务端语义「留档不随清除删除」）→ 仍按 info 格，但补一句留档提示，避免误示「无留档」。
+ *
+ * 页面侧：线上原始值刻意收口为 `unknown`——字段可能缺失或形状异常，必须由运行期
+ * 自校验判出，而不是用类型断言把异常报文当契约。四格分类与分域文案的**单源**在
+ * `../../lib/config-overrides`（纯函数），页面只负责渲染。
+ */
+const overridesRaw = ref<unknown>(undefined);
+/** `nav` 是否为「已接管且值为空」（仅当 overrides.nav 为 true 时参与「空值接管」标注） */
+const navOverrideEmpty = ref(false);
+
+const overrideAlert = computed<OverrideAlertModel>(() =>
+  classifyOverrides(overridesRaw.value, { navEmptyTakeover: navOverrideEmpty.value }),
+);
 
 // ── [U3-P4a/K8] 番剧与 B 站分区（siteConfig 的 anime / bangumi / bilibili 三键） ──
 /**
@@ -398,6 +425,10 @@ async function fetchConfig(): Promise<void> {
     animeFormValue.value = animeFormValueOf(view.anime.effective);
     // [U3-P4c/K15] 特效三档：逐域全字段回填（override 逐键回落基线；meting_api 从不出现）
     applyEffectsValue(view.effects);
+    // [U3-P4b/K2] 物化态原始值交给运行期自校验（可能缺失/形状异常 → fail-open 或中性一行）
+    overridesRaw.value = view.overrides;
+    // 空值接管标注：overrides.nav 为 true 时 view.nav 即侧车值，links 空数组 = 合法清空
+    navOverrideEmpty.value = view.nav !== null && view.nav.links.length === 0;
   } catch (e) {
     notifyApiError(e, '加载站点配置失败');
   } finally {
@@ -761,6 +792,37 @@ onMounted(() => {
       class="page-alert"
     />
 
+    <!-- [U3-P4b/K2] 物化态只读警示条：页头 info alert 之后、折叠区之前；
+         **一条** el-alert（四格语义由 kind 决定形态），只读、无按钮（还原走各分区既有入口） -->
+    <el-alert
+      v-if="overrideAlert.kind !== 'missing'"
+      :type="overrideAlert.type"
+      :closable="false"
+      show-icon
+      :title="overrideAlert.title"
+      class="page-alert config-override-alert"
+    >
+      <template v-if="overrideAlert.kind === 'active'">
+        <p class="override-line">
+          已物化的受控键在主题侧再改 <code>config.ts</code> 常量<strong>不再传导</strong>到站点（例：
+          <code>lang: SITE_LANG</code> 已写成字面量 <code>lang: "zh_CN"</code>；ADR-020 已知限制）。
+          各域回退路径如下（未列出的域请勿假定可随时还原）：
+        </p>
+        <ul class="override-domains">
+          <li v-for="domain in overrideAlert.domains" :key="domain.key">
+            <span class="override-domain-label">{{ domain.label }}</span>
+            <span class="override-domain-revert">{{ domain.revert }}</span>
+            <span v-if="domain.emptyTakeover" class="override-empty-tag">（空值接管）</span>
+          </li>
+        </ul>
+        <p v-if="overrideAlert.originalsKeys.length > 0" class="override-line">
+          服务端留档键（仅键名，原文不出响应）：
+          <code>{{ overrideAlert.originalsKeys.join('、') }}</code>
+        </p>
+      </template>
+      <span v-else-if="overrideAlert.note !== ''">{{ overrideAlert.note }}</span>
+    </el-alert>
+
     <!-- [U3-P1/K8] 五区折叠：站点信息 / 评论 / 导航 / 个人资料 / 公告（无新路由、无新菜单） -->
     <el-collapse v-model="activeSections" class="config-collapse">
       <!-- ① 站点信息：siteConfig 15 受管键（13 表单键 + banner/font JSON） -->
@@ -1091,5 +1153,33 @@ onMounted(() => {
   line-height: 1.6;
   white-space: pre-wrap;
   word-break: break-all;
+}
+/* [U3-P4b/K2] 物化态只读警示条明细（间距/字号走既有 token，无新增色值/圆角） */
+.config-override-alert .override-line {
+  margin: 0 0 6px;
+  font-size: 12px;
+  line-height: 1.6;
+}
+.config-override-alert .override-line code,
+.config-override-alert .override-domains code {
+  padding: 0 4px;
+  border-radius: var(--el-border-radius-small);
+  background: var(--el-fill-color-light);
+}
+.config-override-alert .override-domains {
+  margin: 0 0 6px;
+  padding-left: 18px;
+  font-size: 12px;
+  line-height: 1.7;
+}
+.config-override-alert .override-domain-label {
+  font-weight: 600;
+}
+.config-override-alert .override-domain-revert {
+  margin-left: 4px;
+}
+.config-override-alert .override-empty-tag {
+  margin-left: 4px;
+  color: var(--el-color-warning);
 }
 </style>

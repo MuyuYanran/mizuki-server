@@ -22,6 +22,24 @@ export interface SiteEffectsDomainMap {
   pio: Record<string, unknown> | null;
 }
 
+/**
+ * [U3-P4b/K1] 物化态逐域快照（`GET /admin/config` 的 additive 字段，与后端
+ * `AdminSiteConfigView.overrides` 同形——手写类型双份口径照既有写法）。
+ * 只报「有/无」与留档键名，**不回值、不回原文**。
+ * 该字段在旧后端 / 缓存响应中**可能缺失** → 消费方必须 fail-open（不渲染任何结论）。
+ */
+export interface SiteConfigOverrides {
+  lang: boolean;
+  comments: boolean;
+  nav: boolean;
+  /** keys = 侧车内提交过的 siteInfo 键（字典序；active 为 true 且 keys 为空 = 空对象接管） */
+  siteInfo: { active: boolean; keys: string[] };
+  profile: boolean;
+  announcement: boolean;
+  /** 侧车 originals 的键名（如 siteConfig.lang / navBarConfig，字典序） */
+  originalsKeys: string[];
+}
+
 /** GET /admin/config 响应视图（与后端 AdminSiteConfigView 同形，只读引用） */
 export interface SiteConfigView {
   siteConfig: {
@@ -66,6 +84,12 @@ export interface SiteConfigView {
    */
   effects: SiteEffectsDomainMap;
   baselineEffects: SiteEffectsDomainMap;
+  /**
+   * [U3-P4b/K1] 物化态逐域快照（六域 + originalsKeys）。
+   * **可选**：旧后端/缓存响应无此字段 → 页面 fail-open，不猜「已接管/未接管」。
+   * 运行期仍需按不可信报文自校验（见 SiteConfigPage 的四格分类）。
+   */
+  overrides?: SiteConfigOverrides;
 }
 
 export const configApi = {

@@ -53,6 +53,8 @@ const MENU: MenuItem[] = [
   { path: '/site-config', title: '站点配置', group: '配置' },
   // [主题外观] 面板主题管理（预设 + 自定义 CSS，纯前端自包含）
   { path: '/theme', title: '主题外观', group: '配置' },
+  // [U3-P4b/K4] 主题漂移呈现面板（漂移诊断在 manage 模式同样需要 → **不加** minimalHidden）
+  { path: '/theme-status', title: '主题状态', group: '配置' },
 ];
 
 /** [Phase4-D3] 分组渲染顺序（固定；组内顺序随 MENU 声明序） */

@@ -50,6 +50,7 @@ import { z } from 'zod';
 import { IndentationText, Node, type ObjectLiteralExpression, type SourceFile } from 'ts-morph';
 import { atomicWriteFile } from '../../common/fs/atomic-write';
 import { requireMizukiRoot } from '../../common/fs/mizuki-root';
+import { projectInternalPath } from '../../common/fs/path-projection';
 
 /** 配置源在对外错误信息中的投影（相对形态，不泄露磁盘绝对路径——E1 纪律） */
 const CONFIG_TS_DISPLAY = '<mizukiRoot>/src/config.ts';
@@ -141,6 +142,34 @@ export interface AdminSiteConfigView {
    */
   effects: SiteEffectsResolution;
   baselineEffects: SiteEffectsResolution;
+  /**
+   * [U3-P4b/K1] 物化态逐域快照（additive 字段，形状冻结）——只报「有/无」与留档**键名**，
+   * **绝不回值、不回原文**（`originals` 的值是 config.ts 片段，含用户域名/评论配置，
+   * 体积也不可控）。判定源全部是本次请求已读到的 `carrier`（侧车），**不新增文件读**。
+   * 语义逐条：
+   * - `lang` = `carrier.siteConfig.lang !== undefined`（侧车子域是 `siteConfig`，非顶层 `lang`）；
+   *   `PUT lang ''` 会移除该键 ⇒ 回 false（归一缺省 = 未接管）；
+   * - `comments` / `nav` / `profile` / `announcement` = 对应侧车键存在性。**空值也算接管**：
+   *   `nav = { links: [] }`（清空导航）与 `siteInfo = {}` 都是合法已接管态，故判定用
+   *   `!== undefined` 而非真值判断——否则「已接管但值为空」会被误报为未接管；
+   * - `siteInfo.active` 同上；`siteInfo.keys` = 侧车内提交过的键（字典序）；
+   * - `originalsKeys` = `Object.keys(carrier.originals ?? {}).sort()`：留档**键名**清单
+   *   （如 `siteConfig.lang` / `navBarConfig` / `siteConfig.title`）。清除 override 不会删留档，
+   *   故该集合可独立于六域布尔长期存在（「曾接管过、原文本仍可还原」的事实来源）。
+   * 前端据此渲染只读警示条；字段缺失时前端 fail-open（不渲警示条），故本字段**必须恒在**
+   * （六域全 false + 两空数组 = 「无物化」，不是缺字段）。
+   */
+  overrides: {
+    lang: boolean;
+    comments: boolean;
+    nav: boolean;
+    /** `keys` = 侧车 siteInfo 内提交过的键名，字典序 */
+    siteInfo: { active: boolean; keys: string[] };
+    profile: boolean;
+    announcement: boolean;
+    /** = `Object.keys(carrier.originals ?? {}).sort()`（留档键名，字典序） */
+    originalsKeys: string[];
+  };
 }
 
 /** [U3-P4c/K14] 特效三档的对外投影（null = 该域不可得） */
@@ -233,6 +262,19 @@ export class SiteConfigService {
         pio: mergeEffectsDomain(baseline.effects.pio, carrier.siteEffects?.pio),
       },
       baselineEffects: baseline.effects,
+      // [U3-P4b/K1] 物化态逐域快照：全部来自上面已读到的 carrier（零新增文件读、零新端点）
+      overrides: {
+        lang: carrier.siteConfig?.lang !== undefined,
+        comments: carrier.commentConfig !== undefined,
+        nav: carrier.nav !== undefined,
+        siteInfo: {
+          active: carrier.siteInfo !== undefined,
+          keys: Object.keys(carrier.siteInfo ?? {}).sort(),
+        },
+        profile: carrier.profile !== undefined,
+        announcement: carrier.announcement !== undefined,
+        originalsKeys: Object.keys(carrier.originals ?? {}).sort(),
+      },
     };
   }
 
@@ -452,8 +494,10 @@ export class SiteConfigService {
     try {
       raw = JSON.parse(fs.readFileSync(overridePath, 'utf8'));
     } catch (error) {
+      // [U3-P4b/DEF-06] 对外文案只带投影形态；绝对路径进 pino（AGENTS §4-6）
+      logger.error({ overridePath, err: error }, 'config-override.json 解析失败');
       throw new Error(
-        `config-override.json 解析失败（${overridePath}）: ${error instanceof Error ? error.message : String(error)}`,
+        `config-override.json 解析失败（${projectInternalPath(overridePath)}）: ${error instanceof Error ? error.message : String(error)}`,
       );
     }
     const parsed = ConfigOverrideFileSchema.safeParse(raw);
@@ -461,7 +505,10 @@ export class SiteConfigService {
       const detail = parsed.error.issues
         .map((issue) => `${issue.path.join('.') || '(root)'}: ${issue.message}`)
         .join('; ');
-      throw new Error(`config-override.json 校验失败（${overridePath}）: ${detail}`);
+      logger.error({ overridePath, issues: detail }, 'config-override.json 校验失败');
+      throw new Error(
+        `config-override.json 校验失败（${projectInternalPath(overridePath)}）: ${detail}`,
+      );
     }
     return parsed.data;
   }

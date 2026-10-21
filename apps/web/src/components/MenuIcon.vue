@@ -118,6 +118,13 @@ defineProps<{
       <path d="M12 2.69l5.66 5.66a8 8 0 1 1-11.31 0z" />
       <path d="M12 22.5A6.5 6.5 0 0 0 12 9.5" />
     </svg>
+    <!-- 主题状态（[U3-P4b/K4] 漂移诊断：指纹/基线/探针；与「主题外观」的调色板图标区分） -->
+    <svg v-else-if="path === '/theme-status'" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M3 3v18h18" />
+      <polyline points="7 15 11 10 15 13 20 6" />
+      <circle cx="11" cy="10" r="1.2" />
+      <circle cx="15" cy="13" r="1.2" />
+    </svg>
     <!-- 默认兜底 -->
     <svg v-else viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
       <circle cx="12" cy="12" r="10" />

@@ -30,6 +30,7 @@ import ConsolePage from '../views/process/ConsolePage.vue';
 import SettingsPage from '../views/settings/SettingsPage.vue';
 import SiteConfigPage from '../views/settings/SiteConfigPage.vue';
 import ThemePage from '../views/settings/ThemePage.vue';
+import ThemeStatusPage from '../views/settings/ThemeStatusPage.vue';
 
 const routes: RouteRecordRaw[] = [
   { path: '/login', name: 'login', component: LoginView, meta: { public: true } },
@@ -61,6 +62,8 @@ const routes: RouteRecordRaw[] = [
       { path: 'site-config', component: SiteConfigPage, meta: { title: '站点配置' } },
       // [主题外观] 面板主题管理（预设 + 自定义 CSS，纯前端自包含）
       { path: 'theme', component: ThemePage, meta: { title: '主题外观' } },
+      // [U3-P4b/K4] 主题漂移呈现面板（E3b，纯前端消费 /admin/theme/* 既有端点）
+      { path: 'theme-status', component: ThemeStatusPage, meta: { title: '主题状态' } },
     ],
   },
   { path: '/:pathMatch(.*)*', redirect: '/' },
