@@ -15,24 +15,35 @@
  *   shared SiteAnimeSchema 驱动渲染（anime.mode 为下拉），保存走 PUT /admin/config/anime。
  *   面板负责**全字段回填**（override 优先、基线回落）——服务端是「按域整对象替换」，
  *   未回填的子键会被移除（分区内已有明确提示）。
+ * [U3-P4c/K15] 增「特效」分区（与「番剧与 B 站」并列、默认收起）：musicPlayer / sakura /
+ *   pio 三域对应 config.ts 的顶层声明 musicPlayerConfig / sakuraConfig / pioConfig，
+ *   标量键由 shared 子 schema 驱动，结构化子键（sakura.size/opacity/speed、pio.dialog）
+ *   走 JSON textarea + 服务端整值置换；保存 **一次** PUT /admin/config/effects 提交三域
+ *   （服务端整档重写 sidecar override，只交一域会丢其它域记录）。`meting_api` 不得出现在
+ *   表单里（含凭据，后端也不接受）。
  * [边界] 仅受控子集；其余 config.ts 字段不在面板管理面（.strict() 兜底禁蔓延）；
  *   三档均无逐键/清除入口（K1 裁剪，侧车原文留档仍在服务端）；
  *   保存后需经「构建预览」执行 build 任务才反映到站点 dist（生效链）。
  */
 import { onMounted, ref } from 'vue';
 import { ElMessage, ElMessageBox } from 'element-plus';
-import type { ZodObject, ZodType } from 'zod';
+import { z, type ZodObject, type ZodType } from 'zod';
 import {
   AnnouncementConfigSchema,
   CommentConfigSchema,
   MizukiTier1Profile,
   ProfileConfigSchema,
   SITE_ANIME_KEYS,
+  SITE_EFFECTS_KEYS,
   SITE_LANG_PATTERN,
   SiteAnimeSchema,
+  SiteEffectsSchema,
   SiteInfoSchema,
+  SiteMusicPlayerSchema,
+  SitePioSchema,
+  SiteSakuraSchema,
 } from '@mizuki/shared';
-import { configApi } from '../../api/config';
+import { configApi, type SiteEffectsDomainMap } from '../../api/config';
 import { ApiError } from '../../api/http';
 import { SchemaForm, emptyValueFromSchema } from '../../lib/schema-form';
 import { notifyApiError } from '../../lib/notify';
@@ -142,6 +153,101 @@ function animeFormValueOf(
   return out;
 }
 
+// ── [U3-P4c/K15] 特效分区（config.ts 三个**顶层声明**；默认收起） ──
+/**
+ * 域 = shared 的三域键序单源（`SITE_EFFECTS_KEYS`：musicPlayer / sakura / pio）。
+ * 三域在服务端对应 `musicPlayerConfig` / `sakuraConfig` / `pioConfig` 三个顶层声明
+ * （`widgetConfigs` 里的成员只是标识符引用，面板与后端都不碰它）。
+ */
+type EffectsDomain = (typeof SITE_EFFECTS_KEYS)[number];
+
+/**
+ * 表单面拆分（与站点信息区 banner/font 同法，K15 的 dialog 口径同源）：
+ * - 标量键 → schema-form 驱动（字段面仍由 shared 子 schema 推导，前端零字段名复制）；
+ * - 结构化键（`sakura.size/opacity/speed`、`pio.dialog`）→ JSON textarea 兜底：
+ *   它们是 `.refine()` / union / tuple 包装，mapper 无法安全推导控件形态（会退化成
+ *   纯文本输入并把对象当字符串提交），故整值以 JSON 编辑、服务端按整值置换（K11）。
+ */
+const EFFECTS_JSON_KEYS: Record<EffectsDomain, readonly string[]> = {
+  musicPlayer: [],
+  sakura: ['size', 'opacity', 'speed'],
+  pio: ['dialog'],
+};
+
+/** 面板表单 schema：三域聚合，剔掉上面由 JSON 承载的结构化键（字段名仍来自 shared） */
+const EFFECTS_FORM_SCHEMA = z.object({
+  musicPlayer: SiteMusicPlayerSchema,
+  sakura: SiteSakuraSchema.omit({ size: true, opacity: true, speed: true }),
+  pio: SitePioSchema.omit({ dialog: true }),
+}) as unknown as ZodObject<Record<string, ZodType>>;
+
+/** JSON 兜底字段清单（domain.key → textarea；label 直接展示所属域，避免同名键歧义） */
+interface EffectsJsonField {
+  path: string;
+  label: string;
+}
+const EFFECTS_JSON_FIELDS: EffectsJsonField[] = SITE_EFFECTS_KEYS.flatMap((domain) =>
+  EFFECTS_JSON_KEYS[domain].map((key) => ({ path: `${domain}.${key}`, label: `${domain}.${key}` })),
+);
+
+/** 三域表单值（域内键全字段回填；未回填的可选键 = undefined，提交时剔除） */
+const effectsFormValue = ref<Record<string, unknown>>(emptyEffectsFormValue());
+/** JSON 兜底文本（键 = `domain.key`；空串 = 不提交该键） */
+const effectsJson = ref<Record<string, string>>({});
+/** 域不可得（既无 override 也无基线：声明缺失/形态不符）→ 该域只读并跳过提交 */
+const effectsUnavailable = ref<Record<EffectsDomain, boolean>>({
+  musicPlayer: false,
+  sakura: false,
+  pio: false,
+});
+const savingEffects = ref(false);
+
+/** 空档起步：三域各为 {}（域内每字段可选，空对象合法） */
+function emptyEffectsFormValue(): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const domain of SITE_EFFECTS_KEYS) {
+    out[domain] = {};
+  }
+  return out;
+}
+
+/** [K15] 全字段回填：effects（逐域 override 逐键回落基线）→ 标量表单值 + JSON 文本 */
+function applyEffectsValue(effects: SiteEffectsDomainMap | undefined): void {
+  const form = emptyEffectsFormValue();
+  const json: Record<string, string> = {};
+  const unavailable: Record<EffectsDomain, boolean> = {
+    musicPlayer: false,
+    sakura: false,
+    pio: false,
+  };
+  for (const domain of SITE_EFFECTS_KEYS) {
+    const domainValue = effects?.[domain] ?? null;
+    unavailable[domain] = domainValue === null;
+    if (domainValue === null) {
+      continue;
+    }
+    const jsonKeys = EFFECTS_JSON_KEYS[domain];
+    const formDomain: Record<string, unknown> = {};
+    for (const [key, fieldValue] of Object.entries(domainValue)) {
+      if (!jsonKeys.includes(key)) {
+        formDomain[key] = fieldValue;
+      }
+    }
+    form[domain] = formDomain;
+    for (const key of jsonKeys) {
+      const structured = domainValue[key];
+      json[`${domain}.${key}`] = structured === undefined ? '' : JSON.stringify(structured, null, 2);
+    }
+  }
+  effectsFormValue.value = form;
+  effectsJson.value = json;
+  effectsUnavailable.value = unavailable;
+}
+
+function setEffectsJson(path: string, text: string): void {
+  effectsJson.value = { ...effectsJson.value, [path]: text };
+}
+
 /** 页面级标签覆盖（[Phase3-C7] describeSchema labels 参数；不污染全局覆盖表） */
 const CONFIG_LABELS: Record<string, string> = {
   enable: '启用',
@@ -230,6 +336,29 @@ const ANIME_LABELS: Record<string, string> = {
   mode: '页面模式（bangumi / local / bilibili）',
 };
 
+/** [U3-P4c/K15] 特效分区的标签覆盖（三域同名键取域内中性文案；分区标题已给出所属声明） */
+const EFFECTS_LABELS: Record<string, string> = {
+  ...CONFIG_LABELS,
+  musicPlayer: '音乐播放器（musicPlayerConfig）',
+  sakura: '樱花（sakuraConfig）',
+  pio: '看板娘（pioConfig）',
+  enable: '启用',
+  showFloatingPlayer: '显示悬浮播放器',
+  floatingEntryMode: '悬浮入口模式（default / fab）',
+  mode: '模式（音乐 meting / local；看板娘 static / fixed / draggable）',
+  id: '歌单 ID（id）',
+  server: '音乐源服务器（server）',
+  type: '播单类型（type）',
+  sakuraNum: '樱花数量（0~500）',
+  limitTimes: '越界限制次数（-1 = 无限）',
+  zIndex: '层级（zIndex，-1000~10000）',
+  models: '模型文件路径（逗号分隔）',
+  position: '位置（left / right）',
+  width: '宽度（px，1~4000）',
+  height: '高度（px，1~4000）',
+  hiddenOnMobile: '移动端隐藏',
+};
+
 async function fetchConfig(): Promise<void> {
   loading.value = true;
   try {
@@ -267,6 +396,8 @@ async function fetchConfig(): Promise<void> {
       emptyValueFromSchema(AnnouncementConfigSchema as ZodObject<Record<string, ZodType>>);
     // [U3-P4a/K8] 番剧与 B 站：effective 全字段回填（override 优先、基线回落）
     animeFormValue.value = animeFormValueOf(view.anime.effective);
+    // [U3-P4c/K15] 特效三档：逐域全字段回填（override 逐键回落基线；meting_api 从不出现）
+    applyEffectsValue(view.effects);
   } catch (e) {
     notifyApiError(e, '加载站点配置失败');
   } finally {
@@ -552,6 +683,65 @@ async function onSaveAnime(value: Record<string, unknown>): Promise<void> {
   }
 }
 
+/**
+ * [U3-P4c/K15] 保存特效三档：**一次** PUT /admin/config/effects 提交三域（域内按提交键
+ * 逐属性写回；某域不可得则该域不提交——整域缺省 = 还原该域主题默认）。
+ * 顺序：JSON 兜底字段解析 → 三域合成 → `SiteEffectsSchema` 本地整档校验 → 发请求。
+ * 为什么必须三域一起提交：服务端把 `siteEffects` override **整档重写**，只提交一域会
+ * 丢掉其它两域的 override 记录（config.ts 现值仍在，但面板回显会错位）。
+ */
+async function onSaveEffects(value: Record<string, unknown>): Promise<void> {
+  const payload: Record<string, Record<string, unknown>> = {};
+  for (const domain of SITE_EFFECTS_KEYS) {
+    if (effectsUnavailable.value[domain]) {
+      // 该域基线/覆盖均不可得：不提交（服务端会对缺失声明 404 并整体零物化）
+      continue;
+    }
+    const formDomain = value[domain];
+    const domainValue: Record<string, unknown> =
+      typeof formDomain === 'object' && formDomain !== null ? { ...formDomain } : {};
+    // 未回填的可选键保持 undefined：剔除，避免把 undefined 写进 JSON body
+    for (const [key, fieldValue] of Object.entries(domainValue)) {
+      if (fieldValue === undefined) {
+        delete domainValue[key];
+      }
+    }
+    // 结构化键：空串 = 不提交该键（保留 config.ts 现值）；非空必须是 JSON 对象
+    for (const key of EFFECTS_JSON_KEYS[domain]) {
+      const text = (effectsJson.value[`${domain}.${key}`] ?? '').trim();
+      if (text === '') {
+        continue;
+      }
+      const parsed = parseJsonObject(text);
+      if (parsed === null) {
+        ElMessage.warning(`${domain}.${key} 须为 JSON 对象（如 { "min": 0, "max": 1 }）`);
+        return;
+      }
+      domainValue[key] = parsed;
+    }
+    payload[domain] = domainValue;
+  }
+  if (Object.keys(payload).length === 0) {
+    ElMessage.warning('特效三档均不可得（主题声明缺失或形态不符），无法保存');
+    return;
+  }
+  const parsed = SiteEffectsSchema.safeParse(payload);
+  if (!parsed.success) {
+    ElMessage.warning(`特效配置校验未通过：${firstIssueOf(parsed.error)}`);
+    return;
+  }
+  savingEffects.value = true;
+  try {
+    await configApi.putEffects(parsed.data as Record<string, Record<string, unknown>>);
+    ElMessage.success('特效配置已保存；如需反映到站点请在「构建预览」执行 build');
+    await fetchConfig();
+  } catch (e) {
+    notifyApiError(e, '保存特效配置失败');
+  } finally {
+    savingEffects.value = false;
+  }
+}
+
 onMounted(() => {
   void fetchConfig();
 });</script>
@@ -566,8 +756,8 @@ onMounted(() => {
       type="info"
       :closable="false"
       show-icon
-      title="受控子集：站点信息 / 番剧与 B 站 / 评论 / 导航 / 个人资料 / 公告"
-      description="仅管理主题 config.ts 的 siteConfig（含 15 个站点信息键与 anime / bangumi / bilibili 三键）、commentConfig、navBarConfig、profileConfig、announcementConfig，其余字段不受影响；配置值均为公开性质（随构建烘入站点前端，无敏感键）。番剧与 B 站三域按域整对象替换（面板全字段回填后提交）。保存后请在「构建预览」执行 build 任务使站点生效。"
+      title="受控子集：站点信息 / 番剧与 B 站 / 特效 / 评论 / 导航 / 个人资料 / 公告"
+      description="仅管理主题 config.ts 的 siteConfig（含 15 个站点信息键与 anime / bangumi / bilibili 三键）、musicPlayerConfig / sakuraConfig / pioConfig 三个特效声明、commentConfig、navBarConfig、profileConfig、announcementConfig，其余字段不受影响；配置值均为公开性质（随构建烘入站点前端，无敏感键；meting_api 除外，它不在面板管理面）。番剧与 B 站三域按域整对象替换（面板全字段回填后提交）。保存后请在「构建预览」执行 build 任务使站点生效。"
       class="page-alert"
     />
 
@@ -646,6 +836,57 @@ onMounted(() => {
           submit-label="保存番剧与 B 站配置"
           @update:model-value="(v: Record<string, unknown>) => (animeFormValue = v)"
           @submit="onSaveAnime"
+          @cancel="fetchConfig"
+        />
+      </el-collapse-item>
+
+      <!-- [U3-P4c/K15] 特效：config.ts 三个顶层声明（musicPlayerConfig / sakuraConfig / pioConfig），默认收起 -->
+      <el-collapse-item name="effects" title="特效">
+        <el-alert
+          type="info"
+          :closable="false"
+          show-icon
+          title="逐属性置换：只覆盖本页提交的字段，未提交的子键保持 config.ts 现值"
+          description="三域分别物化 config.ts 的顶层声明 musicPlayerConfig / sakuraConfig / pioConfig（widgetConfigs 里的成员只是标识符引用，不碰）。本页已把基线/覆盖值全字段回填后整域提交，故正常保存不会丢键；清空某个子键 = 该键不再出现在提交里（服务端按提交的键逐属性写回，未提交的键保持 config.ts 现值），整域不提交 = 还原该域主题默认。meting_api 含凭据，不在面板管理，请手改 src/config.ts。保存后需跑一次 build 才在站点生效。"
+          class="page-alert"
+        />
+        <el-alert
+          v-for="domain in SITE_EFFECTS_KEYS"
+          v-show="effectsUnavailable[domain]"
+          :key="`unavailable-${domain}`"
+          type="warning"
+          :closable="false"
+          show-icon
+          :title="`${domain} 基线不可得`"
+          description="该域既无 override 也无基线（声明缺失或初始化器不是对象字面量），不可编辑且本次不提交；请先修复主题 config.ts 的声明形态。"
+          class="page-alert"
+        />
+        <div class="nav-help">
+          结构化子键（<code>sakura.size</code> / <code>sakura.opacity</code> /
+          <code>sakura.speed</code> / <code>pio.dialog</code>）在主题里是嵌套对象或联合/元组形态，
+          服务端按**整值**置换（不递归下钻），故以 JSON 编辑；留空 = 本次不提交该键。
+        </div>
+        <el-form label-width="140px">
+          <el-form-item v-for="field in EFFECTS_JSON_FIELDS" :key="field.path" :label="field.label">
+            <el-input
+              :model-value="effectsJson[field.path] ?? ''"
+              type="textarea"
+              :rows="6"
+              spellcheck="false"
+              class="nav-textarea"
+              :aria-label="`${field.label} JSON`"
+              @update:model-value="(text: string) => setEffectsJson(field.path, text)"
+            />
+          </el-form-item>
+        </el-form>
+        <SchemaForm
+          :schema="EFFECTS_FORM_SCHEMA"
+          :model-value="effectsFormValue"
+          :labels="EFFECTS_LABELS"
+          :loading="savingEffects"
+          submit-label="保存特效配置"
+          @update:model-value="(v: Record<string, unknown>) => (effectsFormValue = v)"
+          @submit="onSaveEffects"
           @cancel="fetchConfig"
         />
       </el-collapse-item>

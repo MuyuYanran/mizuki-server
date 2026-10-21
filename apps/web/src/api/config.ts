@@ -3,11 +3,24 @@
  * [职责] GET /admin/config 整体读（override 优先 + 基线对照）；
  *   PUT /admin/config/lang、PUT /admin/config/comments 分立写；
  *   [U3-P1] PUT /admin/config/site-info、/profile、/announcement 三档（整档覆盖）；
+ *   [U3-P4c/K14] PUT /admin/config/effects（特效三档：按域提交，域键缺省 = 还原该域主题默认）；
  *   复用 src/api/http.ts 的 401 自动 refresh。
  * [边界] 仅受控子集；其余 config.ts 字段不在管理面（.strict() 兜底禁蔓延）。
  *   三档均无逐键/清除端点（K1 裁剪）。
  */
 import { request } from './http';
+
+/**
+ * [U3-P4c/K14] 特效三档视图（config.ts **顶层声明** musicPlayerConfig / sakuraConfig /
+ * pioConfig）：域值为 `Record<string, unknown>`（域内每字段可选），`null` = 该域既无
+ * override 也无基线（声明缺失/形态不符 → 面板只读、不提交该域）。
+ * 手写类型双份口径照既有写法（与后端 `AdminSiteConfigView.effects` 同形，只读引用）。
+ */
+export interface SiteEffectsDomainMap {
+  musicPlayer: Record<string, unknown> | null;
+  sakura: Record<string, unknown> | null;
+  pio: Record<string, unknown> | null;
+}
 
 /** GET /admin/config 响应视图（与后端 AdminSiteConfigView 同形，只读引用） */
 export interface SiteConfigView {
@@ -46,6 +59,13 @@ export interface SiteConfigView {
     effective: Record<string, Record<string, unknown>>;
     override: Record<string, Record<string, unknown>> | null;
   };
+  /**
+   * [U3-P4c/K14] 特效三档：`effects` = 逐域 override 优先、**逐键**回落基线
+   * （域内键级 merge——物化是逐属性置换）；`baselineEffects` = 基线逐声明求值。
+   * `meting_api` 永不出现（不在任何 schema 内）。
+   */
+  effects: SiteEffectsDomainMap;
+  baselineEffects: SiteEffectsDomainMap;
 }
 
 export const configApi = {
@@ -92,5 +112,16 @@ export const configApi = {
    */
   putSiteAnime(siteAnime: Record<string, unknown>): Promise<SiteConfigView> {
     return request<SiteConfigView>('PUT', '/admin/config/anime', siteAnime);
+  },
+
+  /**
+   * [U3-P4c/K14] 特效三档：body = `SiteEffectsSchema`（三域可选、`.strict()`）。
+   * - 域键缺省 = 该域清除 override 并还原主题默认（`{}` = 三域全还原）；
+   * - 域内有值 = 该域按提交的键逐属性写回（嵌套值整值置换）；
+   * - body 含 `meting_api` 一律 400（排除项的机械保证）。
+   * 三域须**一起提交**：服务端整档重写 `siteEffects` override，只交一域会丢其它域的记录。
+   */
+  putEffects(effects: Record<string, Record<string, unknown>>): Promise<SiteConfigView> {
+    return request<SiteConfigView>('PUT', '/admin/config/effects', effects);
   },
 };

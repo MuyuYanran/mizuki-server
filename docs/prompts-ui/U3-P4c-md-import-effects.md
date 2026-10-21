@@ -301,8 +301,8 @@ title="特效"`，**不进** `activeSections` 默认值（`:80` 现为 `['site-i
 
 ## 4. 测试落位
 
-> 命名空间已核：`p5g` 未占用（posts 域现用 `p5`~`p5f`）；`p7l` 未占用（config 域现用 `p7`~`p7j`，
-> **`p7k` 由 U3-P4a 预留，本包不得占用**）。
+> 命名空间已核：`p5g` 未占用（posts 域现用 `p5`~`p5f`）；
+> **特效 spec 一律用 `p7m`**（`p7k` 由 U3-P4a 占用、`p7l` 由 U3-P4b 预留 —— 本包不得占用，2026-10-21 订正）。
 
 **新建 `apps/server/test/p5g-posts-import.e2e-spec.ts`（建议 9 例）**
 
@@ -322,7 +322,7 @@ title="特效"`，**不进** `activeSections` 默认值（`:80` 现为 `['site-i
 9. 上限：31 个文件一次 preview → 请求级拒绝（**实际状态码 400 还是 413 以实测为准，报告须写明**；
    若不来自 multer 而是自检，则必须是我们自己的 400 + code）。
 
-**新建 `apps/server/test/p7l-site-effects.e2e-spec.ts`（建议 9~10 例）**
+**新建 `apps/server/test/p7m-site-effects.e2e-spec.ts`（建议 9~10 例）**
 
 1. 无 override → `effects` 三键 = 基线值（`config.ts` 内联基线含三声明）。
 2. `PUT effects { musicPlayer: { enable:false, mode:'meting', id:'x' } }` → 仅三键物化；同一对象其余键、

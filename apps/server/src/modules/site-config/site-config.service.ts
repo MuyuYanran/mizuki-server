@@ -32,16 +32,45 @@ import {
   type NavConfigValue,
   SITE_ANIME_KEYS,
   SITE_INFO_KEYS,
+  SITE_MUSIC_PLAYER_KEYS,
+  SITE_PIO_KEYS,
+  SITE_SAKURA_KEYS,
+  SiteMusicPlayerSchema,
+  SitePioSchema,
+  SiteSakuraSchema,
   type SiteAnimeValues,
+  type SiteEffectsValues,
   type SiteInfoValues,
+  type SiteMusicPlayerValues,
+  type SitePioValues,
+  type SiteSakuraValues,
   type ProfileConfigValue,
 } from '@mizuki/shared';
+import { z } from 'zod';
 import { IndentationText, Node, type ObjectLiteralExpression, type SourceFile } from 'ts-morph';
 import { atomicWriteFile } from '../../common/fs/atomic-write';
 import { requireMizukiRoot } from '../../common/fs/mizuki-root';
 
 /** 配置源在对外错误信息中的投影（相对形态，不泄露磁盘绝对路径——E1 纪律） */
 const CONFIG_TS_DISPLAY = '<mizukiRoot>/src/config.ts';
+
+/**
+ * [U3-P4c/K14] 单域 effective 计算：override 逐键覆盖基线（浅合并 = 顶层键级）。
+ * 嵌套值（sakura.size/opacity/speed、pio.dialog）按**整值**取自 override——与物化的
+ * 「嵌套不下钻」语义严格一致，避免出现「父对象一半新一半旧」的怪态。
+ */
+function mergeEffectsDomain<T extends object>(
+  baseline: Partial<T> | null | undefined,
+  override: Partial<T> | null | undefined,
+): Partial<T> | null {
+  if (override === undefined || override === null) {
+    return baseline ?? null;
+  }
+  if (baseline === undefined || baseline === null) {
+    return override;
+  }
+  return { ...baseline, ...override };
+}
 import { logger } from '../../common/logger';
 import { getAppConfig } from '../../config/app-config';
 import { BackupService } from '../../infra/backup/backup.service';
@@ -101,6 +130,24 @@ export interface AdminSiteConfigView {
     effective: Partial<SiteAnimeValues>;
     override: Partial<SiteAnimeValues> | null;
   };
+  /**
+   * [U3-P4c/K14] 特效三档（config.ts **顶层声明** musicPlayerConfig / sakuraConfig /
+   * pioConfig，按域逐属性覆盖）：
+   * - `effects`：逐域 override 优先、**逐键**回落基线（域内键级 merge——物化是逐属性
+   *   置换，故「缺省键继续生效基线值」与落盘结果一致；嵌套值整值取自 override）；
+   * - `baselineEffects`：基线逐声明求值（仅受管键投影；`meting_api` 永不出现，
+   *   未支持字面量 → 该域 null）；
+   * - `null` = 该域既无 override 也无基线（声明缺失/形态不符）。
+   */
+  effects: SiteEffectsResolution;
+  baselineEffects: SiteEffectsResolution;
+}
+
+/** [U3-P4c/K14] 特效三档的对外投影（null = 该域不可得） */
+export interface SiteEffectsResolution {
+  musicPlayer: Partial<SiteMusicPlayerValues> | null;
+  sakura: Partial<SiteSakuraValues> | null;
+  pio: Partial<SitePioValues> | null;
 }
 
 /** override 侧车位置（[Phase4-D4/C3] 三级优先，事故根因加固 2026-09-07/08）：
@@ -176,6 +223,16 @@ export class SiteConfigService {
       baselineAnnouncement: baseline.announcement,
       // [U3-P4a/K7] 番剧/B站档（effective = 逐域 override ?? 基线；override = 侧车态）
       anime: { effective: animeEffective, override: animeOverride },
+      // [U3-P4c/K14] 特效三档：effects = 逐域 override 逐键回落基线；baselineEffects = 基线
+      effects: {
+        musicPlayer: mergeEffectsDomain(
+          baseline.effects.musicPlayer,
+          carrier.siteEffects?.musicPlayer,
+        ),
+        sakura: mergeEffectsDomain(baseline.effects.sakura, carrier.siteEffects?.sakura),
+        pio: mergeEffectsDomain(baseline.effects.pio, carrier.siteEffects?.pio),
+      },
+      baselineEffects: baseline.effects,
     };
   }
 
@@ -317,6 +374,43 @@ export class SiteConfigService {
   }
 
   /**
+   * PUT /admin/config/effects（U3-P4c/K14）：特效三档，**逐属性置换**（K11）+ 域清除语义。
+   * - 域键有值 → 该声明的受管键逐个 setInitializer（属性缺失且 body 含该键 → 追加），
+   *   首次覆盖前按 `originals['<declName>.<key>']` 留档原初始化器文本；
+   * - 域键缺省 → 该域清除 override 并**还原留档原文本**（无留档 = 零触碰），
+   *   故 `PUT {}` = 三域全部还原主题默认；
+   * - 侧车只写「本次提交的域」（缺省域不落键 = 基线生效）；
+   * - 三声明在同一读-改-写事务内完成：任一域 404（声明缺失/形态不符）则整体零物化。
+   * 不变量：`siteConfig` 15 键契约、`SITE_INFO_KEYS`、siteInfo / anime 两域与既有
+   * `originals` 键形零变化；`widgetConfigs` 成员零触碰（再裁 C）。
+   */
+  async putEffects(values: SiteEffectsValues): Promise<AdminSiteConfigView> {
+    // [K16] 探针轴不扩：effects 三档未注册 declarationProbes，显式传空 targets
+    // （传未注册 target 是假门禁——assertProbesPass 对未注册 target 恒放行）。
+    // 替代门禁 = spliceObjectProps 内的「声明存在 + 对象字面量形态」检查（K11 ①②）。
+    await this.themeRegistry.assertProbesPass([]);
+    const configPath = configTsPath();
+    const carrier = this.readOverride();
+    await this.spliceSiteEffects(configPath, carrier, values);
+    const nextOverride: SiteEffectsValues = {
+      ...(values.musicPlayer !== undefined ? { musicPlayer: values.musicPlayer } : {}),
+      ...(values.sakura !== undefined ? { sakura: values.sakura } : {}),
+      ...(values.pio !== undefined ? { pio: values.pio } : {}),
+    };
+    if (Object.keys(nextOverride).length === 0) {
+      delete carrier.siteEffects;
+    } else {
+      carrier.siteEffects = nextOverride;
+    }
+    this.writeOverride(carrier);
+    logger.info(
+      { configPath, domains: Object.keys(nextOverride).length },
+      'siteEffects override 已物化',
+    );
+    return this.getConfig();
+  }
+
+  /**
    * PUT /admin/config/profile（U3-P1，K1/K3）：声明级整档覆盖写入
    * （commentConfig / navBarConfig 先例），originals['profileConfig'] 首次留档。
    * 无整档清除端点（覆盖写入即管理权转移；留档供未来批次还原）。
@@ -426,6 +520,8 @@ export class SiteConfigService {
     navRaw: string | null;
     siteInfo: Partial<SiteInfoValues> | null;
     siteAnime: Partial<SiteAnimeValues> | null;
+    /** [U3-P4c/K14] 特效三档：逐声明求值，仅投影受管键（`meting_api` 恒不出现） */
+    effects: SiteEffectsResolution;
     profile: ProfileConfigValue | null;
     announcement: AnnouncementConfigValue | null;
   } {
@@ -521,7 +617,97 @@ export class SiteConfigService {
       configPath,
       consts,
     );
-    return { siteLang, commentConfig, nav, navRaw, siteInfo, siteAnime, profile, announcement };
+    // [U3-P4c/K14] 特效三档：逐声明、逐受管键求值（`meting_api` 不在键表内 → 从不读取）
+    const effects: SiteEffectsResolution = {
+      musicPlayer: this.readEffectsBaseline(
+        'musicPlayerConfig',
+        SiteMusicPlayerSchema,
+        SITE_MUSIC_PLAYER_KEYS,
+        sf,
+        configPath,
+        consts,
+      ),
+      sakura: this.readEffectsBaseline(
+        'sakuraConfig',
+        SiteSakuraSchema,
+        SITE_SAKURA_KEYS,
+        sf,
+        configPath,
+        consts,
+      ),
+      pio: this.readEffectsBaseline('pioConfig', SitePioSchema, SITE_PIO_KEYS, sf, configPath, consts),
+    };
+    return {
+      siteLang,
+      commentConfig,
+      nav,
+      navRaw,
+      siteInfo,
+      siteAnime,
+      effects,
+      profile,
+      announcement,
+    };
+  }
+
+  /**
+   * [U3-P4c/K14] 特效单声明基线：初始化器为对象字面量才逐受管键求值。
+   * - 必须逐属性求值：整体求值会因 `meting_api` 等未管键的写法牵连整档不可得；
+   * - **只投影受管键**（K12 排除项 I5）：`meting_api` 既不在键表内，也就永不进响应；
+   * - 单键 UnsupportedLiteralError → 跳过该键 + warn；全部不可得 → null（面板空档起步）；
+   * - 值域以本域 schema 收窄（返回类型由 `z.ZodType<T>` 推出，**不做 `as` 强转**）：
+   *   越界键按 zod issue 的 `path[0]` 逐个丢弃后复验，避免一个脏键毁掉整域基线展示。
+   */
+  private readEffectsBaseline<T extends object>(
+    declName: string,
+    schema: z.ZodType<T>,
+    keys: readonly (keyof T & string)[],
+    sf: SourceFile,
+    configPath: string,
+    consts: Map<string, string | number>,
+  ): Partial<T> | null {
+    const decl = sf.getVariableDeclaration(declName);
+    const init = decl?.getInitializer();
+    const unwrapped = init !== undefined ? unwrapExpression(init) : undefined;
+    if (unwrapped === undefined || !Node.isObjectLiteralExpression(unwrapped)) {
+      return null;
+    }
+    const raw: Record<string, unknown> = {};
+    for (const key of keys) {
+      const prop = unwrapped.getProperty(key);
+      if (prop === undefined || !Node.isPropertyAssignment(prop)) {
+        continue;
+      }
+      try {
+        const value = astToValueWithConsts(prop.getInitializerOrThrow(), configPath, consts);
+        if (value !== undefined) {
+          raw[key] = value;
+        }
+      } catch (error) {
+        if (error instanceof UnsupportedLiteralError) {
+          logger.warn(
+            { configPath, declName, key, line: error.line },
+            '特效档基线键含未支持节点，该键基线视为不可得',
+          );
+          continue;
+        }
+        throw error;
+      }
+    }
+    if (Object.keys(raw).length === 0) {
+      return null;
+    }
+    let checked = schema.safeParse(raw);
+    if (!checked.success) {
+      // 值域不符的键逐个剔除后复验（基线脏键不应连坐同域其它键）
+      const badKeys = new Set(checked.error.issues.map((issue) => String(issue.path[0] ?? '')));
+      for (const key of badKeys) {
+        delete raw[key];
+        logger.warn({ configPath, declName, key }, '特效档基线键值域不符，该键基线视为不可得');
+      }
+      checked = schema.safeParse(raw);
+    }
+    return checked.success ? checked.data : null;
   }
 
   /**
@@ -764,10 +950,79 @@ export class SiteConfigService {
     if (unwrapped === undefined || !Node.isObjectLiteralExpression(unwrapped)) {
       throw new NotFoundException(`siteConfig 初始化器形态不符（${CONFIG_TS_DISPLAY}）`);
     }
-    const siteObj = unwrapped;
-    const props = siteObj.getProperties();
-    const firstProp = props[0];
-    // 新属性缩进单位 = 同层既有属性缩进（无既有属性时按文件首个缩进行推断）
+    const originals = { ...(carrier.originals ?? {}) };
+    this.prepareIndentation(sf, text, unwrapped);
+    this.spliceObjectProps(unwrapped, values, keys, 'siteConfig', originals, restoreMissing);
+    carrier.originals = originals;
+    await this.persistConfigTs(configPath, text, sf.getFullText(), kind);
+  }
+
+  /**
+   * [U3-P4c/K11] 物化特效三档（A-GAP-04）：`config.ts` 三个**顶层声明**
+   * `musicPlayerConfig` / `sakuraConfig` / `pioConfig` 各自对象字面量的**逐属性置换**。
+   * - 再裁 C：`widgetConfigs` 里的 `music/sakura/pio` 成员是标识符引用，**零触碰**——
+   *   替换成员会把顶层声明变成死代码，`originals` 还原语义也随之错位；
+   * - 嵌套值（`sakura.size/opacity/speed`、`pio.dialog`）视为**一个值**整体置换，不递归：
+   *   递归会让 `originals` 的还原粒度与「用户提交的整体形状」脱节（K11）；
+   * - 域键缺省 = 该域受管键**还原留档原文**（清除 override，`PUT {}` = 三域全还原）；
+   *   域键存在 = 仅置换本次提交的键，其余键零触碰（面板可只提交要改的键）；
+   * - 三声明在**同一读-改-写事务**内完成：任一域 404（声明缺失/形态不符）时尚未
+   *   `persistConfigTs`，故整批零物化（异常抛出即退出，不落盘也不改侧车）。
+   */
+  private async spliceSiteEffects(
+    configPath: string,
+    carrier: ConfigOverrideFile,
+    values: SiteEffectsValues,
+  ): Promise<void> {
+    const text = this.readConfigTs(configPath);
+    const sf = loadSourceFile(configPath, text);
+    const originals = { ...(carrier.originals ?? {}) };
+    this.spliceEffectsDeclaration(
+      sf,
+      text,
+      'musicPlayerConfig',
+      SITE_MUSIC_PLAYER_KEYS,
+      values.musicPlayer ?? {},
+      originals,
+    );
+    this.spliceEffectsDeclaration(
+      sf,
+      text,
+      'sakuraConfig',
+      SITE_SAKURA_KEYS,
+      values.sakura ?? {},
+      originals,
+    );
+    this.spliceEffectsDeclaration(sf, text, 'pioConfig', SITE_PIO_KEYS, values.pio ?? {}, originals);
+    carrier.originals = originals;
+    await this.persistConfigTs(configPath, text, sf.getFullText(), 'siteEffects');
+  }
+
+  /**
+   * [U3-P4c/K11] 单声明落点解析 + 逐属性置换（K11 ①②：声明存在 + 对象字面量形态）。
+   * 不留档 `originals[declName]`（整档）——本域还原粒度是 `<declName>.<key>`。
+   */
+  private spliceEffectsDeclaration<K extends string>(
+    sf: SourceFile,
+    text: string,
+    declName: string,
+    keys: readonly K[],
+    values: Partial<Record<K, unknown>>,
+    originals: Record<string, string>,
+  ): void {
+    const decl = getVariableDeclarationOrThrow(sf, declName, CONFIG_TS_DISPLAY);
+    const init = decl.getInitializer();
+    const unwrapped = init !== undefined ? unwrapExpression(init) : undefined;
+    if (unwrapped === undefined || !Node.isObjectLiteralExpression(unwrapped)) {
+      throw new NotFoundException(`${declName} 初始化器形态不符（${CONFIG_TS_DISPLAY}）`);
+    }
+    this.prepareIndentation(sf, text, unwrapped);
+    this.spliceObjectProps(unwrapped, values, keys, declName, originals, true);
+  }
+
+  /** 新属性缩进单位 = 对象字面量同层既有属性缩进（无既有属性时按文件首个缩进推断） */
+  private prepareIndentation(sf: SourceFile, text: string, obj: ObjectLiteralExpression): void {
+    const firstProp = obj.getProperties()[0];
     const indentUnit =
       firstProp !== undefined
         ? this.indentationOf(text, firstProp)
@@ -775,54 +1030,51 @@ export class SiteConfigService {
           ? (/^[ \t]+/m.exec(text)?.[0] ?? '  ')
           : '  ';
     sf.getProject().manipulationSettings.set({ indentationText: this.toIndentationText(indentUnit) });
-    const originals = { ...(carrier.originals ?? {}) };
+  }
+
+  /**
+   * [U3-P4a/K7 → U3-P4c/K11] 对象字面量**逐属性置换**（原 spliceSiteKeys 循环体，
+   * 行为逐字等价；siteInfo / siteAnime / effects 三档共用）：
+   * - 属性存在 → `setInitializer` + 首次 `originals['<prefix>.<key>']` 留档原文本；
+   * - 属性缺失且 body 含该键 → `addPropertyAssignment` 追加（原文本不存在 → 不留档）；
+   * - 键缺省 + `restoreMissing` → 还原留档原文本（无留档则零触碰），留档本身保留；
+   * - 键缺省 + `!restoreMissing` → 零触碰（siteInfo 可选键既有语义，不可变）。
+   */
+  private spliceObjectProps<K extends string>(
+    obj: ObjectLiteralExpression,
+    values: Partial<Record<K, unknown>>,
+    keys: readonly K[],
+    originalPrefix: string,
+    originals: Record<string, string>,
+    restoreMissing: boolean,
+  ): void {
     for (const key of keys) {
       const value = values[key];
       if (value === undefined) {
-        // 清除语义（仅 siteAnime）：留档存在 → 还原原文本；无留档 → 零触碰
         if (restoreMissing) {
-          this.restoreOriginal(siteObj, originals, key);
+          const original = originals[`${originalPrefix}.${key}`];
+          const prop = obj.getProperty(key);
+          if (original !== undefined && prop !== undefined && Node.isPropertyAssignment(prop)) {
+            prop.setInitializer(original);
+          }
         }
         continue; // 默认语义：未提交 → 零触碰
       }
       const literal = valueToTsLiteral(value);
-      const prop = siteObj.getProperty(key);
+      const prop = obj.getProperty(key);
       if (prop === undefined) {
-        siteObj.addPropertyAssignment({ name: key, initializer: literal });
+        obj.addPropertyAssignment({ name: key, initializer: literal });
         continue; // 原本无属性 → 无原文本可留档（还原语义 = 删除属性，后批处理）
       }
       if (!Node.isPropertyAssignment(prop)) {
-        throw new NotFoundException(`siteConfig.${key} 非属性赋值（${CONFIG_TS_DISPLAY}）`);
+        throw new NotFoundException(`${originalPrefix}.${key} 非属性赋值（${CONFIG_TS_DISPLAY}）`);
       }
-      const originalKey = `siteConfig.${key}`;
+      const originalKey = `${originalPrefix}.${key}`;
       if (originals[originalKey] === undefined) {
         originals[originalKey] = prop.getInitializerOrThrow().getText();
       }
       prop.setInitializer(literal);
     }
-    carrier.originals = originals;
-    await this.persistConfigTs(configPath, text, sf.getFullText(), kind);
-  }
-
-  /**
-   * [U3-P4a/K7] 清除语义的单键还原：留档原文本存在 → 属性初始化器还原；
-   * 属性已被删除/非属性赋值 → 零触碰（原文本无落点，不新建属性）。
-   * 留档本身保留（lang / nav 的清除路径同口径，便于二次接管）。
-   */
-  private restoreOriginal(
-    siteObj: ObjectLiteralExpression,
-    originals: Record<string, string>,
-    key: string,
-  ): void {
-    const original = originals[`siteConfig.${key}`];
-    if (original === undefined) {
-      return;
-    }
-    const prop = siteObj.getProperty(key);
-    if (prop === undefined || !Node.isPropertyAssignment(prop)) {
-      return;
-    }
-    prop.setInitializer(original);
   }
 
   /**

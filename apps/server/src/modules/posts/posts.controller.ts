@@ -3,6 +3,7 @@
  * [职责] MASTER-PLAN §5 Posts 路由清单逐字 + P5 §3.5 about 补白：
  *   GET    /admin/posts              文章列表（含 frontmatter 摘要）
  *   POST   /admin/posts              创建（body：slug/frontmatter/content）
+ *   POST   /admin/posts/import/preview  导入预览（multipart 字段 files，**只读**）
  *   POST   /admin/posts/sync         重建 article 索引（幂等）
  *   GET    /admin/posts/:slug        读单篇（frontmatter + 正文）
  *   PATCH  /admin/posts/:slug        修改（frontmatter 增量合并 / 正文）
@@ -14,6 +15,8 @@
  *
  * 全部输入过 zod（参数级 ZodValidationPipe，避免路由级管道误校验 @Param）；
  * slug 白名单校验拒绝路径穿越（400）；P6 前无认证守卫属预期设计。
+ * [U3-P4c] 例外：`import/preview` 的输入是 multipart 文件（无 JSON body），无 body 可过
+ * zod——上限与扩展名由 multer + service 逐条判定，解析结果再经 shared 契约自校验。
  */
 import {
   Body,
@@ -27,11 +30,13 @@ import {
   Post,
   Put,
   UploadedFile,
+  UploadedFiles,
   UseInterceptors,
   BadRequestException,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiBody, ApiConsumes, ApiOperation, ApiTags } from '@nestjs/swagger';
-import { FileInterceptor } from '@nestjs/platform-express';
+import { FileInterceptor, FilesInterceptor } from '@nestjs/platform-express';
+import { IMPORT_MAX_FILE_BYTES, IMPORT_MAX_FILES } from '@mizuki/shared';
 import { type UploadedFileLike } from '../../common/http/uploaded-file';
 import { ZodValidationPipe } from '../../common/pipes/zod-validation.pipe';
 import {
@@ -61,6 +66,33 @@ export class PostsController {
   @HttpCode(HttpStatus.CREATED)
   create(@Body(new ZodValidationPipe(CreatePostBodySchema)) body: unknown) {
     return this.posts.createPost(body as Parameters<PostsService['createPost']>[0]);
+  }
+
+  /**
+   * [U3-P4c/K1] Markdown 通用导入预览（**只读**：纯解析、零落盘、零缓存、无会话态）。
+   * - multipart 而非 JSON：绕开 Nest/Express 缺省的 100kb JSON 上限（30 个 md 必超），
+   *   且不为一条导入端点抬全局 body limit（那会放松所有路由的 DoS 面）；
+   * - 三道上限：文件数 ≤ 30（`FilesInterceptor` maxCount + service 纵深防御）、
+   *   单文件 ≤ 65536 字节（multer `limits.fileSize` → 413）、扩展名仅 .md/.markdown（逐条判定）；
+   * - 提交阶段**不新增端点**：面板逐条复用 `POST /admin/posts`（再裁 B）。
+   */
+  @ApiOperation({ summary: 'Markdown 导入预览（只读解析，逐条结果，不落盘）' })
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: {
+        files: { type: 'array', items: { type: 'string', format: 'binary' } },
+      },
+    },
+  })
+  @Post('admin/posts/import/preview')
+  @HttpCode(HttpStatus.OK)
+  @UseInterceptors(
+    FilesInterceptor('files', IMPORT_MAX_FILES, { limits: { fileSize: IMPORT_MAX_FILE_BYTES } }),
+  )
+  previewImport(@UploadedFiles() files: UploadedFileLike[] | undefined) {
+    return this.posts.previewImport(files ?? []);
   }
 
   @ApiOperation({ summary: '重建 article 索引（幂等）' })

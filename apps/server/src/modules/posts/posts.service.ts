@@ -37,6 +37,11 @@ import {
   ArticlePublishedPayload,
   ContentChangedPayload,
   EVENTS,
+  IMPORT_ALLOWED_EXTENSIONS,
+  IMPORT_MAX_FILES,
+  type ImportPreviewItem,
+  type ImportPreviewResponse,
+  ImportPreviewResponseSchema,
   PostChangedPayload,
   langCodeSchema,
 } from '@mizuki/shared';
@@ -48,7 +53,7 @@ import { logger } from '../../common/logger';
 import { type ArticleStatus, deriveStatus, toArticleRow } from '../../common/markdown/article-row';
 import { parseMarkdown, stringifyMarkdown } from '../../common/markdown/frontmatter';
 import { type MagicFormat } from '../../common/security/magic-sniff';
-import { parseOrBadRequest } from '../../common/validation/zod-issues';
+import { parseOrBadRequest, safeParseIssues } from '../../common/validation/zod-issues';
 import { singleSegmentName } from '../../common/validation/segment-name';
 import { getAppConfig } from '../../config/app-config';
 import { type BackupOptions, BACKUP_OPTIONS, BackupService } from '../../infra/backup/backup.service';
@@ -479,6 +484,230 @@ export class PostsService {
     return { slug, frontmatter, content: existing.content };
   }
 
+  // ── Markdown 通用导入（[U3-P4c/K1~K10] A-GAP-13 ★ 档） ──
+
+  /**
+   * [K1] 导入预览（`POST /admin/posts/import/preview`，multipart 字段 `files`）：
+   * **纯解析、零落盘、零缓存、无会话态**（同一次请求内的批内 slug 自查除外）。
+   *
+   * 再裁 A（U3-P4c §0）：YAML 解析 / 键映射 / 校验全部在本方法内完成——浏览器只做
+   * File → FormData 的搬运，不复制 YAML 边界口径（BOM / CRLF / 正文分隔线）。
+   * 再裁 B：本端点**只读**；提交由面板逐条复用既有 `POST /admin/posts`（`createPost`），
+   * 故此处不新增任何写盘路径，也不产生临时文件。
+   * [K9] 服务端不信任预览：不缓存、不回查、不「记住」任何 preview 结果——提交阶段
+   * 由 `POST /admin/posts` 的管道层完整重跑一遍 schema（无 TOCTOU 面）。
+   * [K10] 导入不调用 `POST /admin/posts/sync`：`createPost` 已 upsert 索引并发事件。
+   */
+  async previewImport(files: UploadedFileLike[]): Promise<ImportPreviewResponse> {
+    if (files.length === 0) {
+      throw new BadRequestException('缺少上传文件（multipart 字段名：files）');
+    }
+    // [K2 ①] 服务端独立硬限（FilesInterceptor maxCount 已挡在 multer 层，此为纵深防御）
+    if (files.length > IMPORT_MAX_FILES) {
+      throw new BadRequestException(`单次导入文件数超限（最多 ${IMPORT_MAX_FILES} 个）`);
+    }
+    // [K4] 富文本 slug 占用面：一次查询取全量，批内逐条比对（与 createPost 落盘前守卫同源）
+    const richTextSlugs = await this.richTextSlugs();
+    const seen = new Set<string>();
+    const items = files.map((file) => this.previewImportItem(file, richTextSlugs, seen));
+    const summary = {
+      total: items.length,
+      ok: items.filter((item) => item.status === 'ok').length,
+      conflict: items.filter((item) => item.status === 'conflict').length,
+      error: items.filter((item) => item.status === 'error').length,
+    };
+    // [I5] 日志只记计数，绝不记 content / frontmatter 全文
+    logger.info(summary, 'Markdown 导入预览完成');
+    // 契约自校验（shared 单源）：响应形状漂移在此当场炸掉，而不是让面板静默失配
+    return ImportPreviewResponseSchema.parse({ items, summary });
+  }
+
+  /** [K4] 库内 slug 占用的富文本集合（`article.slug` UNIQUE，富文本与 markdown 共用） */
+  private async richTextSlugs(): Promise<Set<string>> {
+    const rows = await this.db
+      .select({ slug: article.slug })
+      .from(article)
+      .where(ne(article.sourceType, 'markdown'));
+    return new Set(rows.map((row) => row.slug));
+  }
+
+  /**
+   * [K3/K4] 单文件预览：扩展名 → 空文件 → 日期归一 → frontmatter 校验 → slug 校验
+   * → 冲突四格（slug-taken / slug-taken-richtext / duplicate-in-batch / ok）。
+   * 条目级校验一律走 `safeParseIssues`（**不抛**）：一个坏文件不得毁整批。
+   */
+  private previewImportItem(
+    file: UploadedFileLike,
+    richTextSlugs: Set<string>,
+    seen: Set<string>,
+  ): ImportPreviewItem {
+    const allowed = IMPORT_ALLOWED_EXTENSIONS as readonly string[];
+    // [I6] 路径安全：originalname 只用于展示与 slug 派生（basename 后绝无分隔符）
+    const name = path.basename(file.originalname);
+    const ext = path.extname(name).toLowerCase();
+    const stem = ext === '' ? name : name.slice(0, -ext.length);
+    const mapped = { renamed: [] as string[], derived: [] as string[], dropped: [] as string[] };
+    const issues: ImportPreviewItem['issues'] = [];
+    const base = { name, ext, slug: stem, form: 'dir' as const };
+
+    if (!allowed.includes(ext)) {
+      return {
+        ...base,
+        status: 'error',
+        code: 'unsupported-extension',
+        issues: [
+          {
+            level: 'error',
+            path: 'name',
+            message: `扩展名不在白名单：${ext === '' ? '(无)' : ext}（允许 ${allowed.join(' / ')}）`,
+          },
+        ],
+        mapped,
+        frontmatter: {},
+        content: '',
+      };
+    }
+
+    const text = file.buffer.toString('utf8');
+    if (file.buffer.length === 0 || text.trim() === '') {
+      return {
+        ...base,
+        status: 'error',
+        code: 'empty-file',
+        issues: [{ level: 'error', path: 'content', message: '文件为空（0 字节或全空白）' }],
+        mapped,
+        frontmatter: {},
+        content: '',
+      };
+    }
+
+    const parsed = (() => {
+      try {
+        return parseMarkdown(text);
+      } catch {
+        // [K4] YAML 语法错误也算「文件本身不可用」：单条 error，不得毁整批（一个坏文件
+        // 抛 500 会让同批健康条目全部不可提交）。文案不回显异常正文（可能含文件内容）。
+        return null;
+      }
+    })();
+    if (parsed === null) {
+      return {
+        ...base,
+        status: 'error',
+        code: 'frontmatter-invalid',
+        issues: [
+          {
+            level: 'error',
+            path: 'frontmatter',
+            message: 'frontmatter 无法解析（YAML 语法错误或分隔符不完整）',
+          },
+        ],
+        mapped,
+        frontmatter: {},
+        content: '',
+      };
+    }
+    const mapping = mapImportFrontmatter(parsed.frontmatter, stem, bareLocalDate(new Date()));
+    mapped.renamed.push(...mapping.renamed);
+    mapped.derived.push(...mapping.derived);
+    mapped.dropped.push(...mapping.dropped);
+
+    let status: ImportPreviewItem['status'] = 'ok';
+    let code: ImportPreviewItem['code'];
+    if (mapping.invalidDateKey !== undefined) {
+      status = 'error';
+      code = 'date-invalid';
+      issues.push({
+        level: 'error',
+        path: mapping.invalidDateKey,
+        message: '日期无法解析为 YYYY-MM-DD（支持日期对象、裸日期或可解析的日期串）',
+      });
+    } else {
+      // [K4] 条目级校验：safeParseIssues 返回 Result，失败只影响本条
+      const frontmatterCheck = safeParseIssues(PostFrontmatterSchema, mapping.frontmatter);
+      if (!frontmatterCheck.ok) {
+        status = 'error';
+        code = 'frontmatter-invalid';
+        issues.push(
+          ...frontmatterCheck.issues.map((issue) => ({
+            level: 'error' as const,
+            path: issue.path,
+            message: issue.message,
+          })),
+        );
+      }
+    }
+
+    if (status === 'ok') {
+      const slugCheck = safeParseIssues(PostSlugSchema, stem);
+      if (!slugCheck.ok) {
+        status = 'error';
+        code = 'slug-invalid';
+        issues.push(
+          ...slugCheck.issues.map((issue) => ({
+            level: 'error' as const,
+            path: issue.path === '' ? 'slug' : `slug.${issue.path}`,
+            message: issue.message,
+          })),
+        );
+      }
+    }
+
+    if (status === 'ok') {
+      // [K4] 冲突四格：盘上（目录式或单文件式）优先于库内富文本，最后才是批内重复
+      if (fs.existsSync(this.postDirAbs(stem)) || fs.existsSync(this.postFileFormAbs(stem))) {
+        status = 'conflict';
+        code = 'slug-taken';
+        issues.push({
+          level: 'warn',
+          path: 'slug',
+          message: `slug 已被既有文章占用：${stem}（可改 slug，或先处理该文章）`,
+        });
+      } else if (richTextSlugs.has(stem)) {
+        status = 'conflict';
+        code = 'slug-taken-richtext';
+        issues.push({
+          level: 'warn',
+          path: 'slug',
+          message: `slug 已被富文本文章占用：${stem}（slug 全局唯一，请改 slug 或先删除该富文本文章）`,
+        });
+      } else if (seen.has(stem)) {
+        status = 'conflict';
+        code = 'duplicate-in-batch';
+        issues.push({
+          level: 'warn',
+          path: 'slug',
+          message: `同一批内 slug 重复：${stem}（仅首条可提交）`,
+        });
+      }
+    }
+
+    // 批内自查只登记「可能被提交」的 slug（error 条目不参与提交，不得毒化同批健康条目）
+    if (status !== 'error') {
+      seen.add(stem);
+    }
+
+    // [K3] description 缺不派生（主题 `default("")`）——仅提示；同批任何条目都追加在末尾，
+    // 保证 schema 的字段级 issues 恒排在前面（前端口径：issues[0] 即首要修复点）
+    if (mapping.frontmatter['description'] === undefined) {
+      issues.push({
+        level: 'warn',
+        path: 'description',
+        message: '未提供 description（主题默认空串，不自动派生）',
+      });
+    }
+
+    const item: ImportPreviewItem = {
+      ...base,
+      status,
+      issues,
+      mapped,
+      frontmatter: mapping.frontmatter,
+      content: parsed.content,
+    };
+    return code === undefined ? item : { ...item, code };
+  }
+
   // ── 索引同步 ──
 
   /**
@@ -853,6 +1082,132 @@ function stringifyPostMarkdown(frontmatter: Record<string, unknown>, content: st
 
 function validateSlug(slug: string): string {
   return parseOrBadRequest(PostSlugSchema, slug, 'slug 校验失败');
+}
+
+// ── [U3-P4c/K3] 导入映射（纯函数；写盘前最后一次可撤销时点，面板必须展示映射结果） ──
+
+/** 服务器本地日期的裸 `YYYY-MM-DD` 形态（导入当日兜底；口径与 BARE_DATE_KEYS 一致） */
+function bareLocalDate(date: Date): string {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const d = String(date.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
+/**
+ * [K7] 日期归一：Date（YAML 裸日期解析产物 → UTC 零点）取 ISO 日期段；裸日期串校验
+ * 真实性后原样；其余串先 `new Date()` 试解析、成功取**本地**日期段（无偏移串按本地
+ * 解析，用 UTC 截断会整体前移一天），失败 → null（→ `date-invalid`）。
+ */
+function normalizeImportDate(value: unknown): string | null {
+  if (value instanceof Date) {
+    return Number.isNaN(value.getTime()) ? null : value.toISOString().slice(0, 10);
+  }
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
+      // 形态合法 ≠ 日期真实（2025-13-45 / 2025-02-30 都要拒）
+      const probe = new Date(`${trimmed}T00:00:00Z`);
+      return !Number.isNaN(probe.getTime()) && probe.toISOString().slice(0, 10) === trimmed
+        ? trimmed
+        : null;
+    }
+    const parsed = new Date(trimmed);
+    return Number.isNaN(parsed.getTime()) ? null : bareLocalDate(parsed);
+  }
+  return null;
+}
+
+/** [K3] 导入映射结果（四张表：改名 / 派生 / 删除 / 日期是否非法） */
+interface ImportMappingResult {
+  frontmatter: Record<string, unknown>;
+  renamed: string[];
+  derived: string[];
+  dropped: string[];
+  /** 日期源不可解析时所涉键（'published'）；undefined = 日期正常 */
+  invalidDateKey?: string;
+}
+
+/**
+ * [K3] frontmatter 映射表（**最小面**：两处改名 + 两处必要兜底，其余键含未知键原样）：
+ * - `published` 三源取值（published 优先 → pubDate → date），归一为裸 `YYYY-MM-DD`；
+ * - `pubDate` / `date` 无论是否被采用一律删除（主题 content.config.ts 无此二键）；
+ * - `cover` 有而 `image` 缺 → 改名 `image`；两者都有 → 删 `cover`（`image` 为准）；
+ * - `title` 缺 → 文件名 stem（**不 slugify**）；
+ * - 三源全缺 → 导入当日（本地日期）；
+ * - **不派生** description（主题 `optional().default("")`，缺省即空串）。
+ * 否决「全量规范化」（tags 字符串切分 / category 取首 / 布尔归一）：没有一条有主题类型
+ * 依据，全是猜测式改写用户内容，而导入是一次性、不可逆的动作。
+ */
+function mapImportFrontmatter(
+  raw: Record<string, unknown>,
+  fileStem: string,
+  today: string,
+): ImportMappingResult {
+  const out: Record<string, unknown> = { ...raw };
+  const renamed: string[] = [];
+  const derived: string[] = [];
+  const dropped: string[] = [];
+  const has = (key: string): boolean => Object.prototype.hasOwnProperty.call(out, key);
+
+  // ① 日期三源：published 已有则以其为准（不再看 pubDate/date 的值）
+  let published: unknown;
+  if (has('published')) {
+    published = out['published'];
+  } else if (has('pubDate')) {
+    published = out['pubDate'];
+    renamed.push('pubDate→published');
+  } else if (has('date')) {
+    published = out['date'];
+    renamed.push('date→published');
+  }
+
+  // ② 非契约日期键一律删除（值已取走 → 值不丢、键不留）
+  for (const key of ['pubDate', 'date']) {
+    if (has(key)) {
+      delete out[key];
+      dropped.push(key);
+    }
+  }
+
+  let invalidDateKey: string | undefined;
+  if (published === undefined) {
+    out['published'] = today;
+    derived.push('published');
+  } else {
+    const normalized = normalizeImportDate(published);
+    if (normalized === null) {
+      invalidDateKey = 'published';
+      out['published'] = published; // 保留原值供面板展示；提交阶段 schema 会再拦一次
+    } else {
+      out['published'] = normalized;
+    }
+  }
+
+  // ③ 封面改名（image 优先；两者都在 → 删 cover）
+  if (has('cover')) {
+    if (!has('image')) {
+      out['image'] = out['cover'];
+      renamed.push('cover→image');
+    } else {
+      dropped.push('cover');
+    }
+    delete out['cover'];
+  }
+
+  // ④ 标题兜底：文件名 stem（去扩展名直取，不 slugify、不做任何字符替换）
+  if (!has('title') || out['title'] === undefined) {
+    out['title'] = fileStem;
+    derived.push('title');
+  }
+
+  return {
+    frontmatter: out,
+    renamed,
+    derived,
+    dropped,
+    ...(invalidDateKey === undefined ? {} : { invalidDateKey }),
+  };
 }
 
 // deriveStatus / toDateOrNull 已上收 common/markdown/article-row（单源）——

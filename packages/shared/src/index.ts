@@ -32,3 +32,6 @@ export * from './process-tasks';
 
 // [U3-P4a/K1/K3] 任务级环境变量（config.json taskEnv 约束 + 掩码视图单源）
 export * from './task-env';
+
+// [U3-P4c/K5] Markdown 通用导入预览契约（只读端点响应 + 三道上限常量单源）
+export * from './posts-import';

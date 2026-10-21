@@ -22,12 +22,14 @@ import {
   PutLangBodySchema,
   PutNavBodySchema,
   PutSiteAnimeBodySchema,
+  SiteEffectsSchema,
   SiteInfoSchema,
   type AnnouncementConfigValue,
   type CommentConfigValue,
   type NavConfigValue,
   type ProfileConfigValue,
   type SiteAnimeValues,
+  type SiteEffectsValues,
   type SiteInfoValues,
 } from '@mizuki/shared';
 import { ZodValidationPipe } from '../../common/pipes/zod-validation.pipe';
@@ -124,5 +126,24 @@ export class SiteConfigController {
     @Body(new ZodValidationPipe(PutSiteAnimeBodySchema)) body: Partial<SiteAnimeValues>,
   ): Promise<AdminSiteConfigView> {
     return this.siteConfig.putSiteAnime(body);
+  }
+
+  /**
+   * [U3-P4c/K14] 特效非敏感开关（A-GAP-04）：`config.ts` 三个**顶层声明**
+   * `musicPlayerConfig` / `sakuraConfig` / `pioConfig` 的逐属性置换。
+   * body = `SiteEffectsSchema`（三域均可缺省；域键缺省 = 清除该域 override 并还原留档
+   * 原文，故 `{}` = 三域全部还原主题默认）。
+   * **机械排除 `meting_api`**：该键不在任何 schema 内 → `.strict()` 对含它的请求恒 400；
+   * `widgetConfigs` 成员零触碰（再裁 C）。与 site-info / anime 两域完全隔离。
+   */
+  @ApiOperation({
+    summary: '覆盖写入特效三档（按声明逐属性置换，缺省域 = 还原主题默认，越界键含 meting_api 400）',
+  })
+  @Put('effects')
+  @HttpCode(HttpStatus.OK)
+  async putEffects(
+    @Body(new ZodValidationPipe(SiteEffectsSchema)) body: SiteEffectsValues,
+  ): Promise<AdminSiteConfigView> {
+    return this.siteConfig.putEffects(body);
   }
 }

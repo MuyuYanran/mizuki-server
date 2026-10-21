@@ -337,6 +337,147 @@ export const SITE_ANIME_KEYS = ['anime', 'bangumi', 'bilibili'] as const;
 /** PUT /admin/config/anime 请求体：三域均可缺省（缺省 = 清除该域 override 并还原留档原文） */
 export const PutSiteAnimeBodySchema = SiteAnimeSchema.partial();
 
+// ── [U3-P4c/K12/K13] 特效非敏感开关（config.ts 三个**顶层声明**） ──
+// 再裁 C（U3-P4c §0）：特效三档的落点是 config.ts 的顶层声明
+//   `export const musicPlayerConfig` / `sakuraConfig` / `pioConfig`，
+// 而 `widgetConfigs` 里的 music / sakura / pio 只是**标识符引用**（成员值不是字面量）。
+// 故本域物化 = 对**各自声明**的对象字面量逐属性置换，`widgetConfigs` 成员零触碰
+// （替换成员会把顶层声明变成死代码，`originals` 还原语义随之错位）。
+// 字段面逐字对齐主题 src/types/config.ts 的 MusicPlayerConfig / SakuraConfig / PioConfig；
+// 每域**全部字段可选**（物化是逐属性置换，面板可只提交要改的键，服务端零触碰其余键）。
+//
+// **排除 `meting_api`（硬裁定，K12）**：它是外链档里唯一带凭据面的键（真实部署常把
+// 第三方 token/签名填进 `auth=` 段）。纳管即让一个「读回即泄密」的键进面板
+// （GET 回显 / 错误 detail / 日志三条泄密面都要单独加掩码），收益只是省一次手改。
+// 机械保证：它不在任何 schema 内 → 聚合 `.strict()` 对含 `meting_api` 的请求恒 400。
+// 将来若要纳管，前置条件见指令包 K12（masked 契约 / 空值=保持不变 / 不入日志 /
+// 响应体 grep 断言），缺一不许开工。
+
+/** 音乐播放器档（7 键；`meting_api` 刻意不在本 schema 内） */
+export const SiteMusicPlayerSchema = z
+  .object({
+    enable: z.boolean().optional(),
+    showFloatingPlayer: z.boolean().optional(),
+    /** 悬浮入口模式：默认独立播放器 / 集成到通用 FAB 组 */
+    floatingEntryMode: z.enum(['default', 'fab']).optional(),
+    mode: z.enum(['meting', 'local']).optional(),
+    /** 歌单 ID（字符串形，主题侧原样透传） */
+    id: z.string().min(1).optional(),
+    /** 音乐源服务器（netease / tencent / kugou …，主题类型为自由字符串） */
+    server: z.string().min(1).optional(),
+    /** 播单类型（playlist / song …，主题类型为自由字符串） */
+    type: z.string().min(1).optional(),
+  })
+  .strict();
+
+/** 区间档（sakura 的 size / opacity / speed.{horizontal,vertical} 共用；min ≤ max） */
+const SakuraRangeSchema = z
+  .object({
+    min: z.number(),
+    max: z.number(),
+  })
+  .strict()
+  .refine((value) => value.min <= value.max, { message: 'min 不得大于 max' });
+
+/** 樱花档（7 键：enable / sakuraNum / limitTimes / size / opacity / speed / zIndex） */
+export const SiteSakuraSchema = z
+  .object({
+    enable: z.boolean().optional(),
+    /** 樱花数量（主题默认 21） */
+    sakuraNum: z.number().int().min(0).max(500).optional(),
+    /** 越界限制次数（-1 = 无限循环） */
+    limitTimes: z.number().int().min(-1).optional(),
+    size: SakuraRangeSchema.optional(),
+    opacity: z
+      .object({
+        min: z.number().min(0).max(1),
+        max: z.number().min(0).max(1),
+      })
+      .strict()
+      .refine((value) => value.min <= value.max, { message: 'min 不得大于 max' })
+      .optional(),
+    speed: z
+      .object({
+        horizontal: SakuraRangeSchema,
+        vertical: SakuraRangeSchema,
+        rotation: z.number(),
+        fadeSpeed: z.number(),
+      })
+      .strict()
+      .optional(),
+    /** 层级（确保樱花在合适的层级显示） */
+    zIndex: z.number().int().min(-1000).max(10000).optional(),
+  })
+  .strict();
+
+/** 看板娘自定义对话项 */
+export const PioDialogCustomSchema = z
+  .object({
+    selector: z.string(),
+    type: z.enum(['read', 'link']),
+    text: z.string().optional(),
+  })
+  .strict();
+
+/** 看板娘对话档（`skin` 为二元组；`welcome`/`touch` 支持单串或串数组） */
+export const SitePioDialogSchema = z
+  .object({
+    welcome: z.union([z.string(), z.array(z.string())]).optional(),
+    touch: z.union([z.string(), z.array(z.string())]).optional(),
+    home: z.string().optional(),
+    skin: z.tuple([z.string(), z.string()]).optional(),
+    close: z.string().optional(),
+    link: z.string().optional(),
+    custom: z.array(PioDialogCustomSchema).optional(),
+  })
+  .strict();
+
+/**
+ * 看板娘档（8 键；`dialog` 视为**一个值**整值置换，不递归下钻——K11）。
+ * width/height 取 `1..4000`：0 宽高在主题侧无意义（指令包 K12 表格写 0，其测试例
+ * 「pio.width: 0 → 400」为准，见交付报告偏差节）。
+ */
+export const SitePioSchema = z
+  .object({
+    enable: z.boolean().optional(),
+    /** 模型文件路径数组 */
+    models: z.array(z.string()).optional(),
+    position: z.enum(['left', 'right']).optional(),
+    width: z.number().int().min(1).max(4000).optional(),
+    height: z.number().int().min(1).max(4000).optional(),
+    mode: z.enum(['static', 'fixed', 'draggable']).optional(),
+    hiddenOnMobile: z.boolean().optional(),
+    dialog: SitePioDialogSchema.optional(),
+  })
+  .strict();
+
+/**
+ * 聚合档：三域（序 = 定义序，禁手工重排）。三域均可缺省：
+ * - PUT 语义：域键缺省 = 该域清除 override 并还原留档原文（`{}` = 三域全部还原）；
+ * - `.strict()` 越界键显式 400 —— 含 `meting_api`（排除项的机械保证）。
+ */
+export const SiteEffectsSchema = z
+  .object({
+    musicPlayer: SiteMusicPlayerSchema.optional(),
+    sakura: SiteSakuraSchema.optional(),
+    pio: SitePioSchema.optional(),
+  })
+  .strict();
+
+/** 三域键序（物化循环顺序 + 面板/视图单源；序 = SiteEffectsSchema 定义序） */
+export const SITE_EFFECTS_KEYS = ['musicPlayer', 'sakura', 'pio'] as const;
+
+/** 音乐播放器声明受管键序（物化逐属性置换顺序 = schema 定义序） */
+export const SITE_MUSIC_PLAYER_KEYS = Object.keys(
+  SiteMusicPlayerSchema.shape,
+) as (keyof SiteMusicPlayerValues)[];
+
+/** 樱花声明受管键序（同上） */
+export const SITE_SAKURA_KEYS = Object.keys(SiteSakuraSchema.shape) as (keyof SiteSakuraValues)[];
+
+/** 看板娘声明受管键序（同上） */
+export const SITE_PIO_KEYS = Object.keys(SitePioSchema.shape) as (keyof SitePioValues)[];
+
 /** 个人资料档（ProfileConfig 逐字对齐：name 必填，links 必填数组，[] 合法清空） */
 export const ProfileConfigSchema = z
   .object({
@@ -415,6 +556,13 @@ export const ConfigOverrideFileSchema = z
      * 按域整对象替换：域键存在即整档接管，域键缺省即该域回到基线。
      */
     siteAnime: SiteAnimeSchema.partial().optional(),
+    /**
+     * [U3-P4c/K13] 特效三档 override 态（**顶层声明** musicPlayerConfig /
+     * sakuraConfig / pioConfig 的逐属性覆盖；缺键 = 未设置 = 基线生效）。
+     * 域键存在即该声明的受管键按记录值置换，域键缺省即该域还原留档原文。
+     * `meting_api` 不在 schema 内 → 侧车里也不可能出现它。
+     */
+    siteEffects: SiteEffectsSchema.optional(),
     /** 被置换原文本留档（键 = 受控定位符，值 = config.ts 原初始化器文本，用于还原） */
     originals: z.record(z.string(), z.string()).optional(),
   })
@@ -436,3 +584,13 @@ export type BangumiConfigValue = z.infer<typeof BangumiConfigSchema>;
 export type BilibiliConfigValue = z.infer<typeof BilibiliConfigSchema>;
 /** [U3-P4a/K6] 番剧/B站聚合档值（三域必填，域内字段均可选） */
 export type SiteAnimeValues = z.infer<typeof SiteAnimeSchema>;
+/** [U3-P4c/K12] 音乐播放器档值（7 键，`meting_api` 不在内） */
+export type SiteMusicPlayerValues = z.infer<typeof SiteMusicPlayerSchema>;
+/** [U3-P4c/K12] 樱花档值（7 键） */
+export type SiteSakuraValues = z.infer<typeof SiteSakuraSchema>;
+/** [U3-P4c/K12] 看板娘对话档值 */
+export type SitePioDialogValues = z.infer<typeof SitePioDialogSchema>;
+/** [U3-P4c/K12] 看板娘档值（8 键） */
+export type SitePioValues = z.infer<typeof SitePioSchema>;
+/** [U3-P4c/K12] 特效三域聚合档值（三域均可缺省，域内字段均可选） */
+export type SiteEffectsValues = z.infer<typeof SiteEffectsSchema>;

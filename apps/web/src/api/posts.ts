@@ -7,6 +7,20 @@
 import { backupsApi } from './backups';
 import { request } from './http';
 import { ApiError } from './http';
+import type { ImportPreviewResponse } from '@mizuki/shared';
+
+/**
+ * [U3-P4c/K1/K5] 导入预览的响应契约与三道上限常量**直接引用 shared 单源**
+ * （`posts-import.ts` 的 zod 推导类型）——前端零本地类型复制。
+ */
+export type {
+  ImportPreviewCode,
+  ImportPreviewItem,
+  ImportPreviewResponse,
+  ImportPreviewStatus,
+  ImportIssue,
+  ImportMapped,
+} from '@mizuki/shared';
 
 /** 文章视图（与后端 PostView 对齐） */
 export interface PostView {
@@ -97,6 +111,21 @@ export const postsApi = {
 
   sync(): Promise<SyncResult> {
     return request<SyncResult>('POST', '/admin/posts/sync');
+  },
+
+  /**
+   * [U3-P4c/K1/K8] Markdown 导入预览：multipart，字段名 `files`（多文件）。
+   * - **只读**端点：服务端纯解析、零落盘、零缓存（提交阶段逐条复用 `create`，不新增批量端点）；
+   * - **不手写 Content-Type**：`http.ts` 对 FormData 不设 JSON 头，boundary 由浏览器生成；
+   * - 解析 / 键映射 / 校验全在服务端（再裁 A：浏览器不得自行切 YAML）；
+   * - K2 三道上限（≤30 文件 / 单文件 ≤64 KiB / .md|.markdown）由调用方先自检，服务端另有拦截。
+   */
+  previewImport(files: File[]): Promise<ImportPreviewResponse> {
+    const form = new FormData();
+    for (const file of files) {
+      form.append('files', file, file.name);
+    }
+    return request<ImportPreviewResponse>('POST', '/admin/posts/import/preview', form);
   },
 
   readAbout(): Promise<{ content: string }> {
