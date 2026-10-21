@@ -33,6 +33,7 @@ import {
   TASK_WHITELIST,
   taskEnvViewOf,
   type ProcessTaskName,
+  type PutTaskEnvBody,
   type TaskEnvView,
 } from '@mizuki/shared';
 import { toMizukiAbs } from '../../common/fs/mizuki-root';
@@ -43,6 +44,7 @@ import {
   resetAppConfigCache,
 } from '../../config/app-config';
 import { type BackupOptions, BACKUP_OPTIONS } from '../../infra/backup/backup.service';
+import { composeTaskEnv } from './task-env-keep';
 import { type DrizzleDb, DRIZZLE_DB } from '../../infra/db/db.module';
 import { taskRun } from '../../infra/db/schema';
 import { PackageManagerResolver, type ResolverOptions, type SpawnPlan } from './pm-resolver';
@@ -279,19 +281,29 @@ export class ProcessManagerService implements OnApplicationShutdown {
   }
 
   /**
-   * PUT /admin/process/task-env 的服务侧实现：**整表替换**（`{}` = 清空，合法）。
-   * - 三条约束已在管道层（PutTaskEnvBodySchema）完成，越界 400 且零写盘；
+   * PUT /admin/process/task-env 的服务侧实现：`keep` 合成后**整表落盘**
+   * （`entries` 与 `keep` 均空 = 清空，合法）。
+   * [U3-P4c/K-keep] 合成规则见 `./task-env-keep`（entries 优先；keep 含未知键或
+   *   与 entries 同键 → 400 语义错误，零写盘）；三条约束仍在管道层 + 合成结果复检。
    * - 写盘走 config 既有原子写单源 `mergeAndPersistConfig`（禁裸 fs.writeFile，AGENTS §4-1），
    *   它只记 `keys`（= 'taskEnv' 这个字面量），不记值；
    * - `resetAppConfigCache()` 使变更随下一次 getAppConfig() 活取生效（P11 坑 5 先例），
    *   子进程与 pm-resolver 探活同一次生效（childEnv 单点）；
    * - 返回与 GET 同形的掩码视图（明文不出本函数）。
    */
-  putTaskEnv(entries: Record<string, string>): TaskEnvView {
-    mergeAndPersistConfig({ taskEnv: entries });
+  putTaskEnv(body: PutTaskEnvBody): TaskEnvView {
+    const merged = composeTaskEnv({
+      existing: getAppConfig().taskEnv,
+      entries: body.entries,
+      keep: body.keep,
+    });
+    mergeAndPersistConfig({ taskEnv: merged });
     resetAppConfigCache();
-    // K4：日志只记条数（键名可留，值绝不入日志）
-    logger.info({ count: Object.keys(entries).length }, 'taskEnv 已整表替换');
+    // K4：日志只记条数与保留条数（键名可留，值绝不入日志）
+    logger.info(
+      { count: Object.keys(merged).length, kept: body.keep?.length ?? 0 },
+      'taskEnv 已保存（keep 合成后整表写入）',
+    );
     return this.listTaskEnv();
   }
 

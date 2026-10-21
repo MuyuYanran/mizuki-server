@@ -14,7 +14,7 @@
  *   GET    /admin/process/templates      模板列表（config.json tasks 键，活取）
  * [U3-P4a/K3] 增补任务级环境变量（写后不可读，值按 secret 处理）：
  *   GET    /admin/process/task-env       掩码列表（{ key, masked }，按 key 字典序）
- *   PUT    /admin/process/task-env       整表替换（{} = 清空；越界 400 零写盘）
+ *   PUT    /admin/process/task-env       整表写入（entries + keep?；均空 = 清空；越界 400 零写盘）
  * [状态] ACTIVE
  */
 import { Body, Controller, Delete, Get, HttpCode, HttpStatus, type MessageEvent, Param, Post, Put, Query, Sse } from '@nestjs/common';
@@ -141,17 +141,19 @@ export class ProcessController {
   }
 
   /**
-   * 整表替换任务环境变量：body `{ entries: Record<string,string> }`。
-   * - `{}` = 清空（合法）；
-   * - 三条约束由 shared 的 TaskEnvRecordSchema 在管道层校验，越界 400 且零写盘；
+   * 整表写入任务环境变量：body `{ entries: Record<string,string>, keep?: string[] }`。
+   * - `entries` 与 `keep` 均空/缺省 = 清空（合法）；旧「整表替换」语义逐字保留；
+   * - [U3-P4c/K-keep] `keep` = 不重输值要保留的既有键（服务端合成，entries 优先）；
+   *   keep 含未知键 → 400 `keep-unknown-key`；keep 与 entries 同键 → 400 `keep-conflict`；
+   * - 三条约束由 shared 的 TaskEnvRecordSchema 在管道层校验（合成结果再复检），越界 400 零写盘；
    * - 成功返回与 GET 同形的掩码视图（值按 secret 处理，保存后不可再查看）。
    */
-  @ApiOperation({ summary: '整表替换任务环境变量（{} = 清空；值保存后不可再查看）' })
+  @ApiOperation({ summary: '整表写入任务环境变量（keep 保留既有键；值保存后不可再查看）' })
   @Put('task-env')
   @HttpCode(HttpStatus.OK)
   putTaskEnv(
     @Body(new ZodValidationPipe(PutTaskEnvBodySchema)) body: PutTaskEnvBody,
   ): TaskEnvView {
-    return this.manager.putTaskEnv(body.entries);
+    return this.manager.putTaskEnv(body);
   }
 }

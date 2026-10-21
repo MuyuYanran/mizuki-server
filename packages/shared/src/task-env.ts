@@ -12,6 +12,9 @@
  *
  * 再裁 B（写后不可读）：值按 secret 处理——对外只给 `{ key, masked }`，明文永不回显；
  *   PUT 为整表替换语义（面板增/删/改后整表提交）。
+ * [U3-P4c/K-keep] PM 裁定方案 B：PUT body 增可选 `keep`（要不重输值保留的既有键名）。
+ *   合成在 server 侧（process/task-env-keep.ts）：先取现有表中属 `keep` 的键、再叠加
+ *   `entries`；`keep` 含不存在键 / 与 `entries` 同键由该处给语义 400。本文件只兜形态与上限。
  *
  * 纪律：本文件只放常量、schema 与纯函数（与 shared 其余文件同规），不引入任何 IO。
  */
@@ -108,10 +111,17 @@ export const TaskEnvViewSchema = z
   })
   .strict();
 
-/** [K3] PUT 请求体：entries 整表替换（`{}` = 清空，合法） */
+/**
+ * [K3] PUT 请求体：entries 整表替换（`{}` = 清空，合法）+ `keep` 保留清单。
+ * [U3-P4c/K-keep] `keep` = 不重输值要保留的**既有**键名；合成（entries 优先、
+ * 同键冲突 / 未知键 → 400）在 server 侧一次性完成，本 schema 只校验形态与上限：
+ * - 缺省或 `[]` = 不保留任何既有键（等价于旧「整表替换」语义）；
+ * - 与 `entries` 同时为空 → 清空（逐字沿用既有语义）。
+ */
 export const PutTaskEnvBodySchema = z
   .object({
     entries: TaskEnvRecordSchema,
+    keep: z.array(z.string().max(TASK_ENV_MAX_KEY_LENGTH)).max(TASK_ENV_MAX_ENTRIES).optional(),
   })
   .strict();
 

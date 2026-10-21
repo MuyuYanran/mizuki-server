@@ -15,7 +15,7 @@ import { initAndLogin, withAuth } from './helpers/admin-auth';
 /**
  * [U3-P4a/K1/K2/K3/K4] 任务级环境变量（config.json taskEnv）e2e。
  *
- * 覆盖（8 例）：
+ * 覆盖（11 例）：
  *   ① 空表 GET → `{ items: [] }`；
  *   ② PUT 两条 → GET 掩码视图（长值 `••••`+末 4 字符、短值整体掩码、按 key 字典序）；
  *   ③ 明文永不回：PUT/GET 响应**原文**均不含任何已提交的值（K4/I5 自证）；
@@ -23,7 +23,10 @@ import { initAndLogin, withAuth } from './helpers/admin-auth';
  *   ⑤ 安全键（CI / PATH / HOME / APPDATA）→ 400 且 detail 不含值；
  *   ⑥ 上限：17 条 → 400；键名 >64 → 400；单值 >4096 → 400；
  *   ⑦ 整表替换：第二次 PUT 只剩新键（旧键消失）；`{}` = 清空；
- *   ⑧ 注入生效：真实受控任务（tmp 内的 build 探针项目）子进程 env 含 taskEnv 值且 CI 恒为 true。
+ *   ⑧ 注入生效：真实受控任务（tmp 内的 build 探针项目）子进程 env 含 taskEnv 值且 CI 恒为 true；
+ *   ⑨ [U3-P4c/K-keep] keep 保留旧值（掩码不变 / 落盘仍为旧值 / 子进程仍注入旧值）；
+ *   ⑩ [U3-P4c/K-keep] keep 含不存在键 → 400 `keep-unknown-key`（零写盘、无值泄漏）；
+ *   ⑪ [U3-P4c/K-keep] keep 与 entries 同键 → 400 `keep-conflict`（零写盘、无值泄漏）。
  *
  * 装配（复用 p9e 两 app 法）：app A = Mizuki 夹具副本（仅 init/login 取 token）；
  *   app B = tmp 内自建探针项目（任务工作目录），两 app 共用 DB / config / secret。
@@ -310,4 +313,87 @@ describe('P9f [U3-P4a] 任务级环境变量（taskEnv）e2e', () => {
     expect(logText).toContain('PROBE_CI=true');
     expect(logText).not.toContain('PROBE_TOKEN=<missing>');
   }, 90_000);
+
+  /**
+   * [U3-P4c/K-keep] 保留既有键（方案 B）：`keep` 让面板不必重输全部值。
+   * 断言三层：①响应掩码与 GET 逐字不变；②落盘仍是旧值（未被清空/改写）；
+   * ③子进程 env 仍注入旧值（复用 ⑧ 的探针任务输出方式，证明「保留」真的生效）。
+   */
+  it('⑨ keep 保留旧值：GET 掩码不变、落盘仍为旧值、子进程 env 仍注入旧值', async () => {
+    await clearTaskEnv();
+    const seeded = await server()
+      .put('/api/v1/admin/process/task-env')
+      .send({ entries: { BILI_PROBE_TOKEN: INJECT_SECRET } });
+    expect(seeded.status).toBe(200);
+    const before = (seeded.body as TaskEnvViewBody).items;
+
+    // entries 空 + keep 该键 = 不重输值地保留（旧语义下这里会把 BILI_PROBE_TOKEN 清掉）
+    const res = await server()
+      .put('/api/v1/admin/process/task-env')
+      .send({ entries: {}, keep: ['BILI_PROBE_TOKEN'] });
+    expect(res.status).toBe(200);
+    expect((res.body as TaskEnvViewBody).items).toEqual(before);
+    const got = await server().get('/api/v1/admin/process/task-env');
+    expect(got.body).toEqual({ items: before });
+    // 掩码未变（末 4 字符仍在、明文仍不回）
+    expect(res.text).toContain(INJECT_SECRET.slice(-4));
+    expect(res.text).not.toContain(INJECT_SECRET);
+    // 落盘仍是旧值原文（保留 = 服务端取现有值合成，不是「空值占位」）
+    expect(readConfigFile()['taskEnv']).toEqual({ BILI_PROBE_TOKEN: INJECT_SECRET });
+
+    // 注入面：保留下来的值确实进了子进程 env（与 ⑧ 同一探针任务断言）
+    const started = await server().post('/api/v1/admin/process/tasks').send({ task: 'build' });
+    expect(started.status).toBe(201);
+    const taskId = started.body.id as string;
+    await waitFor(async () => {
+      const detail = await server().get(`/api/v1/admin/process/runs/${taskId}`);
+      return (detail.body as { finishedAt: string | null }).finishedAt !== null;
+    }, 60_000);
+    const detail = await server().get(`/api/v1/admin/process/runs/${taskId}`);
+    const logText = (detail.body as { logText: string | null }).logText ?? '';
+    expect(logText).toContain(`PROBE_TOKEN=${INJECT_SECRET}`);
+  }, 90_000);
+
+  /** [U3-P4c/K-keep] keep 含当前不存在的键 → 400 语义错误（detail.code），零写盘、无值泄漏 */
+  it('⑩ keep 含不存在的键 → 400 keep-unknown-key（零写盘）', async () => {
+    await clearTaskEnv();
+    const seeded = await server()
+      .put('/api/v1/admin/process/task-env')
+      .send({ entries: { BILI_KEEP_ME: LONG_SECRET } });
+    expect(seeded.status).toBe(200);
+    const before = fs.readFileSync(configPath, 'utf8');
+
+    const res = await server()
+      .put('/api/v1/admin/process/task-env')
+      .send({ entries: {}, keep: ['BILI_NOT_CONFIGURED_YET'] });
+    expect(res.status).toBe(400);
+    const detail = (res.body as { detail?: { code?: string; keys?: string[] } }).detail;
+    expect(detail?.code).toBe('keep-unknown-key');
+    expect(detail?.keys).toEqual(['BILI_NOT_CONFIGURED_YET']);
+    // K4：detail 只含键名，不含任何值
+    expect(res.text).not.toContain(LONG_SECRET);
+    expect(fs.readFileSync(configPath, 'utf8')).toBe(before);
+  });
+
+  /** [U3-P4c/K-keep] 同键同时出现在 keep 与 entries → 400（保留旧值与重输新值语义冲突） */
+  it('⑪ keep 与 entries 同键 → 400 keep-conflict（零写盘）', async () => {
+    await clearTaskEnv();
+    const seeded = await server()
+      .put('/api/v1/admin/process/task-env')
+      .send({ entries: { BILI_SESSDATA: LONG_SECRET } });
+    expect(seeded.status).toBe(200);
+    const before = fs.readFileSync(configPath, 'utf8');
+
+    const res = await server()
+      .put('/api/v1/admin/process/task-env')
+      .send({ entries: { BILI_SESSDATA: SECOND_SECRET }, keep: ['BILI_SESSDATA'] });
+    expect(res.status).toBe(400);
+    const detail = (res.body as { detail?: { code?: string; keys?: string[] } }).detail;
+    expect(detail?.code).toBe('keep-conflict');
+    expect(detail?.keys).toEqual(['BILI_SESSDATA']);
+    // 两个值都不得出现在错误响应里
+    expect(res.text).not.toContain(LONG_SECRET);
+    expect(res.text).not.toContain(SECOND_SECRET);
+    expect(fs.readFileSync(configPath, 'utf8')).toBe(before);
+  });
 });

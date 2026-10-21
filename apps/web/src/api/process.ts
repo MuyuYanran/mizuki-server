@@ -143,12 +143,17 @@ export const processApi = {
   },
 
   /**
-   * [U3-P4a/K3] 整表替换任务环境变量（`{}` = 清空，合法）。
-   * 服务端校验三条约束（前缀白名单 / 禁覆盖 PATH·HOME·APPDATA·CI / 条数与长度上限），
-   * 返回与 GET 同形的掩码视图（保存后不可再查看明文）。
+   * [U3-P4a/K3 + U3-P4c/K-keep] 整表写入任务环境变量（`entries` 与 `keep` 均空 = 清空，合法）。
+   * `keep` = 不重输值要保留的**既有**键名（服务端合成，entries 优先；keep 含未知键或
+   * 与 entries 同键 → 400 语义错误）。服务端校验三条约束（前缀白名单 / 禁覆盖
+   * PATH·HOME·APPDATA·CI / 条数与长度上限），返回与 GET 同形的掩码视图（保存后不可再查看明文）。
    */
-  putTaskEnv(entries: Record<string, string>): Promise<TaskEnvView> {
-    return request<TaskEnvView>('PUT', '/admin/process/task-env', { entries });
+  putTaskEnv(entries: Record<string, string>, keep: string[] = []): Promise<TaskEnvView> {
+    return request<TaskEnvView>(
+      'PUT',
+      '/admin/process/task-env',
+      keep.length > 0 ? { entries, keep } : { entries },
+    );
   },
 };
 
