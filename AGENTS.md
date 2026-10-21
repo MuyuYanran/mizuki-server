@@ -26,7 +26,7 @@ apps/server      NestJS 11 + Drizzle/better-sqlite3；API 与面板同源托管�
   src/modules/   领域模块（L0~L3 分层见 §4）
   src/bootstrap/ 启动装配：swagger / 静态面板 / site-assets 通道
   bin/           生产启动脚本 mizuki-server
-  test/          vitest 单测 + e2e（62 文件 / 546 用例）
+  test/          vitest 单测 + e2e（68 文件 / 596 用例）
   data/          运行时产物（gitignored，见 §7）
 apps/web         Vue 3 + Element Plus 面板（dev 20155，/api 与 /site-assets 代理到 20154）
 packages/shared  zod schema + 事件目录（前后端唯一共享面）
@@ -49,7 +49,7 @@ docs/            规格、决策、台账、阶段提示词（见 §10）
 | `pnpm install` | 安装依赖（本机需 `--frozen-lockfile --config.node-linker=hoisted`） |
 | `pnpm dev` | 后端 watch 启动（20154） |
 | `pnpm --filter @mizuki/web dev` | 面板 dev（20155） |
-| `pnpm test` | 后端 vitest 全量（基线 **546 用例 / 62 文件**） |
+| `pnpm test` | 后端 vitest 全量（基线 **596 用例 / 68 文件**） |
 | `pnpm build` | `shared → server → web` 全量构建（web 含 `vue-tsc --noEmit`） |
 | `pnpm lint` | 根 eslint（含 boundaries 分层；**显式排除 `apps/web/**` 与 `.test-tmp/**`**） |
 
@@ -115,11 +115,11 @@ docs/            规格、决策、台账、阶段提示词（见 §10）
 | `settings` | L2 | P8 | `site_setting` key-value | `/admin/settings` |
 | `auth` | L3 | P6 | argon2id + jose HS256 双 token（access 15m / refresh 7d 轮换）、登录 5 次/分、失败锁定、`token_version` | `/admin/auth/*` |
 | `system` | L3 | P0a/P6 | health、Mizuki 四项检测、init 一次性、运行模式 | `/system/health`、`/admin/system/*` |
-| `process` | L3 | P9 | 任务白名单 + pm-resolver（ADR-011）+ 环形日志 2000 行 + SSE + tree-kill 停组 | `/admin/process/*` |
+| `process` | L3 | P9 | 任务白名单 + pm-resolver（ADR-011）+ 环形日志 2000 行 + SSE + tree-kill 停组 + **任务级环境变量 `taskEnv`（U3-P4a：白名单前缀 / 掩码读取 / `keep` 保留语义）** | `/admin/process/*` |
 | `backup` | L3 | P2 | 备份 / 恢复（restore 需 `confirm: true` 且先备份） | `/admin/backups*` |
 | `preview` | — | ADR-019 | 静态 dist 预览通道：独立监听、仅 GET、cookie JWT、扩展名白名单 | `/preview/*` |
-| `site-config` | — | ADR-020 | `config.ts` 受控子集物化读写 + 侧车 override | `/admin/config*` |
-| `theme` | — | ADR-024 | 主题档案与漂移基线、写入门禁 | `/admin/theme/*` |
+| `site-config` | — | ADR-020 | `config.ts` 受控子集物化读写 + 侧车 override（受管面：`lang` / `commentConfig` / `nav` / `siteInfo` 15 键 / `profile` / `announcement` / **`anime`+`bangumi`+`bilibili`（U3-P4a）** / **`effects` 三档（U3-P4c）**；`GET /admin/config` 另有 **`overrides` 布尔视图（U3-P4b）**） | `/admin/config*` |
+| `theme` | — | ADR-024 | 主题档案与漂移基线、写入门禁；面板 `/theme-status`（**U3-P4b**，消费 `GET status` + `POST capture`） | `/admin/theme/*` |
 
 **装配顺序**（`main.ts` → `app.module.ts`）：`bootstrap` → `configureApp`（全局前缀 + helmet + CORS + 异常过滤器）
 → 条件 swagger → `site-assets` 通道 → 静态面板 → `listen`；模块注册顺序 `Throttler → EventEmitter → Db/Backup/Registry → 领域模块`，
@@ -203,13 +203,17 @@ docs/            规格、决策、台账、阶段提示词（见 §10）
 - **媒体白名单口径（曾漂移，已订正 2026-10-15）**：根 `README.md` 曾写六格式（ADR-013 时代口径），已改为终集
   九扩展名 `jpg/jpeg/png/gif/webp/avif/bmp/tiff/tif`（ADR-017，`svg` 排除；**媒体库面 bmp 防御拒绝、相册面准入**）。
   权威源：`docs/decisions/ADR-017-upload-whitelist-final.md` 与 `modules/media/media.service.ts` 的常量。
-- **未清项（2026-10-21 PM 裁定后）**：C7 疑问② → 立项「物化态只读警示条」（U3-P4b）；
-  C3 项 6 → **部分关闭**（CI run 11 在 ubuntu-latest 全绿 ⇒ POSIX 分支已真机跑过；
-  残余 = 真实 pnpm/npm 安装环境的 `which -a` 抽查）；用户手验清单与 U3-P3 四项手验 → **PM 豁免**。
-  U3-P4 九项裁定（立项 3 / 部分立项 1 / 裁剪 4 / 逐项销账 1 组）见
-  `docs/audits/feature-alignment/README.md` §8，批次 U3-P4a/b/c。
-  E 批：**E1.5 / E2 已由 PM 销账**（2026-10-21，无锚点不可重建，**编号禁复活**；将来同类需求按新编号立项）；
-  **E3b** 已解冻并进入 U3-P4b 执行。流程规则 **R5/R6/R7/R8 已转正**（`docs/PROCESS-RULES.md` §三）。
+- **未清项（2026-10-22 U3-P4 三批交付后）**：
+  - **已清**：C7 疑问②（物化态只读警示条，U3-P4b）、E3b（主题漂移面板 `/theme-status`，U3-P4b）、
+    U3-P4 九项裁定中的立项 3 + 部分立项 1（U3-P4a/b/c 全交付）、用户手验清单与 U3-P3 四项手验（PM 豁免）。
+  - **仍挂**：C3 项 6 → **部分关闭**（CI run 11 在 ubuntu-latest 全绿 ⇒ POSIX 分支已真机跑过；
+    残余 = 真实 pnpm/npm 安装环境的 `which -a` 抽查）。
+  - **已知缺口（登记不追补）**：`effects` 三档无探针轴保护；`PUT /admin/config/site-info` 必须整档
+    （11 键必填，外部调用方不能只发部分键）；导入 `conflict` 条目不能就地改 slug（服务端从文件名派生）；
+    `meting_api` 维持手改 `src/config.ts`。
+  - E 批：**E1.5 / E2 已销账**（无锚点不可重建，**编号禁复活**；同类需求按新编号立项）。
+  - 流程规则 **R5/R6/R7/R8 已转正**（`docs/PROCESS-RULES.md` §三）。
+  - 批次报告：`docs/audits/u3-p4a/README.md`、`u3-p4b/README.md`、`u3-p4c/README.md`。
 
 ## 10. 开发流程与文档落点
 

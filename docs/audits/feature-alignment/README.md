@@ -188,8 +188,8 @@ ADR-010 补建同批闭环。完整交付报告（证据行编号、K/I 对照�
 |---|---|---|
 | A-GAP-07 任务级 env 注入 | **立项（U3-P4a，已交付）** | 走 `config.json` **根级 `taskEnv`**（**不是** `tasks[].env` —— 模板是一次点击的命名预设，挂模板会导致"换模板丢凭据"）+ `childEnv()` 合并注入（透传 → taskEnv → 恒写 `CI`）；键名白名单前缀、禁覆盖 `PATH/HOME/APPDATA/CI`、≤16 条 / 键≤64 / 值≤4096；**写后不可读**（GET 仅回 `{key, masked}`），pino 只记 `{count}` 与键名。落点安全性已核：`apps/server/data/` gitignored，且**备份面不含它**（`infra/backup/backup.service.ts:270-295` 只收 `src/data/*.ts\|*.json` + `src/content/**` + db） |
 | A-GAP-11 ≡ B-P2-05 番剧 / B站 mode | **立项（U3-P4a，与上同批）** | 纳 `anime.mode` + `bangumi.*` + `bilibili.*` 三组；复用 `site-config` **逐属性置换**模式（`site-config.service.ts:612-659` `spliceSiteInfo` 同款），**不走整档声明置换**（避免吃掉用户注释）。**键面订正（2026-10-21 实读主题 `src/types/config.ts:110-129`）**：三键是 `SiteConfig` 的**匿名内联成员**（无命名类型）、**全字段可选**；`anime.mode` 枚举 = `bangumi \| local \| bilibili`；审计表**漏列 `bangumi.fetchOnDev`**（主题实有，已纳入）。本仓 schema 为自建命名，但必须逐字对齐可选性 |
-| A-GAP-13 迁移导入器 | **立项（U3-P4c）★ 仅 Markdown 系** | 通用 md 目录 / 单文件 → posts；日期一律产出 `published`、封面 `image`（禁 `pubDate`/`cover`，审计已裁）；**★★★ CMS 系（Halo / Typecho / WordPress）明示不做** |
-| A-GAP-04 特效外链档 | **部分立项（U3-P4c）** | 仅 `musicPlayer` 非敏感开关（enable/mode/listId/server）+ `pio` + `sakura`；**`meting_api` 维持手改**（钥匙形状，不为单点引入 secret 机制）。**键名口径订正（2026-10-21 实测）**：`musicPlayer`/`sakura`/`pio` 是 `widgetConfigs` 的**成员名**，实体是 `config.ts` **顶层声明** `export const musicPlayerConfig`（:402）/ `sakuraConfig`（:556）/ `pioConfig`（:584），`widgetConfigs` 内为标识符引用（:623/625/627）⇒ 物化落点是**各自声明的对象字面量**，不是 `siteConfig` 成员（该 15 键契约不动） |
+| A-GAP-13 迁移导入器 | **已交付（U3-P4c，★ 仅 Markdown 系）** | 只读 `POST /admin/posts/import/preview`（multipart，≤30 文件/≤64KiB）+ 逐条复用 `createPost`；日期一律产出 `published`、封面 `image`（禁 `pubDate`/`cover`）；**★★★ CMS 系（Halo / Typecho / WordPress）明示不做** |
+| A-GAP-04 特效外链档 | **已交付（U3-P4c，仅非敏感部分）** | 纳 `musicPlayer` 非敏感键 + `sakura` + `pio`（`PUT /admin/config/effects`，逐属性置换）；**`meting_api` 机械排除**（不在任何 schema 内 → `.strict()` 恒 400，维持手改）。**键名口径订正（2026-10-21 实测）**：`musicPlayer`/`sakura`/`pio` 是 `widgetConfigs` 的**成员名**，实体是 `config.ts` **顶层声明** `export const musicPlayerConfig`（:402）/ `sakuraConfig`（:556）/ `pioConfig`（:584），`widgetConfigs` 内为标识符引用（:623/625/627）⇒ 物化落点是**各自声明的对象字面量**，不是 `siteConfig` 成员（该 15 键契约不动） |
 | A-GAP-03 布局外观档 | **裁剪不做** | 外观类改动低频、手改 `config.ts` 可接受；`expressiveCode` **永久不做**（结构最复杂，写错=代码高亮全崩）。记裁剪注记，不再排期 |
 | A-GAP-05 Umami 统计 | **裁剪不做** | 跨 `astro.config.mjs` + `Layout.astro` 两文件，超 `config.ts` 物化边界；只做"能看不能改"的状态卡无实用价值 |
 | A-GAP-12 Markdown 增强语法 | **裁剪不做** | 落盘原文无损、构建期主题自渲染（站点侧正常）；公开 API 匿名可读，扩 sanitize 白名单（iframe / mermaid）= 真实 XSS 面，收益不抵风险 |
@@ -217,7 +217,7 @@ ADR-010 补建同批闭环。完整交付报告（证据行编号、K/I 对照�
 
 | 项 | 定义 | 证据强度 |
 |---|---|---|
-| **E3b** | 主题**漂移呈现面板**——消费既有 `GET /admin/theme/status`（身份 + 指纹时间 + 漂移三态 + 声明探针）与 `POST /admin/theme/capture`（重置漂移轴），当前**前端零消费** | **确证**：`theme.controller.ts:6`「漂移呈现面板属 E3b（本批零前端实现）」+ 面板对 **`/admin/theme` 端点与 `ThemeStatusView` 类型的消费为零**（实读 grep；`theme` 关键字命中的 15+ 处全属面板外观域 `ThemePage`/`lib/theme.ts`，与 E3b 无关——早前"全量 grep 零命中"的措辞不精确，已订正） |
+| **E3b** | 主题**漂移呈现面板** | **已交付（U3-P4b，`/theme-status`）** | 前端消费 `GET /admin/theme/status`（身份/指纹/基线四态/漂移三态/探针）+ `POST /admin/theme/capture`（唯一写，二次确认、失败不谎报、`finally` 重拉）；`theme.controller.ts:6` 的「零前端实现」注释已过时（代码保持只读，未改注释——历史标签留档） |
 | **E1.5** | 无任何锚点可推断 | **失传 → PM 裁定销账（2026-10-21）** |
 | **E2** | 无任何锚点可推断（**注意**：不等同 Phase5-E1 报告中的「E2 条件建设」——那是同批子项编号，已随 E1 交付，勿混用） | **失传** → 待 PM 重新定义或销账 |
 
@@ -230,9 +230,9 @@ ADR-010 补建同批闭环。完整交付报告（证据行编号、K/I 对照�
 | 批次 | 内容 | 量级 |
 |---|---|---|
 | **文档批（2026-10-21）** | 本 §8 + `PROCESS-RULES.md` R5~R8 转正 + SESSIONS 裁定记录 + AGENTS §9 未清项订正 | 纯文档 |
-| **U3-P4a** | A-GAP-07 env 注入 + A-GAP-11 番剧/B站档纳管（同批：一个给凭据、一个给开关，拆开价值减半） | 1 批 |
-| **U3-P4b** | C7 疑问② 物化态只读警示条 + E3b 主题漂移面板（两者都是"消费既有端点/既有状态"的纯前端）**+ DEF-06 绝对路径相对投影**（PM 裁定 2026-10-21 并入本批） | 1 批 |
-| **U3-P4c** | A-GAP-13 ★ Markdown 导入器 + A-GAP-04 非敏感特效开关 | 1 批 |
+| **U3-P4a**（已交付 `b356fb1` + `74023d2`） | A-GAP-07 env 注入 + A-GAP-11 番剧/B站档纳管（同批：一个给凭据、一个给开关，拆开价值减半）；followup 补 `keep` 保留既有键语义 | 1 批 |
+| **U3-P4b**（已交付 `c2a05f3`） | C7 疑问② 物化态只读警示条（`overrides` 视图字段）+ E3b 主题漂移面板 `/theme-status` **+ DEF-06 内部路径投影**（PM 裁定并入本批） | 1 批 |
+| **U3-P4c**（已交付 `7ab8b9d`） | A-GAP-13 ★ Markdown 导入器 + A-GAP-04 非敏感特效开关 | 1 批 |
 | **不排期** | A-GAP-03 / A-GAP-05 / A-GAP-12 / B-P2-07 / B-P2-08 中标"不做"诸项（已裁，不再进批次表） | — |
 
 ### 8.5 U3-P4b 出包期的新发现（2026-10-21，架构师复核成立）
@@ -244,11 +244,13 @@ ADR-010 补建同批闭环。完整交付报告（证据行编号、K/I 对照�
 | F1 | **`/theme` 已被占用**——是面板自身外观页 `ThemePage`（预设 + 自定义 CSS，纯 localStorage、零后端） | `apps/web/src/router/index.ts:63`、`MainLayout.vue:55`、`ThemePage.vue:1-12` | E3b 落点改 **`/theme-status`**（P4b 再裁 B） |
 | F2 | `AdminSiteConfigView` **六域中只有 `lang` 返回 override 态**；其余五域 `carrier.X ?? baseline.X` 合并后"接管态"与"基线可解析"在响应里同形 | `site-config.service.ts:58-92`、`:130-150` | P4b K1：加**一个** additive 字段 `overrides`（只出布尔 + 键名，零端点、零 shared schema） |
 | F3 | **"可还原"只对 2/6 域成立**：`lang`（清空即还原）、`nav`（还原按钮）；comments（覆盖即转移管理权）/ siteInfo / profile / announcement **无清除端点** | `:164-172`、`:182-196`、`:255-284`；`SiteConfigPage.vue:391-403`、`:625` | P4b 再裁 C：警示文案**分域措辞**，禁统一承诺"可随时还原" |
-| **F4（缺陷，登记 DEF-06）** | **对外文案拼接磁盘绝对路径**，违反 AGENTS §4-6：`baseline.detail`（解析失败/校验失败）与 version-mismatch 指引、侧车解析失败文案 | `theme-registry.service.ts:226`、`:234`、`:240`；`site-config.service.ts:298`、`:306` | **DEF-06 独立小批**修（后端改相对投影，绝对路径只进 pino）。P4b 仅在**展示层**做投影，**不冒充修复** |
+| **F4（缺陷，DEF-06）** | **对外文案拼接磁盘绝对路径**，违反 AGENTS §4-6 | `theme-registry.service.ts`（基线 detail 两处）、`site-config.service.ts`（侧车解析/校验两处） | **已修（U3-P4b）**：新增单源 `common/fs/path-projection.ts`（根内相对 / 带 `data` 段归一 / `<data>/<basename>` 兜底，永不回退绝对路径），绝对路径只进 pino；`p7l` ⑧ 与 `p4e3b` ① 各一条断言钉住 |
 | F5（观察项，不立项） | 侧车 `config-override.json` 损坏时 `readOverride()` 抛普通 `Error` → 全局过滤器落 **500 InternalError**（而非 400 或降级读基线），面板此时整体不可用 | `site-config.service.ts:288-309` + `common/filters/all-exceptions.filter.ts` 未知异常分支 | 暂不立项：属"服务端数据损坏"语义，500 可辩；若 PM 认为应降级（读基线 + 顶部告警）再裁 |
 | F6（口径订正） | **A-GAP-04 的键名口径错**：`musicPlayer`/`pio`/`sakura` 是 `widgetConfigs` **成员名**，非配置对象名 | 实测：`config.ts:402` `export const musicPlayerConfig`、`:556` `sakuraConfig`、`:584` `pioConfig`；`widgetConfigs` 内为标识符引用 `:623/625/627` | §8.1 该行已订正：物化落点 = **顶层声明各自的对象字面量**；`siteConfig` 15 键契约不动（P4c 再裁 C） |
 | F7（追溯性缺口） | **审计表部分"文档依据"在仓内不可复核**：`feature/01-03`、`writing/Markdown/01-06`、`transfer/01-10` 等从未快照入库 | `docs/refs/mizuki-docs/README.md:31-35` 明示「未快照页面：…特色组件（/Feature/*）、Markdown 增强语法（/press/Markdown/*）、…迁移指南（/transfer/*）」 | 引用链断裂。**结论不变**（A-GAP-04/12/13 的缺口存在性由**实现侧**证据支撑：主题 config.ts 与仓内源码实读），但"文档依据"列须理解为**外部来源编号**，仓内不可点验。后续引用这两类外部文档时，须同时给实现侧锚点 |
 | F8（口径订正） | 主题文章 schema 与"文档口径"不符：`description` **非必填** | 实测 `<mizukiRoot>/src/content.config.ts:7-37`：`title`/`published` 必填、`description: z.string().optional().default("")`、`image` 同款可选；且 schema **无 `date`、无 `pubDate`**（grep 计数 0） | 导入器（P4c）按 **schema** 走：`pubDate`/`date` 只作**非契约别名**识别并改写为 `published` 后删除；`description` 缺**不派生**（主题 default 空串）。press 文档"必须包含 title 和 description"一句**不采信**为契约 |
+| F9（既有契约约束，非缺陷） | `PUT /admin/config/site-info` 的 body 是**完整** `SiteInfoSchema`（11 键必填，非 partial）⇒ 外部调用方**不能只发部分键** | `site-config.controller.ts:86-92`（`@Body(new ZodValidationPipe(SiteInfoSchema))`）+ `SiteInfoSchema` 必填键 | 面板始终整档回填，UI 无感；本项作为**契约事实**登记（U3-P4b 的 `p7l` ④ 因此改「侧车直落 + 真实 PUT 全档」双锚）。若要支持部分键需另立 additive 端点，不在本批 |
+| F10（已知缺口，不追补） | `effects` 三档**无探针轴保护**（K16 明示不扩） | 主题结构升级时只能靠 `spliceObjectProps` 的「声明存在 + 对象字面量形态」检查兜住（不会误写，但诊断不如探针明细） | 维持现状；若将来主题升 Tier 1 档案再议 |
 
 **批次表补一行**：
 

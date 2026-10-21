@@ -900,3 +900,41 @@ U3-P4c（A-GAP-13★ + A-GAP-04 开关）。
 
 **执行纪律**：子代理只做实现 + 定向验证（受影响 spec + `lint`），**不提交、不 push**；架构师复核 K/I 对照、
 跑最终全量三连（`shared build` → `pnpm test` 全量单批 → `pnpm build` → `lint 0:0`）后**一次批量提交**。
+
+## 8. U3-P4 执行结果（2026-10-21/22）
+
+### 8.1 提交与数账
+
+| commit | 批次 | 增量 |
+|---|---|---|
+| `b356fb1` | U3-P4a：`taskEnv` 注入 + 番剧/B站三域 | +16（`p9f` 8 + `p7k` 8） |
+| `74023d2` | U3-P4a-followup：`taskEnv` `keep` 保留既有键（契约收回 shared） | +3 |
+| `7ab8b9d` | U3-P4c：Markdown 通用导入 + 特效三档 | +20（`p5g` 9 + `p7m` 11） |
+| `c2a05f3` | U3-P4b：物化态警示 + `/theme-status` + DEF-06 | +11（`p7l` 8 + `p4e3b` 3） |
+
+**终态三连（架构师实跑）**：`test 596/596（68 文件全绿单批 --maxWorkers=1）/ build 0 / lint 0:0`。
+基线链：546/62（v1.0.0）→ **596/68**。**未 push**（PM 未授权本轮推送）。
+
+### 8.2 过程事故与处置（据实）
+
+1. **P4a 真回归**：新增 `taskEnv` 默认键使 `test/config/app-config.spec.ts` 的两处 `toEqual` 整对象比对失败。
+   架构师独立全量跑发现（子代理只跑定向 spec，未覆盖），修法 = 补 `taskEnv: {}` + `[U3-P4a/K1]` 标签，**未弱化语义**。
+2. **P4c 首个执行者中途死亡**（约 60% 进度、无收尾、留下 `tsc` 6 条错误的半成品）。
+   处置：**不回滚重写**——先定位缺口（漏导入 `safeParseIssues` / `spliceSiteEffects` 未实现 / `readEffectsBaseline` 类型过宽），
+   再派两个**文件不重叠**的代理并行收口（后端实现+spec；前端弹窗+分区+`taskEnv` `keep`）。
+3. **架构师给出的约束过宽**（"禁改 `packages/shared/**`"）一度逼出「server 侧就地组合 body schema」的双口径风险；
+   执行方主动上报，裁定把 `keep` 收回 `shared/task-env.ts` 单文件（`index.ts` 已 `export *`，零冲突）。
+4. **文案与实现不一致**（面板写「整对象替换」，effects 实为逐属性置换）：架构师读 `spliceObjectProps` 后定性——
+   `anime` = 整对象替换、`effects` = 逐属性置换，**代码语义不动**（各有其理），只把 effects 的 alert 标题改准。
+5. 一次 `grep` 链命令因模式未命中以 exit 1 结束并被标记 `COMMAND_FAILED`（effects 主体已执行）；改用 read 定位，未重复执行。
+
+### 8.3 已知缺口（登记，不追补）
+
+- `effects` 三档**无探针轴保护**（只能靠 splice 的形态检查兜住，不会误写但诊断较粗）。
+- `PUT /admin/config/site-info` body 是**完整** `SiteInfoSchema`（11 键必填）⇒ 外部调用方不能只发部分键（F9）。
+- 导入 `conflict` 条目不能就地改 slug（服务端从文件名派生；解除 = 改文件名重导 / 处理同名文章）。
+- `meting_api` 维持手改 `src/config.ts`（含凭据，不进面板）。
+
+### 8.4 交付报告
+
+`docs/audits/u3-p4a/README.md`（执行方）、`docs/audits/u3-p4b/README.md`、`docs/audits/u3-p4c/README.md`（架构师收口）。

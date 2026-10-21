@@ -1,5 +1,52 @@
 # 变更日志
 
+## U3-P4 批（2026-10-21/22，九项裁定落地）
+
+> PM 裁定见 `docs/audits/feature-alignment/README.md` §8；三批串行执行（都动 `site-config` 域，并行必冲突），
+> 每批完成即架构师复核 + 独立三连。**数账 596/596（68 文件）/ build 0 / lint 0:0**（基线 546/62 → +50 用例 / +6 文件）。
+
+- **U3-P4a（`b356fb1`）任务级环境变量注入 + 番剧/B站档纳管**
+  - `config.json` 根级 `taskEnv`（**非** `tasks[].env`）：键名前缀白名单（`BILI_/ANIME_/ENABLE_/CONTENT_`）、
+    禁覆盖 `PATH/HOME/APPDATA/CI`、≤16 条 / 键≤64 / 值≤4096；`childEnv()` 合并顺序 = 透传 → taskEnv → 恒写 `CI`
+    （单点生效，pm-resolver 探活同源）。
+  - **写后不可读**：`GET /admin/process/task-env` 只回 `{key, masked}`（`••••`+末4），PUT 整表替换；值不进 pino/错误 detail/SSE。
+  - `GET /admin/config` 增 `anime.{effective,override}` + `PUT /admin/config/anime`：纳 `anime.mode`（`bangumi|local|bilibili`）、
+    `bangumi.{userId,fetchOnDev}`、`bilibili.{vmid,fetchOnDev,coverMirror,useWebp}`（**全字段可选**，与主题匿名内联类型逐字对齐）；
+    复用 `spliceSiteInfo` 同款逐属性置换（`spliceSiteKeys` 抽取），**按域整对象替换**。
+  - 面板：控制台「任务环境变量」区（掩码表 + 新增 + 整表保存）、站点配置「番剧与 B 站」折叠区。
+  - 测试 +16（`p9f` 8 + `p7k` 8）；既有 `app-config.spec.ts` 因新增默认键连带修订 2 处 `toEqual`（**未弱化语义**）。
+- **U3-P4a-followup（`74023d2`）`taskEnv` 增 `keep` 保留既有键**
+  - 起因：写后不可读 ⇒ 面板改一个变量必须重输全部（confirm 还会列「将移除的既有变量」）。
+  - `PUT` body 增 `keep?: string[]`（契约**收回 shared** `task-env.ts`，server 不再就地组合）：`keep` 保留旧值不重输；
+    `keep` 含未知键 → 400 `keep-unknown-key`；`keep` 与 `entries` 同键 → 400 `keep-conflict`；合成结果仍复检三条约束。
+  - 面板每行「保留」勾选（默认勾），confirm 只列**真正会被移除**的键。测试 `p9f` +3。
+- **U3-P4c（`7ab8b9d`）Markdown 通用导入 + 特效三档**
+  - 导入：**只读** `POST /admin/posts/import/preview`（multipart `files`，≤30 文件 / ≤64KiB / 仅 `.md,.markdown`，
+    零落盘），提交**逐条复用**既有 `POST /admin/posts`（不新增批量写端点，保住写盘单源与 409 语义）；
+    映射最小面：`pubDate`/`date`→`published` 后删键、`cover`→`image` 并删、`title` 缺取文件名、`published` 三源全缺取当日（裸日期）、
+    `description` 缺不派生；冲突四格（`slug-taken` / `slug-taken-richtext` / `duplicate-in-batch` / ok）；**部分失败逐条结果不整体回滚**。
+  - 特效：`PUT /admin/config/effects` 纳 `musicPlayer` 非敏感键 + `sakura` + `pio`（**逐属性置换**，未提交子键零触碰）；
+    **`meting_api` 机械排除**（不在任何 schema → `.strict()` 恒 400）。`widgetConfigs` 成员零触碰。
+  - 面板：文章列表「导入」三步弹窗（选文件→预览表（slug 可编辑 + 映射后 frontmatter）→逐条提交）；站点配置「特效」分区。
+  - 测试 +20（`p5g` 9 + `p7m` 11）。
+- **U3-P4b（`c2a05f3`）物化态警示 + 主题漂移面板 + DEF-06**
+  - `GET /admin/config` 增 `overrides`（additive，7 字段，**只出布尔与键名**）：现有视图对六域只有 `lang` 表达 override 态，
+    其余 `??` 合并后不可辨 —— 故不能靠 `view.nav === null` 反推接管。
+  - 面板：站点配置页顶部**只读**警示条，四格语义（键缺失**不渲染** fail-open / 空 / 非法不结论 / 合法列已物化域 + **分域**还原路径）；
+    明令禁统一承诺「可随时还原」（`lang`/`nav` 有还原路径，其余四域无清除端点）。
+  - 新页 `/theme-status`（`/theme` 已被面板外观页占用）：身份 / 指纹 / 基线四态 / 漂移三态 / 探针；`capture` 为唯一写
+    （二次确认、失败不谎报、`finally` 重拉）。
+  - **DEF-06**：新增单源 `common/fs/path-projection.ts`（根内相对 / 带 `data` 段归一 / `<data>/<basename>` 兜底，
+    **永不回退绝对路径**），修掉基线 detail 与侧车解析文案里的磁盘绝对路径（绝对路径只进 pino）。
+  - 测试 +11（`p7l` 8 + `p4e3b` 3）。
+
+### 已知缺口（登记，不追补）
+
+- `effects` 三档**无探针轴保护**（只能靠 splice 的形态检查兜住，不会误写但诊断较粗）。
+- `PUT /admin/config/site-info` body 是**完整** `SiteInfoSchema`（11 键必填）⇒ 外部调用方不能只发部分键（面板始终整档回填）。
+- 导入 `conflict` 条目不能就地改 slug（服务端从文件名派生，冲突解除 = 改文件名重导 / 处理同名文章）。
+- `meting_api` 维持手改 `src/config.ts`（含凭据，不进面板）。
+
 ## CI 修复（2026-10-20，发布后，两轮）
 
 - **一轮（b771092）**：`.github/workflows/ci.yml` 在 `pnpm install` 后新增 `pnpm --filter @mizuki/shared build`
