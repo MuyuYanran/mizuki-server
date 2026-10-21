@@ -864,3 +864,28 @@ U3-P4c（A-GAP-13★ + A-GAP-04 开关）。
 **E 批附记**：E3b 定义已确证（主题漂移呈现面板，`theme.controller.ts:6` 注释为唯一锚）；
 **E1.5 / E2 定义失传**（原挂"终签 v2"材料，而终签 v2 从未产出），架构师不凭空补写，
 待 PM 重新定义或直接销账。
+
+## 6. 指令包出包（同日；子代理协产出 + 架构师逐条复核）
+
+三包齐备（**只出包、未执行**）：
+
+| 包 | 覆盖 | 规模 |
+|---|---|---|
+| `docs/prompts-ui/U3-P4a-task-env-anime.md` | A-GAP-07 任务 env 注入 + A-GAP-11 番剧/B站档（架构师直写） | — |
+| `docs/prompts-ui/U3-P4b-config-warn-theme-drift.md` | C7 疑问② 物化态警示条 + E3b 主题漂移面板 | 322 行 |
+| `docs/prompts-ui/U3-P4c-md-import-effects.md` | A-GAP-13 ★ Markdown 导入器 + A-GAP-04 非敏感特效开关 | 362 行 |
+
+**出包期实测新发现 8 条**（F1~F8）已登记 `docs/audits/feature-alignment/README.md` §8.5，其中三条要点：
+
+- **DEF-06（新缺陷）**：对外文案拼接磁盘绝对路径，违反 AGENTS §4-6 ——
+  `theme-registry.service.ts:226/234/240`（基线诊断/版本失配指引）、
+  `site-config.service.ts:298/306`（侧车解析失败）。登记为**独立小批（未排期）**；
+  U3-P4b 只在展示层做投影，**不冒充修复**。
+- **F6 / F8（口径订正）**：特效键名 `musicPlayer/pio/sakura` 是 `widgetConfigs` **成员名**，
+  实体为 `config.ts:402/556/584` 的**顶层声明**；主题文章 schema 中 `description` **非必填**
+  （`optional().default("")`）且**无 `date`/`pubDate`** —— 导入器按 schema 走，press 文档那句"必须"不采信。
+- **F7（追溯性缺口）**：审计表引用的 `feature/*`、`writing/Markdown/*`、`transfer/*` **从未快照入库**
+  （`docs/refs/mizuki-docs/README.md:31-35` 明示），引用链断。**结论不变**（缺口存在性由实现侧证据支撑），
+  但该类"文档依据"须理解为外部来源编号，仓内不可点验。
+
+三包均**未执行**（`taskEnv` / `siteAnime` / 导入端点全仓零命中）；执行权在 PM。
