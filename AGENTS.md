@@ -69,7 +69,7 @@ docs/            规格、决策、台账、阶段提示词（见 §10）
 - **web 构建一度被 esbuild 大输入临时文件拒绝**（`vite:esbuild-transpile` remove `Access is denied`）——
   已按 **ADR-027** 绕开（`build: { target: 'esnext', minify: false, cssMinify: 'esbuild' }`），`pnpm build`
   现可全绿；**改回默认压缩或给 element-plus 加 `manualChunks` 之前先读 ADR-027（后者实测运行期 TDZ 崩）**。
-- **验收三连 = test + build + lint 全绿**；数账只认全绿轮（流程规则候选 R6）。
+- **验收三连 = test + build + lint 全绿**；数账只认全绿轮（流程规则 R6，`docs/PROCESS-RULES.md` §三）。
 
 ## 4. 硬性红线（改动前必读）
 
@@ -203,9 +203,13 @@ docs/            规格、决策、台账、阶段提示词（见 §10）
 - **媒体白名单口径（曾漂移，已订正 2026-10-15）**：根 `README.md` 曾写六格式（ADR-013 时代口径），已改为终集
   九扩展名 `jpg/jpeg/png/gif/webp/avif/bmp/tiff/tif`（ADR-017，`svg` 排除；**媒体库面 bmp 防御拒绝、相册面准入**）。
   权威源：`docs/decisions/ADR-017-upload-whitelist-final.md` 与 `modules/media/media.service.ts` 的常量。
-- **未清项**：C7 疑问②（`config.ts` 物化态的面板警示）、C3 项 6（POSIX 真机抽查）、用户手验清单待回；
-  E 批 **E1.5 / E3b / E2 冻结**（积分枯竭，解冻顺序 E1.5 → E3b → E2）；
-  流程规则候选 R5（恢复后审计）、R6（数账只认全绿轮）待转正入 `docs/PROCESS-RULES.md`。
+- **未清项（2026-10-21 PM 裁定后）**：C7 疑问② → 立项「物化态只读警示条」（U3-P4b）；
+  C3 项 6 → **部分关闭**（CI run 11 在 ubuntu-latest 全绿 ⇒ POSIX 分支已真机跑过；
+  残余 = 真实 pnpm/npm 安装环境的 `which -a` 抽查）；用户手验清单与 U3-P3 四项手验 → **PM 豁免**。
+  U3-P4 九项裁定（立项 3 / 部分立项 1 / 裁剪 4 / 逐项销账 1 组）见
+  `docs/audits/feature-alignment/README.md` §8，批次 U3-P4a/b/c。
+  E 批：**E3b**（主题漂移呈现面板）待 U3-P4b 解冻；**E1.5 / E2 定义已失传**（原挂"终签 v2"，未产出），
+  须 PM 重新定义或销账，禁凭空补写。流程规则 **R5/R6/R7/R8 已转正**（`docs/PROCESS-RULES.md` §三）。
 
 ## 10. 开发流程与文档落点
 
