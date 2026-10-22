@@ -938,3 +938,16 @@ U3-P4c（A-GAP-13★ + A-GAP-04 开关）。
 ### 8.4 交付报告
 
 `docs/audits/u3-p4a/README.md`（执行方）、`docs/audits/u3-p4b/README.md`、`docs/audits/u3-p4c/README.md`（架构师收口）。
+
+## 9. 发布 v1.1.0（2026-10-22）
+
+- **PM 裁定**：「可以推送，版本 1.1.0」⇒ 四处 `package.json` 1.0.0 → **1.1.0**，授权推双远端（`v1.0.0` tag 不动）。
+- **提交**：`b9aa0b6`（4×`package.json` + `CHANGELOG` 发布节 + `AGENTS.md` §9 现状行）；annotated tag `v1.1.0` 指向 `b9aa0b6`。
+- **推送**：origin（GitHub）`fcfe914..b9aa0b6` + tag；gitee（需 `-c http.proxy= -c https.proxy=` 清代理）`fcfe914..b9aa0b6` + tag，两远端均成功。
+- **CI（R8 口径：run 号 + 提交哈希）**：run **39725472490**（main / `b9aa0b6`）**success**；
+  run 39725514754（tag 触发 / 同 commit）**success**。
+- **发布资产**：GitHub Release `v1.1.0`（能力表 / 升级注意 / 数账 / 已知缺口四项）。
+- **发布前复扫**：`git diff v1.0.0..HEAD` 全段 + 本轮 commit message 扫绝对路径 / 密码 / token → **零命中**；
+  `git ls-files` 无 `.env`（仅 `.env.example`）、无 `config.json`、无 `cordis.patch.yml`。
+- **等价性**：本版本源码与 U3-P4 四提交**逐字节相同**，仅版本号与文档变化；发布前三连实跑
+  **596/596（68 文件）/ build 0 / lint 0:0**（`/system/health` 的 `version` 活读 `apps/server/package.json` ⇒ 现返回 `1.1.0`）。
