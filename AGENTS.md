@@ -174,9 +174,11 @@ docs/            规格、决策、台账、阶段提示词（见 §10）
 
 ## 9. 工作树现状与未清项（进仓先看一眼）
 
-- HEAD = 发布提交 **v1.0.0**（2026-10-20；含 U3-P3 二期规格兑现批：向导目录点选 / 控制台历史与模板 / 相册 items 统一输出，
-  交付报告 `docs/audits/u3-p3/README.md`，数账 **546/546、62 文件**，三连全绿）。
-  **版本**：`v1.0.0` tag，四处 package.json = 1.0.0；双语 README（`README.md` 中文 + `README.en.md` 英文）。
+- HEAD = 发布提交 **v1.1.0**（2026-10-22；含 U3-P4 三批：任务级环境变量 `taskEnv` + `keep` / 番剧·B站档纳管 /
+  Markdown 通用导入（只读 preview + 逐条复用 `createPost`）/ 特效三档 / 物化态 `overrides` 警示 + `/theme-status` + DEF-06 路径投影）。
+  交付报告 `docs/audits/u3-p4a/README.md`（另 `u3-p4b` / `u3-p4c`），数账 **596/596、68 文件**，三连全绿（基线 546/62）。
+  **版本**：`v1.1.0` tag（前一版 `v1.0.0` = 2026-10-20，U3-P3 二期批，546/62），四处 package.json = 1.1.0；
+  双语 README（`README.md` 中文 + `README.en.md` 英文）。
 - **发布前历史脱敏（2026-10-20，方案 B）**：未推送段经 `git filter-repo --replace-text` 重写——密码明文→`<redacted>`、
   本机绝对路径→占位符（`<repo-root>` / `<user-home>` / `<system-temp>` / `<pnpm-store>`）。**旧哈希已全部失效**：
   台账/ADR 中引用的 d99ab9d、23c6763、2b22479 等对应重写后为 27b7f10、17794c8、2e8790c 等（以 `git log` 实际值为准）；

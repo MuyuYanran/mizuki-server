@@ -1,5 +1,16 @@
 # 变更日志
 
+## 发布 v1.1.0（2026-10-22）
+
+- **版本**：四处 `package.json` 1.0.0 → **1.1.0**（根 / server / web / shared）；`v1.0.0` tag 保持不动。
+  `v1.1.0` 为本仓**首个功能增量版**，内容即下节 U3-P4 三批（源码与本版逐字节相同，无夹带）。
+- **对外可见变化**：`GET /system/health` 的 `version` 字段现读 `1.1.0`（面板仪表盘「版本」卡同源活读）；
+  新增端点 `POST /admin/posts/import/preview`、`PUT /admin/config/{anime,effects}`、`GET|PUT /admin/process/task-env`；
+  新页面 `/theme-status`；`GET /admin/config` 增 `overrides`（**纯增量**，旧消费方无需改动）。
+- **依赖**：零变动（`pnpm-lock.yaml` 与三处 `package.json` 依赖清单未改）。
+- **数账**：596/596（68 文件）/ build 0 / lint 0:0（与本版源码同一轮全绿；基线链 546/62 → 596/68）。
+- **发布动作**：tag `v1.1.0` → 推 origin（GitHub）+ gitee → 建 GitHub Release（正文取本节 + 下节摘要）。
+
 ## U3-P4 批（2026-10-21/22，九项裁定落地）
 
 > PM 裁定见 `docs/audits/feature-alignment/README.md` §8；三批串行执行（都动 `site-config` 域，并行必冲突），
