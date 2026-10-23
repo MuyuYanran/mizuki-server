@@ -35,3 +35,6 @@ export * from './task-env';
 
 // [U3-P4c/K5] Markdown 通用导入预览契约（只读端点响应 + 三道上限常量单源）
 export * from './posts-import';
+
+// [U4-AI1/K1] AI 接入契约（档案 / 代理三态 / 聊天请求 / SSE 事件名 / 限额单源）
+export * from './ai';

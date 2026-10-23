@@ -951,3 +951,18 @@ U3-P4c（A-GAP-13★ + A-GAP-04 开关）。
   `git ls-files` 无 `.env`（仅 `.env.example`）、无 `config.json`、无 `cordis.patch.yml`。
 - **等价性**：本版本源码与 U3-P4 四提交**逐字节相同**，仅版本号与文档变化；发布前三连实跑
   **596/596（68 文件）/ build 0 / lint 0:0**（`/system/health` 的 `version` 活读 `apps/server/package.json` ⇒ 现返回 `1.1.0`）。
+
+## 10. AI 接入第一期（U4-AI1 · 后端）（2026-10-23）
+
+- **PM 裁定**（2026-10-22/23）：默认 DeepSeek（用户自填 `baseUrl`/`key`）；**批准新增依赖 `undici`**；代理三态且「系统代理 = 只读环境变量」（不读 Windows 系统代理，**已接受该边界**）；AI 面板为全局右侧聊天栏；设置入口放菜单。
+- **交付**：4 个端点（`GET|PUT /admin/ai/config`、`POST /admin/ai/ping`、`POST /admin/ai/chat` SSE）+ 出站安全闸 + 动作提示词/上下文注入 + F1/F2 既存缺陷修复；外加 7 个新测试文件。
+- **真链路（架构师实跑，真凭据只走环境变量、未落盘）**：`p10d/L1–L4` 全绿（真 ping 303ms、真流式 1071ms 出正文并以 `done` 收尾、key 未写入临时 config.json）。**首跑即抓到真 bug**：真实上游非末帧发 `"usage": null`，实现只判 `!== undefined` ⇒ `TypeError` ⇒ 用户只看到一帧 `event: error`；修复 + 在假上游注入 `"usage": null` 作回归守卫。
+- **数账（冻结态单批）**：**72 文件 / 631 用例通过 + 4 跳过**（`p10d` 无门禁时按设计跳过）；`pnpm lint` 0:0；`pnpm build` exit 0。基线链：596/68（v1.1.0）→ 631(+4 skip)/73。
+- **过程事故与处置（据实）**：
+  1. **执行方（子代理）收尾前异常中断**（约 1h20m，未写交付报告）⇒ 不回滚、不续跑，**改由架构师独立核验**（报告 `docs/audits/u4-ai1/README.md`）。
+  2. **node_modules 布局被意外改写**：执行方加 `undici` 用 `--config.node-linker=hoisted`，随后一次 `pnpm --filter @mizuki/shared build` 触发的自动 install 改回默认（isolated）⇒ `apps/server/node_modules/.bin/vitest` 消失、定向测试 `MODULE_NOT_FOUND`、`pnpm build` 一度在 web 段失败。处置：统一改用**仓库官方入口** `pnpm --filter @mizuki/server exec vitest run …`（与链接器布局无关）；web 缺依赖由后续 install 自动补齐后 `pnpm build` exit 0。**教训：本机不要直接调 `node_modules/.bin/*`，用 `pnpm --filter <pkg> exec`。**
+  3. **架构师的指令包有缺口**：动作提示词与上下文注入只写进了设计对话、**未写进包正文**，执行方因此把 `action`/`context.text` 接收后静默丢弃。处置：架构师补 `modules/ai/prompts.ts` + `p10e` 单测 + `p10c` 上游消息断言。**教训：语义条款必须进包，不能留在聊天里。**
+- **接受的两处实现偏离**：① `viaProxy` 用布尔（配置意图）而非枚举——更诚实，但**U4-AI2 要同时展示配置 mode 与布尔意图**；② 失败分类新增 `upstream_4xx`（上游 400/404/429 真实存在），**U4-AI2 文案表须含该码**。
+- **已知缺口（登记，不追补）**：DNS rebinding 未拦（不宣称完全防 SSRF）；`system` 代理实际路径不可观测；`AUDITED_METHODS` 不含 PUT ⇒ `PUT /admin/ai/config` 无审计流水；无 `ai_usage` 用量表；`p10d` 不进 CI（刻意）。
+- **待办（PM）**：验收用真 key **建议吊销重发**（已在对话中明文出现）。
+- **下一步**：`U4-AI2`（前端：全局右侧聊天栏 + `/settings/ai` + 5 动作 + 上下文注册 + 三键插入），包已写好在 `docs/prompts-ui/U4-AI2-web-chat-drawer.md`，开工前需按上面两条偏离更新。

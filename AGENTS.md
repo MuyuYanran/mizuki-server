@@ -26,7 +26,7 @@ apps/server      NestJS 11 + Drizzle/better-sqlite3；API 与面板同源托管�
   src/modules/   领域模块（L0~L3 分层见 §4）
   src/bootstrap/ 启动装配：swagger / 静态面板 / site-assets 通道
   bin/           生产启动脚本 mizuki-server
-  test/          vitest 单测 + e2e（68 文件 / 596 用例）
+  test/          vitest 单测 + e2e（73 文件 / 635 用例；含 1 个真链路 spec 按设计跳过）
   data/          运行时产物（gitignored，见 §7）
 apps/web         Vue 3 + Element Plus 面板（dev 20155，/api 与 /site-assets 代理到 20154）
 packages/shared  zod schema + 事件目录（前后端唯一共享面）
@@ -49,7 +49,7 @@ docs/            规格、决策、台账、阶段提示词（见 §10）
 | `pnpm install` | 安装依赖（本机需 `--frozen-lockfile --config.node-linker=hoisted`） |
 | `pnpm dev` | 后端 watch 启动（20154） |
 | `pnpm --filter @mizuki/web dev` | 面板 dev（20155） |
-| `pnpm test` | 后端 vitest 全量（基线 **596 用例 / 68 文件**） |
+| `pnpm test` | 后端 vitest 全量（基线 **635 用例 / 73 文件**，其中 `p10d` 真链路默认跳过） |
 | `pnpm build` | `shared → server → web` 全量构建（web 含 `vue-tsc --noEmit`） |
 | `pnpm lint` | 根 eslint（含 boundaries 分层；**显式排除 `apps/web/**` 与 `.test-tmp/**`**） |
 
@@ -59,6 +59,11 @@ docs/            规格、决策、台账、阶段提示词（见 §10）
 - `@mizuki/shared` 必须**先 build**（`node node_modules/typescript/bin/tsc -p packages/shared/tsconfig.json`），
   否则 server 报 `Cannot find module '@mizuki/shared'`。
 - vitest 全并行在本机不可用（30 个 worker 异常退出）：分批 ≤6 个文件 + `--maxWorkers=1`；vitest 4 已无 `--reporter=basic`。
+- **定向跑测试用 `pnpm --filter @mizuki/server exec vitest run <spec> --maxWorkers=1`**（2026-10-23 实测）：
+  **不要**直接调 `apps/server/node_modules/.bin/vitest` —— node_modules 布局在 `--config.node-linker=hoisted`
+  与默认 isolated 之间被改写时该路径会消失（表现为 `Cannot find module …/vitest.mjs`），而
+  `pnpm --filter … exec` 与链接器布局无关。另：`pnpm --filter … exec/build` 可能触发一次自动 install，
+  布局被改写后 `pnpm build` 可能在 web 段因缺依赖失败，**再跑一次即自愈**（本次实测）。
 - Windows 非 ASCII 用户名会让 `pm-resolver.spec.ts` 的 3 个用例失败（环境性，不是代码缺陷）。
 - **DSH 运行时不含包管理器**（2026-10-16 实测；2026-10-20 订正）：`runtime/…/node/bin` 只有 `node.exe`，
   `where npm` 无结果，pnpm 仅以 `pnpm.cjs` 形式存在（`shell:false` 下 `.cmd` 不可 spawn）。
@@ -117,6 +122,7 @@ docs/            规格、决策、台账、阶段提示词（见 §10）
 | `system` | L3 | P0a/P6 | health、Mizuki 四项检测、init 一次性、运行模式 | `/system/health`、`/admin/system/*` |
 | `process` | L3 | P9 | 任务白名单 + pm-resolver（ADR-011）+ 环形日志 2000 行 + SSE + tree-kill 停组 + **任务级环境变量 `taskEnv`（U3-P4a：白名单前缀 / 掩码读取 / `keep` 保留语义）** | `/admin/process/*` |
 | `backup` | L3 | P2 | 备份 / 恢复（restore 需 `confirm: true` 且先备份） | `/admin/backups*` |
+| `ai` | — | U4-AI1 | AI 接入：provider 档案（多套 `baseUrl`/`model`/`apiKey`）+ 掩码读取 + 出站安全闸 + SSE 流式代理 + 动作提示词与上下文注入。**只做出站，不 import 任何领域模块**；出站唯一适配器 `provider/openai-compatible.ts`（`undici`） | `/admin/ai/*` |
 | `preview` | — | ADR-019 | 静态 dist 预览通道：独立监听、仅 GET、cookie JWT、扩展名白名单 | `/preview/*` |
 | `site-config` | — | ADR-020 | `config.ts` 受控子集物化读写 + 侧车 override（受管面：`lang` / `commentConfig` / `nav` / `siteInfo` 15 键 / `profile` / `announcement` / **`anime`+`bangumi`+`bilibili`（U3-P4a）** / **`effects` 三档（U3-P4c）**；`GET /admin/config` 另有 **`overrides` 布尔视图（U3-P4b）**） | `/admin/config*` |
 | `theme` | — | ADR-024 | 主题档案与漂移基线、写入门禁；面板 `/theme-status`（**U3-P4b**，消费 `GET status` + `POST capture`） | `/admin/theme/*` |
@@ -168,6 +174,9 @@ docs/            规格、决策、台账、阶段提示词（见 §10）
 | `MIZUKI_PREVIEW_PORT` / `_HOST` / `_DIST_PATH` | `4173` / 镜像主服务 host / `<mizukiRoot>/dist` | 预览通道（请求期活读） |
 | `MIZUKI_CONFIG_OVERRIDE_PATH` | `apps/server/data/config-override.json` | 站点配置侧车路径 |
 | `MIZUKI_THEME_BASELINE_PATH` | `apps/server/data/theme-baseline/baseline.json` | 主题漂移基线 |
+| `MIZUKI_AI_API_KEY` | 无 | AI provider 密钥**覆盖通道**（优先于 `config.json` 的 `ai.profiles[].apiKey`；面板只回掩码） |
+| `MIZUKI_AI_BASE_URL` / `MIZUKI_AI_MODEL` | 无 | 只覆盖**当前档案**的 baseUrl / model（容器化部署用） |
+| `MIZUKI_AI_LIVE_KEY` | 无 | **仅测试**：`test/p10d-ai-live.e2e-spec.ts` 门禁；未设置则整块跳过（**刻意不进 CI**：不依赖外部付费服务） |
 
 另有非配置消费的 `PATH`（pm-resolver 定位器）。**公网部署**：`config.json` 置 `"swagger": false`，
 走 https + 反向代理；前后端分离或自定义域名时必须登记 `corsOrigins`，否则浏览器因缺 CORS 头拒绝跨源请求。
@@ -205,7 +214,12 @@ docs/            规格、决策、台账、阶段提示词（见 §10）
 - **媒体白名单口径（曾漂移，已订正 2026-10-15）**：根 `README.md` 曾写六格式（ADR-013 时代口径），已改为终集
   九扩展名 `jpg/jpeg/png/gif/webp/avif/bmp/tiff/tif`（ADR-017，`svg` 排除；**媒体库面 bmp 防御拒绝、相册面准入**）。
   权威源：`docs/decisions/ADR-017-upload-whitelist-final.md` 与 `modules/media/media.service.ts` 的常量。
-- **未清项（2026-10-22 U3-P4 三批交付后）**：
+- **未清项（2026-10-23 U4-AI1 交付后）**：
+  - **已交付**：U4-AI1（AI 接入后端：provider 档案 / 掩码读取 / 出站安全闸 / SSE 流式代理 / 动作提示词与上下文注入 /
+    F1·F2 既存缺陷；真链路 L1–L4 全绿；报告 `docs/audits/u4-ai1/README.md`）。
+  - **待做**：`U4-AI2` 前端（全局右侧聊天栏 + `/settings/ai` + 5 动作 + 上下文注册 + 三键插入），
+    包在 `docs/prompts-ui/U4-AI2-web-chat-drawer.md`，开工前需按两处实现偏离更新：`viaProxy` 是**布尔**（配置意图）
+    而非枚举、失败分类**含 `upstream_4xx`**。
   - **已清**：C7 疑问②（物化态只读警示条，U3-P4b）、E3b（主题漂移面板 `/theme-status`，U3-P4b）、
     U3-P4 九项裁定中的立项 3 + 部分立项 1（U3-P4a/b/c 全交付）、用户手验清单与 U3-P3 四项手验（PM 豁免）。
   - **仍挂**：C3 项 6 → **部分关闭**（CI run 11 在 ubuntu-latest 全绿 ⇒ POSIX 分支已真机跑过；

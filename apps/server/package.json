@@ -38,6 +38,7 @@
     "sharp": "latest",
     "tree-kill": "latest",
     "ts-morph": "latest",
+    "undici": "^7.0.0",
     "zod": "latest"
   },
   "devDependencies": {

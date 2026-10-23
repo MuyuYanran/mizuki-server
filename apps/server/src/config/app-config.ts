@@ -67,6 +67,52 @@ export const AppConfigSchema = z.object({
    *   抛错（启动即失败），不静默丢弃（与 tasks 等键的处置一致）。
    */
   taskEnv: TaskEnvRecordSchema.default({}),
+  /**
+   * [U4-AI1/K1] AI 接入配置（服务档案 + 代理三态 + 出站策略 + 采样参数）。
+   * - **必须显式声明**：AppConfigSchema 是未 `.strict()` 的 `z.object`，未声明键会被
+   *   strip（历史 `corsOrigins` 就是这样变成死代码）；
+   * - key 只写在 `profiles[].apiKey`（配置载体本身，对外面只回掩码）；
+   *   `MIZUKI_AI_API_KEY` 优先覆盖（读取在 modules/ai，不在本文件）；
+   * - 默认档案 = DeepSeek 官方端点 + `deepseek-flash`（2026-10-22 PM 裁定；
+   *   实测该端点只提供 `deepseek-flash` / `deepseek-v4-pro`，`deepseek-chat` 已不存在）；
+   * - `.prefault({})`：zod v4 的 `.default()` 收**输出**类型，对象默认值必须写全；
+   *   `.prefault` 收**输入**类型，语义与 v3 `.default({})` 等价（缺键 → 逐字段取默认）。
+   */
+  ai: z
+    .strictObject({
+      enabled: z.boolean().default(false),
+      activeProfileId: z.string().optional(),
+      profiles: z
+        .array(
+          z.strictObject({
+            id: z.string().min(1).max(32),
+            name: z.string().min(1).max(40),
+            baseUrl: z.string().min(1).max(2048),
+            model: z.string().min(1).max(80),
+            apiKey: z.string().max(4096).optional(),
+          }),
+        )
+        .max(8)
+        .default([
+          {
+            id: 'deepseek',
+            name: 'DeepSeek',
+            baseUrl: 'https://api.deepseek.com/v1',
+            model: 'deepseek-flash',
+          },
+        ]),
+      proxy: z
+        .strictObject({
+          mode: z.enum(['none', 'system', 'custom']).default('system'),
+          url: z.string().max(2048).optional(),
+        })
+        .prefault({}),
+      allowPrivateNetwork: z.boolean().default(false),
+      maxOutputTokens: z.number().int().min(1).max(8192).default(1024),
+      temperature: z.number().min(0).max(2).default(0.7),
+      timeoutMs: z.number().int().min(1000).max(120_000).default(30_000),
+    })
+    .prefault({}),
 });
 
 export type AppConfig = z.infer<typeof AppConfigSchema>;

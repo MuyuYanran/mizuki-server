@@ -21,6 +21,7 @@ import { BackupModule } from './modules/backup/backup.module';
 import { SettingsModule } from './modules/settings/settings.module';
 import { SiteConfigModule } from './modules/site-config/site-config.module';
 import { ThemeModule } from './modules/theme/theme.module';
+import { AiModule } from './modules/ai/ai.module';
 
 /**
  * [阶段 P0a] 应用根模块
@@ -67,6 +68,8 @@ import { ThemeModule } from './modules/theme/theme.module';
     SiteConfigModule,
     // [Phase4-E3a] 主题注册表（theme-lock 双轴：漂移/探针，ADR-024）
     ThemeModule,
+    // [U4-AI1] AI 接入（配置 + 出站闸 + SSE 流式代理；模块内零领域依赖）
+    AiModule,
   ],
   providers: [
     // [P1] 全局 ThrottlerGuard（配合上方 ThrottlerModule 的 60 次/分/IP 配置）
