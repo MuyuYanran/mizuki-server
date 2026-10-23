@@ -155,14 +155,20 @@ async function logout(): Promise<void> {
         <span class="brand">Mizuki 管理面板</span>
       </div>
       <div class="user-area">
-        <!-- [U4-AI2] AI 聊天栏开关（放在主题切换左侧，与既有按钮同风格） -->
+        <!-- [U4-AI2] AI 助手开关（图标按钮；与右侧浮岛把手同源，两处都能开合） -->
         <el-button
           size="small"
           :type="aiDrawerOpen ? 'primary' : 'default'"
           :title="aiDrawerOpen ? '收起 AI 助手' : '打开 AI 助手'"
           @click="toggleDrawer"
         >
-          AI
+          <span class="ai-btn-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M12 3.5l1.9 4.4 4.6 1.7-4.6 1.7L12 15.7l-1.9-4.4L5.5 9.6l4.6-1.7Z" />
+              <path d="M18.5 15.5l.8 1.9 2 .7-2 .7-.8 1.9-.8-1.9-2-.7 2-.7Z" />
+            </svg>
+          </span>
+          <span>AI</span>
         </el-button>
         <el-button
           size="small"
@@ -224,9 +230,9 @@ async function logout(): Promise<void> {
       <el-main class="layout-main">
         <router-view />
       </el-main>
-      <!-- [U4-AI2] 全局右侧 AI 聊天栏（任何页面可用；编辑页挂上上下文后解锁动作与插入） -->
-      <AiChatDrawer />
     </el-container>
+    <!-- [U4-AI2] 全局 AI 助手（浮岛式，fixed 定位；放在 el-container 外避免受布局盒影响） -->
+    <AiChatDrawer />
   </el-container>
 </template>
 
