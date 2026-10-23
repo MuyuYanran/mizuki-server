@@ -1,9 +1,19 @@
 # U4-AI2 指令包 —— AI 接入第二期（前端：全局聊天栏 + 设置页 + 动作与插入）
 
-> [前置] **U4-AI1 已绿**（HEAD 含 `GET|PUT /admin/ai/config`、`POST /admin/ai/ping`、`POST /admin/ai/chat` SSE、`shared/ai.ts` 契约）。
-> [定位] 本包**只做前端**（`apps/web`）+ 一处 shared 纯函数下沉；不改 AI1 的任何契约。
+> [前置] **U4-AI1 已交付**（提交 `8bbbd3f`；端点 `GET|PUT /admin/ai/config`、`POST /admin/ai/ping`、`POST /admin/ai/chat`(SSE)、`shared/ai.ts` 契约、`modules/ai/prompts.ts` 服务端提示词）。基线 **631 用例通过 + 4 跳过 / 73 文件**。
+> [定位] 本包**只做前端**（`apps/web`）+ 一处 shared 纯函数下沉；**不改 AI1 的任何契约**（要改就停下报告，别自己改）。
 > [PM 裁定 2026-10-22] 面板形态 = **整体窗口右侧聊天栏**；设置入口 = **菜单里的独立页**。
 > [已知边界] `apps/web` 无测试运行器 ⇒ 纯逻辑下沉 `packages/shared` 由 server 的 vitest 覆盖，交互部分只能手验（§7 给了 12 步）。
+>
+> **开工前必读：AI1 落地后的三处事实（以代码为准，别按旧描述写）**
+> 1. **`ping` 的 `viaProxy` 是布尔**（= 配置意图 `mode !== 'none'`），不是枚举 `'none'|'system'|'custom'`。
+>    设置页要**同时**显示配置里的 `proxy.mode` 与 ping 回的布尔意图；文案**不得**宣称「已走代理」
+>    （`system` 模式下 `NO_PROXY` 命中会直连，服务端无从感知）。
+> 2. **失败分类除 §3.4 列的之外还有 `upstream_4xx`**（上游 400/404/429；例如模型名不存在）。
+>    完整集合：`upstream_timeout` / `upstream_401` / `upstream_4xx` / `upstream_5xx` / `network` / `blocked_url` / `no_profile`。
+> 3. **动作提示词与上下文注入在服务端**（`apps/server/src/modules/ai/prompts.ts`）：服务端会把 `context.text`
+>    包进 `<document kind="…">` 并在最前加 system。⇒ **前端绝不要自己拼 `<document>` 或任何提示词模板**，
+>    只发 `action` + `context {kind,text}` + 短指令 `messages`。
 
 ---
 
@@ -181,3 +191,51 @@ AI1 的 `messages` 最少 1 条，所以动作请求这样发：
 ## 8. 交付报告要求
 
 `docs/audits/u4-ai2/README.md`：K1–K12 逐条证据（手验步骤号 + 实际观察；K11 附 spec 名；K12 附命令与输出）、偏离清单、12 步手验记录（含时间与截图路径）、Vditor/CodeMirror 实际用到的 API（文档化的实测结论）、已知缺口。
+
+---
+
+## 9. 执行纪律（本仓实测经验，照做省时间）
+
+### 9.1 进度回报（硬要求）
+
+上一批的执行方在收尾前**异常中断且全程无回报**，架构师只能事后靠工作树反推进度。本批要求：
+
+- **每完成一个里程碑就 `send_message` 给架构师一行**：`① 设置页可保存 ② 抽屉可流式 ③ 三编辑器可插入 ④ 收尾中`；
+- **任何一次连续 20 分钟无进展**（例如卡在某个 Vditor/ProseMirror API 上），先发一行说明卡在哪，再继续；
+- 不要在长任务里保持沉默——**沉默比卡住更贵**。
+
+### 9.2 命令（本机实测，别自己摸索）
+
+```bash
+# 类型检查 + 构建（web 段含 vue-tsc --noEmit）
+pnpm build                                  # 全量；只想验 web：pnpm --filter @mizuki/web build
+
+# 静态检查（根 eslint，含 boundaries；排除 apps/web 的样式规则）
+pnpm lint
+
+# 后端全量（本包新增的 shared 纯函数测试跑在这里；约 6 分钟）
+pnpm --filter @mizuki/server exec vitest run --maxWorkers=1
+# 定向：
+pnpm --filter @mizuki/server exec vitest run test/shared/ai-web.spec.ts --maxWorkers=1
+```
+
+**不要**直接调 `apps/server/node_modules/.bin/vitest`：node_modules 布局会在
+`--config.node-linker=hoisted` 与默认 isolated 之间被 installer 改写，该路径会消失
+（报 `Cannot find module …/vitest.mjs`）。`pnpm --filter … exec` 与布局无关。
+
+`pnpm --filter … exec|build` 可能触发一次自动 install；若随后 `pnpm build` 在 web 段报缺依赖，
+**再跑一次即可自愈**（不要改代码去「修」它）。
+
+### 9.3 禁区补充
+
+- ❌ 不改 `apps/server/**` 的任何**产品代码**（本批只允许在 `apps/server/test/shared/` 下新增测试文件）。
+- ❌ 不改 `apps/web/src/lib/editors/VditorEditor.vue` 既有的图片改写/`srcReverse` 逻辑（B3.6 红线）。
+- ❌ 不为了「让页面先跑起来」而临时降级 AI1 契约（例如前端自己拼提示词、自己造 `<document>`）。
+- ❌ 不在前端做 provider 协议适配（baseUrl 拼接、Bearer 头）——那是服务端的事。
+
+### 9.4 交付前自检（K12 的一部分）
+
+1. `pnpm build` exit 0 且 vue-tsc 无错；
+2. `pnpm lint` 0:0；
+3. 后端全量单批全绿，且**如实报告**文件数/用例数（含新增的 shared 测试）；
+4. 12 步手验**真的走过一遍**（没有浏览器就明确写「未做，需架构师代做」，**不许写成已做**）。
