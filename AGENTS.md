@@ -26,7 +26,7 @@ apps/server      NestJS 11 + Drizzle/better-sqlite3；API 与面板同源托管�
   src/modules/   领域模块（L0~L3 分层见 §4）
   src/bootstrap/ 启动装配：swagger / 静态面板 / site-assets 通道
   bin/           生产启动脚本 mizuki-server
-  test/          vitest 单测 + e2e（73 文件 / 635 用例；含 1 个真链路 spec 按设计跳过）
+  test/          vitest 单测 + e2e（74 文件 / 652 用例；含 1 个真链路 spec 按设计跳过）
   data/          运行时产物（gitignored，见 §7）
 apps/web         Vue 3 + Element Plus 面板（dev 20155，/api 与 /site-assets 代理到 20154）
 packages/shared  zod schema + 事件目录（前后端唯一共享面）
@@ -49,7 +49,7 @@ docs/            规格、决策、台账、阶段提示词（见 §10）
 | `pnpm install` | 安装依赖（本机需 `--frozen-lockfile --config.node-linker=hoisted`） |
 | `pnpm dev` | 后端 watch 启动（20154） |
 | `pnpm --filter @mizuki/web dev` | 面板 dev（20155） |
-| `pnpm test` | 后端 vitest 全量（基线 **635 用例 / 73 文件**，其中 `p10d` 真链路默认跳过） |
+| `pnpm test` | 后端 vitest 全量（基线 **652 用例 / 74 文件**，其中 `p10d` 真链路默认跳过） |
 | `pnpm build` | `shared → server → web` 全量构建（web 含 `vue-tsc --noEmit`） |
 | `pnpm lint` | 根 eslint（含 boundaries 分层；**显式排除 `apps/web/**` 与 `.test-tmp/**`**） |
 
@@ -214,12 +214,14 @@ docs/            规格、决策、台账、阶段提示词（见 §10）
 - **媒体白名单口径（曾漂移，已订正 2026-10-15）**：根 `README.md` 曾写六格式（ADR-013 时代口径），已改为终集
   九扩展名 `jpg/jpeg/png/gif/webp/avif/bmp/tiff/tif`（ADR-017，`svg` 排除；**媒体库面 bmp 防御拒绝、相册面准入**）。
   权威源：`docs/decisions/ADR-017-upload-whitelist-final.md` 与 `modules/media/media.service.ts` 的常量。
-- **未清项（2026-10-23 U4-AI1 交付后）**：
+- **未清项（2026-10-23 U4-AI2 交付后）**：
   - **已交付**：U4-AI1（AI 接入后端：provider 档案 / 掩码读取 / 出站安全闸 / SSE 流式代理 / 动作提示词与上下文注入 /
     F1·F2 既存缺陷；真链路 L1–L4 全绿；报告 `docs/audits/u4-ai1/README.md`）。
-  - **待做**：`U4-AI2` 前端（全局右侧聊天栏 + `/settings/ai` + 5 动作 + 上下文注册 + 三键插入），
-    包在 `docs/prompts-ui/U4-AI2-web-chat-drawer.md`，开工前需按两处实现偏离更新：`viaProxy` 是**布尔**（配置意图）
-    而非枚举、失败分类**含 `upstream_4xx`**。
+  - **已交付**：U4-AI2（前端：全局右侧聊天栏 + `/settings/ai` + 5 动作 + 上下文注册 + 三键插入 + shared 纯函数 17 单测；
+    报告 `docs/audits/u4-ai2/README.md`）。**执行方式**：两个子代理连续异常中断（一个收尾前死亡、一个遇 DSH 崩溃零产出）
+    ⇒ 改由架构师亲自实现 + 浏览器手验（12 步完成 10 步）。
+  - **待做（未立项）**：U4-AI3 = `meta` 动作回填表单 + 发布助手 + 导入质检 + `ai_usage` 用量表；
+    U4-AI4 = 受控工具调用（查/建/改文章，逐次 confirm + `operation_log`）。
   - **已清**：C7 疑问②（物化态只读警示条，U3-P4b）、E3b（主题漂移面板 `/theme-status`，U3-P4b）、
     U3-P4 九项裁定中的立项 3 + 部分立项 1（U3-P4a/b/c 全交付）、用户手验清单与 U3-P3 四项手验（PM 豁免）。
   - **仍挂**：C3 项 6 → **部分关闭**（CI run 11 在 ubuntu-latest 全绿 ⇒ POSIX 分支已真机跑过；

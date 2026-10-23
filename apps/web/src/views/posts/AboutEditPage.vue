@@ -7,13 +7,15 @@
  * [UI-U2fix] 弹性高度链：编辑器随窗口自适应撑满（替换原固定 600px 高）。
  * [状态] ACTIVE
  */
-import { onMounted, ref } from 'vue';
+import { onBeforeUnmount, onMounted, ref } from 'vue';
 import { ElMessage } from 'element-plus';
 import { CodeMirrorEditor, VditorEditor } from '../../lib/editors';
 import { markdownImageRef } from '../../lib/media-ref';
 import MediaPicker, { type MediaPickResult } from '../../components/MediaPicker.vue';
 import { postsApi } from '../../api/posts';
 import { ApiError } from '../../api/http';
+// [U4-AI2] AI 聊天栏上下文注册
+import { registerEditorContext, type AiEditorHandle } from '../../lib/ai/context';
 
 const content = ref('');
 const loading = ref(false);
@@ -25,7 +27,17 @@ const ENGINE_KEY = 'mizuki.editor.engine';
 type Engine = 'vditor' | 'codemirror';
 const engine = ref<Engine>((localStorage.getItem(ENGINE_KEY) as Engine | null) ?? 'vditor');
 /** [Phase4-D2] insertAtCursor 为可选能力（两引擎均已暴露；缺席时静默跳过） */
-const editorRef = ref<{ getValue: () => string; insertAtCursor?: (text: string) => void } | null>(null);
+const editorRef = ref<AiEditorHandle | null>(null);
+
+// [U4-AI2] 把 about 编辑器注册为 AI 聊天栏的上下文来源（卸载时自动注销）
+let unregisterAiContext: (() => void) | null = null;
+onMounted(() => {
+  unregisterAiContext = registerEditorContext('markdown', editorRef);
+});
+onBeforeUnmount(() => {
+  unregisterAiContext?.();
+  unregisterAiContext = null;
+});
 
 /** [Phase4-D2/需求4] 图片按钮 → MediaPicker 选图后于光标处插入 Markdown 图片引用 */
 const imagePickerVisible = ref(false);

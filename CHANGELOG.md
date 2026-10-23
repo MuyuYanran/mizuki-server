@@ -1,5 +1,32 @@
 # 变更日志
 
+## U4-AI2 批（2026-10-23，AI 接入第二期 · 前端）
+
+> 零新增依赖。数账 **648 用例通过 + 4 跳过 / 73 文件**（真链路 spec 按设计跳过），`pnpm build` 0（含 `vue-tsc --noEmit`）、`pnpm lint` 0:0。
+
+- **全局右侧 AI 聊天栏**（`AiChatDrawer`，挂 `MainLayout`）：顶栏「AI」按钮开合；宽屏 `el-aside` 挤压正文并可拖宽（宽度持久化）、窄屏改覆盖式浮层 + 遮罩；会话**只在内存**（含正文，刷新即清是特性），仅持久化开合与宽度。
+- **AI 服务设置页**（`/settings/ai`，菜单「配置」组）：六区块 = 总开关 / provider 档案（多套 `baseUrl`+`model`+`apiKey`，可增删、可切当前）/ 代理三态 / 生成参数 / 允许私有网络（二次确认）/ 连通性测试。
+  - key **只写不读**：留空 = 保留（`keepApiKey` 语义）、填写 = 覆盖（提前 confirm）；`keySource='env'` 时输入框禁用并说明「环境变量优先，面板改动不生效」。
+  - 代理 `system` 文案**明确写出「不读取 Windows『设置 → 网络 → 代理』」**（PM 已接受的边界）。
+  - 保存后**自动重测一次**，验证「保存即生效」（不重启）。
+- **5 个写作动作**（润色 / 续写 / 摘要 / 标题·描述·标签 / 翻译）：动作**长提示词留在服务端**（AI1 的 `prompts.ts`），前端只发一行短指令 + `context`，**不自己拼 `<document>`**。
+- **上下文注册接缝**（`lib/ai/context.ts` + `registerEditorContext`）：编辑页一行接线，`onMounted` 注册 / `onBeforeUnmount` 注销；文本**惰性**获取（不在打字路径同步全文）；注销时只有「自己仍是当前」才清空（防快速切页互相抹）。
+- **三键插入（永不自动写编辑器）**：替换选区 / 插入到光标 / 复制。三编辑器各加**只增不改**的 `defineExpose`：
+  - TipTap：`getPlainText` / `getSelectedText` / `hasSelection` / `insertPlainText`（按 `\n\n` 切段落建 paragraph，不解析 Markdown）/ `replaceSelection`；
+  - CodeMirror：`getSelectedText` / `hasSelection` / `replaceSelection`（**单次 dispatch**，避免 `updateListener` 发出半成品）；
+  - Vditor：`getSelectedText`（DOM 选区 + **限定容器内**）/ `hasSelection` / `replaceSelection`（`deleteValue` → `insertValue`；无 `deleteValue` 时退化插入并 `console.warn` 留痕，**不静默丢原文**）。
+- **流式消费**：照既有 `api/process.ts` 形态（`fetch`+`getReader`+`AbortController`），解帧交给 shared 的 `parseSseChunk`。四态收尾：`done` 成功 / `error` 分类文案 / EOF 未收 `done` 明确报「连接提前结束」（**不谎报成功**）/ 用户 abort 不弹红条且保留已有文本。
+- **纯函数下沉 + 单测**：`truncateForContext`（口径与 zod `max` 一致，按码元）、`parseSseChunk`（跨块半帧 / `\r\n` / 多 `data` / 空 `data` / 无 `event` / 注释行 / 冒号空格规则）+ `AI_ACTION_LABELS`，由 `test/shared/ai-web.spec.ts` **17 用例**覆盖（前端无测试运行器 ⇒ 走 server 的 vitest，本仓既有做法）。
+- **安全**：AI 输出**只用文本插值渲染**（禁 `v-html`）；失败文案只给分类码（含新增 `upstream_4xx`），不含上游 URL/响应体/key。
+
+### 已知缺口（登记，不追补）
+
+- **富文本插入未做浏览器实测**（需真 key 产出内容后才能点「插入到光标」；代码按 paragraph 节点插入、`vue-tsc` 通过，但未验不算已验）。
+- 刷新清空会话未实测（`aiMessages` 为内存 ref，无持久化写入 —— 代码路径确定）。
+- Vditor 无选区替换真 API，依赖 `deleteValue` 存在性；退化路径已留痕。
+- 抽屉窄屏浮层 z-index（2000/1999）与 Element 弹层可能存在重叠，未实测。
+- `meta` 动作产出**不回填表单**（落表属 U4-AI3）。
+
 ## U4-AI1 批（2026-10-23，AI 接入第一期 · 后端）
 
 > 唯一新增依赖 `undici`（PM 批准，仅 `modules/ai` 使用）。数账 **72 文件 / 631 用例通过 + 4 跳过**（真链路 spec 按设计跳过），lint 0:0、build 0。

@@ -16,6 +16,9 @@ import { authState, clearAuth } from '../stores/auth';
 import { ensureSystemMode, isMinimalMode, resetSystemMode, systemMode } from '../stores/system';
 import { THEME_LABELS, cycleTheme, themePreference } from '../lib/theme';
 import MenuIcon from '../components/MenuIcon.vue';
+// [U4-AI2] 全局右侧 AI 聊天栏（开合状态在 stores/ai，这里只做挂载与顶栏开关）
+import AiChatDrawer from '../components/AiChatDrawer.vue';
+import { aiDrawerOpen, toggleDrawer } from '../stores/ai';
 
 const route = useRoute();
 const router = useRouter();
@@ -55,6 +58,8 @@ const MENU: MenuItem[] = [
   { path: '/theme', title: '主题外观', group: '配置' },
   // [U3-P4b/K4] 主题漂移呈现面板（漂移诊断在 manage 模式同样需要 → **不加** minimalHidden）
   { path: '/theme-status', title: '主题状态', group: '配置' },
+  // [U4-AI2] AI 服务设置（provider 档案 / 代理 / 生成参数 / 连通性）
+  { path: '/settings/ai', title: 'AI 服务', group: '配置' },
 ];
 
 /** [Phase4-D3] 分组渲染顺序（固定；组内顺序随 MENU 声明序） */
@@ -150,6 +155,15 @@ async function logout(): Promise<void> {
         <span class="brand">Mizuki 管理面板</span>
       </div>
       <div class="user-area">
+        <!-- [U4-AI2] AI 聊天栏开关（放在主题切换左侧，与既有按钮同风格） -->
+        <el-button
+          size="small"
+          :type="aiDrawerOpen ? 'primary' : 'default'"
+          :title="aiDrawerOpen ? '收起 AI 助手' : '打开 AI 助手'"
+          @click="toggleDrawer"
+        >
+          AI
+        </el-button>
         <el-button
           size="small"
           class="theme-toggle"
@@ -210,6 +224,8 @@ async function logout(): Promise<void> {
       <el-main class="layout-main">
         <router-view />
       </el-main>
+      <!-- [U4-AI2] 全局右侧 AI 聊天栏（任何页面可用；编辑页挂上上下文后解锁动作与插入） -->
+      <AiChatDrawer />
     </el-container>
   </el-container>
 </template>

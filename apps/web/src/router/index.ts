@@ -31,6 +31,8 @@ import SettingsPage from '../views/settings/SettingsPage.vue';
 import SiteConfigPage from '../views/settings/SiteConfigPage.vue';
 import ThemePage from '../views/settings/ThemePage.vue';
 import ThemeStatusPage from '../views/settings/ThemeStatusPage.vue';
+// [U4-AI2] AI 服务设置（provider 档案 / 代理三态 / 生成参数 / 连通性测试）
+import AiSettingsPage from '../views/settings/AiSettingsPage.vue';
 
 const routes: RouteRecordRaw[] = [
   { path: '/login', name: 'login', component: LoginView, meta: { public: true } },
@@ -64,6 +66,8 @@ const routes: RouteRecordRaw[] = [
       { path: 'theme', component: ThemePage, meta: { title: '主题外观' } },
       // [U3-P4b/K4] 主题漂移呈现面板（E3b，纯前端消费 /admin/theme/* 既有端点）
       { path: 'theme-status', component: ThemeStatusPage, meta: { title: '主题状态' } },
+      // [U4-AI2] AI 服务设置（消费 /admin/ai/config + /admin/ai/ping）
+      { path: 'settings/ai', component: AiSettingsPage, meta: { title: 'AI 服务' } },
     ],
   },
   { path: '/:pathMatch(.*)*', redirect: '/' },

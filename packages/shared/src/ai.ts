@@ -140,3 +140,102 @@ export type AiConfigView = z.infer<typeof AiConfigViewSchema>;
 export type AiPutConfigBody = z.infer<typeof AiPutConfigBodySchema>;
 export type AiChatBody = z.infer<typeof AiChatBodySchema>;
 export type AiSseEvent = (typeof AI_SSE)[keyof typeof AI_SSE];
+
+/** 动作的中文标签（面板按钮文案；U4-AI2 消费） */
+export const AI_ACTION_LABELS: Record<AiAction, string> = {
+  polish: '润色',
+  continue: '续写',
+  summarize: '摘要',
+  meta: '标题·描述·标签',
+  translate: '翻译',
+};
+
+/** 上下文种类（`context.kind` 的取值域，与 AiChatBodySchema 内联枚举同源） */
+export const AI_CONTEXT_KINDS = ['none', 'selection', 'article', 'markdown'] as const;
+export type AiContextKind = (typeof AI_CONTEXT_KINDS)[number];
+
+/** 上下文裁剪结果：`truncated` 由 UI 明确展示（不许静默截断） */
+export interface ContextSlice {
+  text: string;
+  truncated: boolean;
+  /** 原文总字数（用于「已送 X 字 / 原文 Y 字」） */
+  originalChars: number;
+  /** 实际送出的字数 */
+  sentChars: number;
+}
+
+/**
+ * [U4-AI2/K11] 上下文裁剪（纯函数，单测覆盖）。
+ *
+ * 语义：
+ * - 未超限 → 原样返回，`truncated=false`；
+ * - 超限 → 取**前** `maxChars` 个字符，`truncated=true`；
+ *   取前不取后：正文开头通常含标题/主旨，对摘要与起标题更有用。
+ * - **不做** `\n` 边界回退：会引入"看起来少了一截"的不确定性；UI 已明示截断。
+ *
+ * 为什么按「字」（码元）而非字节：`AI_LIMITS.maxContextChars` 的口径就是
+ * `z.string().max(n)`，zod 的 `max` 对 string 是码元数。两者必须同口径，
+ * 否则「前端以为没超、后端 400」。
+ */
+export function truncateForContext(text: string, maxChars: number): ContextSlice {
+  const originalChars = text.length;
+  if (originalChars <= maxChars) {
+    return { text, truncated: false, originalChars, sentChars: originalChars };
+  }
+  const sliced = text.slice(0, maxChars);
+  return { text: sliced, truncated: true, originalChars, sentChars: sliced.length };
+}
+
+/** SSE 帧（解析产物） */
+export interface SseFrame {
+  event: string;
+  data: string;
+}
+
+/**
+ * [U4-AI2/K11] SSE 缓冲解析（纯函数，单测覆盖）。
+ *
+ * 输入是**累积缓冲**，输出是「已完整的帧」+「剩余半帧」——调用方负责
+ * `buffer = rest` 后继续 `reader.read()`。
+ *
+ * 覆盖的真实现象：
+ * - **跨块半帧**：一次 read 拿到 `event: del`，下次才拿到 `ta\ndata: {…}\n\n`；
+ * - `\r\n` 行尾（部分反代/网关会改写）：统一归一后再切帧；
+ * - 一帧多条 `data:` 行：按 SSE 规范用 `\n` 连接；
+ * - 无 `event:` 的帧：`event` 回空串（由调用方决定忽略或按默认处理）；
+ * - 空 `data:`：原样保留为空串（`[DONE]` 之外的语义由调用方判定）。
+ *
+ * 只按 `\n\n` 切帧，**不做** JSON 解析（解析失败的处理属业务层）。
+ */
+export function parseSseChunk(buffer: string): { frames: SseFrame[]; rest: string } {
+  const normalized = buffer.replace(/\r\n/g, '\n');
+  const frames: SseFrame[] = [];
+  let cursor = 0;
+  let sep = normalized.indexOf('\n\n', cursor);
+  while (sep !== -1) {
+    const block = normalized.slice(cursor, sep);
+    cursor = sep + 2;
+    if (block.trim() !== '') {
+      frames.push(parseSseBlock(block));
+    }
+    sep = normalized.indexOf('\n\n', cursor);
+  }
+  return { frames, rest: normalized.slice(cursor) };
+}
+
+/** 解析单个 SSE 块（不是帧切分，只做字段提取） */
+function parseSseBlock(block: string): SseFrame {
+  let event = '';
+  const dataLines: string[] = [];
+  for (const line of block.split('\n')) {
+    if (line.startsWith('event:')) {
+      event = line.slice('event:'.length).trim();
+    } else if (line.startsWith('data:')) {
+      const raw = line.slice('data:'.length);
+      // SSE 规范：冒号后若有一个空格则吃掉一个（保留其余空白，正文可能有前导空格）
+      dataLines.push(raw.startsWith(' ') ? raw.slice(1) : raw);
+    }
+    // 其余字段（id: / retry: / 注释行 `:` 开头）忽略：本期不用
+  }
+  return { event, data: dataLines.join('\n') };
+}

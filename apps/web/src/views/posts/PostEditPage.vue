@@ -14,7 +14,7 @@
  *   表单只编辑已知字段（12 既有 + [Phase3-C1] 加密与发布 4 键 + [U3-P2/A-GAP-09] 七键），
  *   提交时 { ...fullFm, ...formFm } 合并（已知字段覆盖，未知键保留；可删键清空按 null 提交）。
  */
-import { computed, onMounted, ref } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { ElMessage } from 'element-plus';
 import { CodeMirrorEditor, VditorEditor } from '../../lib/editors';
@@ -27,6 +27,8 @@ import { ApiError } from '../../api/http';
 import { notifyApiError } from '../../lib/notify';
 import { dateOrEmpty } from '../../lib/format';
 import { useSplitter } from '../../lib/float';
+// [U4-AI2] AI 聊天栏上下文注册（编辑器 ⇄ 聊天栏的唯一接线口）
+import { registerEditorContext, type AiEditorHandle } from '../../lib/ai/context';
 
 const {
   width: sidebarWidth,
@@ -75,7 +77,17 @@ const ENGINE_KEY = 'mizuki.editor.engine';
 type Engine = 'vditor' | 'codemirror';
 const engine = ref<Engine>((localStorage.getItem(ENGINE_KEY) as Engine | null) ?? 'vditor');
 /** [Phase4-D2] insertAtCursor 为可选能力（两引擎均已暴露；缺席时静默跳过） */
-const editorRef = ref<{ getValue: () => string; insertAtCursor?: (text: string) => void } | null>(null);
+const editorRef = ref<AiEditorHandle | null>(null);
+
+// [U4-AI2] 把本页编辑器注册为 AI 聊天栏的上下文来源（卸载时自动注销）
+let unregisterAiContext: (() => void) | null = null;
+onMounted(() => {
+  unregisterAiContext = registerEditorContext('markdown', editorRef);
+});
+onBeforeUnmount(() => {
+  unregisterAiContext?.();
+  unregisterAiContext = null;
+});
 
 /** [Phase4-D2/需求4] 编辑器图片按钮 → MediaPicker 选图后于光标处插入 Markdown 图片引用 */
 const imagePickerVisible = ref(false);
@@ -166,7 +178,6 @@ onMounted(async () => {
     await loadPost();
   }
 });
-
 async function loadPost(): Promise<void> {
   loading.value = true;
   try {

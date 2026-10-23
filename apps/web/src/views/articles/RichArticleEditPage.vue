@@ -9,13 +9,15 @@
  *   - 禁止 v-html 渲染后端 HTML（§5 专属禁止）——编辑器仅在 TipTap 自身渲染。
  * [状态] ACTIVE
  */
-import { computed, onMounted, ref } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { ElMessage } from 'element-plus';
 import { TipTapEditor } from '../../lib/editors';
 import { articlesApi, extractArticleIssues, type ArticleAdminView } from '../../api/articles';
 import { ApiError } from '../../api/http';
 import { useSplitter } from '../../lib/float';
+// [U4-AI2] AI 聊天栏上下文注册
+import { registerEditorContext, type AiEditorHandle } from '../../lib/ai/context';
 
 const {
   width: sidebarWidth,
@@ -58,6 +60,17 @@ const htmlCache = ref<string | null>(null);
 
 /** 后端字段错误 */
 const serverErrors = ref<Record<string, string>>({});
+
+// [U4-AI2] TipTap 实例引用 + 注册为 AI 聊天栏上下文（kind='article'，卸载时注销）
+const tiptapRef = ref<AiEditorHandle | null>(null);
+let unregisterAiContext: (() => void) | null = null;
+onMounted(() => {
+  unregisterAiContext = registerEditorContext('article', tiptapRef);
+});
+onBeforeUnmount(() => {
+  unregisterAiContext?.();
+  unregisterAiContext = null;
+});
 
 onMounted(async () => {
   if (isEdit.value) {
@@ -193,7 +206,7 @@ function goBack(): void {
     <div class="edit-layout">
       <!-- 编辑器 -->
       <div class="editor-area">
-        <TipTapEditor :model-value="docJson" @update:model-value="docJson = $event" />
+        <TipTapEditor ref="tiptapRef" :model-value="docJson" @update:model-value="docJson = $event" />
       </div>
 
       <!-- [UI-U2 / T4] 可拖动分栏条 -->

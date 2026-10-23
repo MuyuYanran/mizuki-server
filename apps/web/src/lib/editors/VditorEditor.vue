@@ -328,7 +328,56 @@ function insertAtCursor(text: string): void {
   vditorRef.value.insertValue(text);
 }
 
-defineExpose({ getValue, setValue, insertAtCursor });
+// ── [U4-AI2] 供 AI 聊天栏使用：选区查询 + 替换（仅新增，包装层核心逻辑冻结不动） ──
+//
+// 诚实边界（写进交付报告）：Vditor 的 IR/WYSIWYG 模式没有公开的"替换选区"API。
+// `insertValue` 的语义是"在光标处插入"，**不会删除已选中的内容**。因此这里的
+// `replaceSelection` 采用「先 deleteValue()（删除当前选区）→ 再 insertValue()」两步；
+// `deleteValue` 是 Vditor 编辑器的公开方法（工具栏删除键用的就是它）。
+// 若某版本下 `deleteValue` 不可用，则**退化为插入并在控制台留痕**（宁可多加一段，
+// 也不静默丢用户原文——丢内容比重复内容严重得多）。
+
+/** 取当前选区文本（Vditor 无公开 API；用 DOM selection 兜底） */
+function getSelectedText(): string {
+  const root = containerRef.value;
+  if (root === null) return '';
+  const selection = window.getSelection();
+  if (selection === null || selection.rangeCount === 0) return '';
+  const text = selection.toString();
+  // 只认落在编辑器内的选区，避免把页面别处选中的文字当成正文选区
+  if (!root.contains(selection.anchorNode)) return '';
+  return text;
+}
+
+/** 是否真的选中了内容（非光标） */
+function hasSelection(): boolean {
+  return getSelectedText() !== '';
+}
+
+/**
+ * 替换选区（无选区时等价于插入）。
+ * 两步：deleteValue() 删掉当前选区 → insertValue() 插入新文本。
+ */
+function replaceSelection(text: string): void {
+  const vditor = vditorRef.value;
+  if (!vditorReady || vditor === null) return;
+  if (!hasSelection()) {
+    vditor.insertValue(text);
+    return;
+  }
+  // 用 call 直接调用公开方法（Vditor 实例方法签名见 vditor 类型定义）
+  const deletable = vditor as unknown as { deleteValue?: () => void };
+  if (typeof deletable.deleteValue === 'function') {
+    deletable.deleteValue();
+    vditor.insertValue(text);
+    return;
+  }
+  // 退化路径：删不掉就先插入（并留痕，便于排障时确认走的是哪条分支）
+  console.warn('[U4-AI2] 当前 Vditor 版本无 deleteValue()，replaceSelection 退化为 insertValue');
+  vditor.insertValue(text);
+}
+
+defineExpose({ getValue, setValue, insertAtCursor, getSelectedText, hasSelection, replaceSelection });
 </script>
 
 <template>

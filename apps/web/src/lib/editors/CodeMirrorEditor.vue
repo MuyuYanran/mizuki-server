@@ -166,7 +166,41 @@ function insertAtCursor(text: string): void {
   });
 }
 
-defineExpose({ getValue, insertAtCursor });
+// ── [U4-AI2] 供 AI 聊天栏使用：选区查询 + 替换（仅新增，既有行为零变化） ──
+
+/** 取当前选区文本（无选区返回空串） */
+function getSelectedText(): string {
+  const view = viewRef.value;
+  if (view === null) return '';
+  const { from, to } = view.state.selection.main;
+  if (from === to) return '';
+  return view.state.doc.sliceString(from, to);
+}
+
+/** 是否真的选中了内容（非光标） */
+function hasSelection(): boolean {
+  const view = viewRef.value;
+  if (view === null) return false;
+  const { from, to } = view.state.selection.main;
+  return from !== to;
+}
+
+/**
+ * 替换选区（无选区时等价于在光标处插入）。
+ * 一次 dispatch 完成「删旧 + 插新」：分两次 dispatch 会产生中间态，
+ * `updateListener` 会把半成品 emit 出去（父组件的 modelValue 抖动）。
+ */
+function replaceSelection(text: string): void {
+  const view = viewRef.value;
+  if (view === null) return;
+  const { from, to } = view.state.selection.main;
+  view.dispatch({
+    changes: { from, to, insert: text },
+    selection: { anchor: from + text.length },
+  });
+}
+
+defineExpose({ getValue, insertAtCursor, getSelectedText, hasSelection, replaceSelection });
 </script>
 
 <template>

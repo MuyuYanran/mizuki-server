@@ -332,6 +332,74 @@ function undo(): void {
 function redo(): void {
   editor.value?.chain().focus().redo().run();
 }
+
+// ── [U4-AI2] 供 AI 聊天栏使用的编程式插入接口（仅新增，行为零变化） ──
+//
+// 语义与取文本方式：
+// - `getPlainText()` 用 `editor.getText()`（ProseMirror 的块间插入双换行），
+//   目的是让 AI 拿到"看起来像原文"的纯文本，而不是 getJSON 的序列化结果；
+// - `insertPlainText()` **按 `\n\n` 切段**，每段作为独立 paragraph 插入：不解析 Markdown、
+//   不建新节点类型（U4-AI1 的红线：AI 产出恒为纯文本，格式由用户自己加）；
+// - `replaceSelection()` 先 `deleteSelection` 再插入，因此**无选区时等价于插入**（不吞内容）；
+// - 这三个方法都不改既有工具栏行为，也不写 document 之外的任何状态。
+
+/** 取纯文本（AI 上下文） */
+function getPlainText(): string {
+  const ed = editor.value;
+  if (ed === null || ed === undefined) return '';
+  return ed.getText();
+}
+
+/** 取当前选区文本（无选区返回空串） */
+function getSelectedText(): string {
+  const ed = editor.value;
+  if (ed === null || ed === undefined) return '';
+  const { from, to } = ed.state.selection;
+  if (from === to) return '';
+  return ed.state.doc.textBetween(from, to, '\n\n');
+}
+
+/** 是否真的有选区（非光标） */
+function hasSelection(): boolean {
+  const ed = editor.value;
+  if (ed === null || ed === undefined) return false;
+  const { from, to } = ed.state.selection;
+  return from !== to;
+}
+
+/** 把纯文本按空行切段后插入（每段一个 paragraph） */
+function insertPlainText(text: string): void {
+  const ed = editor.value;
+  if (ed === null || ed === undefined || text === '') return;
+  const paragraphs = text.split(/\n{2,}/).map((segment) => segment.trim()).filter((segment) => segment !== '');
+  if (paragraphs.length === 0) return;
+  const content = paragraphs.map((segment) => ({
+    type: 'paragraph',
+    content: [{ type: 'text', text: segment }],
+  }));
+  ed.chain().focus().insertContent(content).run();
+}
+
+/** 替换选区（无选区时退化为插入） */
+function replaceSelection(text: string): void {
+  const ed = editor.value;
+  if (ed === null || ed === undefined || text === '') return;
+  const paragraphs = text.split(/\n{2,}/).map((segment) => segment.trim()).filter((segment) => segment !== '');
+  if (paragraphs.length === 0) return;
+  const content = paragraphs.map((segment) => ({
+    type: 'paragraph',
+    content: [{ type: 'text', text: segment }],
+  }));
+  ed.chain().focus().deleteSelection().insertContent(content).run();
+}
+
+defineExpose({
+  getPlainText,
+  getSelectedText,
+  hasSelection,
+  insertPlainText,
+  replaceSelection,
+});
 </script>
 
 <template>
