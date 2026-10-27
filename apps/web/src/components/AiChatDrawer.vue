@@ -405,9 +405,9 @@ function collapse(): void {
   align-items: center;
   gap: 6px;
   padding: 12px 7px;
-  border: 1px solid var(--el-border-color-lighter);
+  border: 1px solid var(--mizuki-soft-card-border);
   border-right: none;
-  border-radius: 14px 0 0 14px;
+  border-radius: 16px 0 0 16px;
   background: var(--el-bg-color);
   color: var(--el-color-primary);
   cursor: pointer;
@@ -451,8 +451,8 @@ function collapse(): void {
   flex-direction: column;
   min-height: 0;
   max-width: calc(100vw - 32px);
-  border: 1px solid var(--el-border-color-lighter);
-  border-radius: 16px;
+  border: 1px solid var(--mizuki-soft-card-border);
+  border-radius: 20px;
   background: var(--el-bg-color);
   box-shadow: 0 12px 40px -8px var(--el-box-shadow-dark), var(--el-box-shadow-light);
   /* 位移过渡：收起时整体滑出，组件不卸载 ⇒ 流式不中断 */
@@ -635,8 +635,8 @@ function collapse(): void {
   gap: 2px;
   padding: 10px 12px;
   text-align: left;
-  border: 1px solid var(--el-border-color-lighter);
-  border-radius: 12px;
+  border: 1px solid var(--mizuki-soft-card-border);
+  border-radius: 14px;
   background: var(--el-bg-color);
   cursor: pointer;
   transition: border-color 0.16s, box-shadow 0.16s, transform 0.16s;
@@ -681,7 +681,7 @@ function collapse(): void {
 /* 胶囊按钮（动作 / 三键共用） */
 .ai-pill {
   padding: 4px 12px;
-  border: 1px solid var(--el-border-color);
+  border: 1px solid var(--mizuki-soft-card-border);
   border-radius: 999px;
   background: var(--el-bg-color);
   color: var(--el-text-color-regular);
@@ -749,7 +749,12 @@ function collapse(): void {
   display: flex;
   gap: 6px;
   padding: 8px 14px 0;
-  border-top: 1px solid var(--el-border-color-lighter);
+  border-top: none;
+  /* [UI-U3] 分隔改成两端淡出的发丝线 */
+  background-image: var(--mizuki-fade-hairline);
+  background-repeat: no-repeat;
+  background-position: left top;
+  background-size: 100% 1px;
 }
 
 /* 输入区 */

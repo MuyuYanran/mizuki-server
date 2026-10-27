@@ -463,7 +463,6 @@ function formatValue(value: unknown): string {
   <div class="post-edit-page" v-loading="loading">
     <div class="page-header">
       <el-button @click="goBack">返回</el-button>
-      <h2>{{ isEdit ? '编辑文章' : '新建文章' }}</h2>
       <div class="header-actions">
         <el-select v-model="engine" size="small" @change="onEngineChange" style="width: 100px">
           <el-option label="Vditor" value="vditor" />
@@ -807,7 +806,7 @@ function formatValue(value: unknown): string {
 
 .fm-sidebar {
   flex-shrink: 0;
-  border: 1px solid var(--mizuki-border-hairline);
+  border: 1px solid var(--mizuki-soft-card-border);
   border-radius: var(--mizuki-radius-control);
   background: var(--el-fill-color-blank);
   padding: 14px;
@@ -833,7 +832,7 @@ function formatValue(value: unknown): string {
   width: 4px;
   height: 48px;
   border-radius: var(--mizuki-radius-pill);
-  background: var(--mizuki-border-hairline);
+  background: var(--mizuki-soft-card-border);
   transition: background var(--mizuki-motion-fast), height var(--mizuki-motion-fast);
 }
 
@@ -899,7 +898,7 @@ function formatValue(value: unknown): string {
   color: var(--el-color-warning-dark-2);
   background: var(--el-color-warning-light-9);
   border-radius: var(--mizuki-radius-control);
-  border: 1px solid var(--mizuki-border-hairline);
+  border: 1px solid var(--mizuki-soft-card-border);
 }
 
 .unknown-keys {

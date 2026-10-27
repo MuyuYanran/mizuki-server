@@ -424,7 +424,6 @@ async function commitImport(): Promise<void> {
   <div class="post-list-page panel-card">
     <div class="page-header">
       <div class="header-title-wrap">
-        <h2>Markdown 文章</h2>
         <span class="header-desc">管理博客文章、草稿与回收站</span>
       </div>
       <div class="header-actions">
@@ -784,10 +783,6 @@ async function commitImport(): Promise<void> {
 }
 .import-progress {
   margin-top: 4px;
-}
-
-:deep(.el-tabs__nav-wrap::after) {
-  background-color: var(--mizuki-border-hairline);
 }
 
 :deep(.el-tabs__item) {

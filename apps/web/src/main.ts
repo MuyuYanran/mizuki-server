@@ -5,6 +5,8 @@ import 'element-plus/dist/index.css';
 import 'element-plus/theme-chalk/dark/css-vars.css';
 // Mizuki 主题（必须在 element 两个 css 之后，覆盖主色阶与调色板变量）
 import './styles/theme.css';
+// [UI-U3] 柔化层：全局去棱角/去硬直线（必须在 theme.css 之后，覆盖其圆角与描边）
+import './styles/soft-ui.css';
 import App from './App.vue';
 import { router } from './router';
 import { onSessionExpired } from './api/http';

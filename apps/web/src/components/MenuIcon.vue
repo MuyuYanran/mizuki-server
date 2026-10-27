@@ -133,15 +133,16 @@ defineProps<{
 </template>
 
 <style scoped>
+/* [U4-UI1] 图标不再自带 margin-right：间距改由父级导航项的 flex `gap` 提供，
+   否则折叠态（flex 居中的容器）里这 10px 会把图标顶偏、右侧被裁掉。 */
 .menu-svg-icon {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  margin-right: 10px;
   flex-shrink: 0;
   transition: transform var(--mizuki-motion-fast) var(--mizuki-motion-spring);
 }
-:deep(.el-menu-item:hover) .menu-svg-icon {
-  transform: scale(1.1);
-}
+/* [UI-U3] 面板已不再使用 `el-menu`，原 `:deep(.el-menu-item:hover)` 永远选不中任何元素
+   （图标悬停放大静默失效）。hover 规则改由拥有 `.nav-item` 的 MainLayout 挂载，
+   见 `layouts/MainLayout.vue` 的 `.nav-item:hover :deep(.menu-svg-icon)`。 */
 </style>

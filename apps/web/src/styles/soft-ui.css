@@ -1,0 +1,578 @@
+/**
+ * [UI-U3] 柔化层（Soft UI Layer）——「无棱角、无硬直线」全局收敛
+ *
+ * [职责]
+ *  面板布局重构（Nebula Shell：左导航栏 + 浮动顶栏 + 浮岛内容区）之后，
+ *  全站仍有一批 Element Plus 默认件带**直角 / 硬直线**：卡片描边、表格
+ *  网格线、分割线、标签页底线、步骤条连接线、描述列表格线、按钮组接缝……
+ *  本文件是**唯一样式收敛点**：把这些件统一揉圆，把所有「直线」换成
+ *  「渐隐发丝线」或「留白 + 投影」。
+ *
+ * [纪律]
+ *  - 只改**观感**（圆角 / 描边 / 底色 / 分隔形态），不改任何结构与行为；
+ *  - 颜色一律走既有变量（--el-* / --mizuki-*），不新增硬编码色值；
+ *  - 圆角一律走既有圆角族（--mizuki-radius-card/control/pill），不写魔法数；
+ *  - 本文件在 theme.css **之后**加载（main.ts 顺序敏感），保证覆盖生效。
+ *
+ * [不做]
+ *  - 不隐藏 Element Plus 的可访问性语义（role / aria 保留）；
+ *  - 不动终端（.terminal-container 保留等宽直角，符合「终端就该有终端样」）。
+ */
+
+:root {
+  /* 柔化层自有令牌：卡片描边极淡、面板底色用透明玻璃而非实色 */
+  --mizuki-soft-card-border: color-mix(in srgb, var(--el-border-color-lighter) 62%, transparent);
+  --mizuki-soft-surface: color-mix(in srgb, var(--el-bg-color) 88%, transparent);
+  --mizuki-soft-hover: color-mix(in srgb, var(--el-color-primary) 9%, var(--el-bg-color));
+  --mizuki-soft-zebra: color-mix(in srgb, var(--el-fill-color-lighter) 55%, transparent);
+}
+
+/* ══════════════════════════════════════════════════════════════
+   一、卡片 / 面板：描边 → 极淡 + 大圆角 + 柔投影
+   ══════════════════════════════════════════════════════════════ */
+
+.el-card,
+.panel-card {
+  border-radius: var(--mizuki-radius-card) !important;
+  border: 1px solid var(--mizuki-soft-card-border) !important;
+  box-shadow: var(--mizuki-card-shadow) !important;
+  overflow: hidden;
+}
+
+/* 卡片头部：去掉硬底线，改成渐隐发丝线 */
+.el-card__header {
+  border-bottom: 1px solid transparent !important;
+  background-image: var(--mizuki-fade-hairline);
+  background-repeat: no-repeat;
+  background-position: left bottom;
+  background-size: 100% 1px;
+  padding: 16px 20px;
+}
+
+.el-card__body {
+  padding: 20px;
+}
+
+/* 嵌套卡片（相册卡 / 预设卡等）保持内缩圆角，不再叠硬边 */
+.el-card .el-card {
+  border-radius: var(--mizuki-radius-control) !important;
+}
+
+/* ══════════════════════════════════════════════════════════════
+   二、表格：网格直线 → 圆角外壳 + 斑马底纹 + 圆角行
+   ══════════════════════════════════════════════════════════════ */
+
+.el-table {
+  border-radius: var(--mizuki-radius-card) !important;
+  border: 1px solid var(--mizuki-soft-card-border) !important;
+  --el-table-border-color: transparent;
+  --el-table-header-bg-color: color-mix(in srgb, var(--el-fill-color-lighter) 70%, transparent);
+  --el-table-row-hover-bg-color: var(--mizuki-soft-hover);
+  background-color: transparent;
+  overflow: hidden;
+}
+
+.el-table th.el-table__cell {
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  /* 表头下的分隔：两端淡出的发丝线（替掉 EP 的整条实线底边框） */
+  border-bottom: none !important;
+  background-image: var(--mizuki-fade-hairline);
+  background-repeat: no-repeat;
+  background-position: left bottom;
+  background-size: 100% 1px;
+}
+
+.el-table td.el-table__cell,
+.el-table th.el-table__cell {
+  /* 去掉全部内部格线：靠斑马底纹与悬浮色区分行 */
+  border-bottom: none !important;
+  border-right: none !important;
+}
+
+/* 表头区自身的底色遮住「斑马纹穿到表头」的接缝 */
+.el-table th.el-table__cell {
+  background-color: color-mix(in srgb, var(--el-fill-color-lighter) 70%, transparent);
+}
+
+.el-table--border .el-table__cell,
+.el-table .cell {
+  border-right: none !important;
+}
+
+.el-table .el-table__row {
+  background-color: transparent;
+}
+
+/* 斑马底纹：极淡的色块，非直线 */
+.el-table .el-table__body tr:nth-child(even) td.el-table__cell {
+  background-color: var(--mizuki-soft-zebra);
+}
+
+.el-table .el-table__body tr:hover td.el-table__cell {
+  background-color: var(--mizuki-soft-hover) !important;
+}
+
+.el-table__inner-wrapper::before {
+  display: none !important;
+}
+
+.el-table__empty-block {
+  border-radius: var(--mizuki-radius-control);
+}
+
+/* 表格横向溢出条：细胶囊，不再是一根灰实条 */
+.el-table__body-wrapper .el-scrollbar__bar.is-horizontal {
+  height: 6px;
+  opacity: 0.4;
+}
+
+.el-table__body-wrapper .el-scrollbar__bar.is-horizontal .el-scrollbar__thumb {
+  background-color: var(--mizuki-scrollbar-thumb);
+  border-radius: var(--mizuki-radius-pill);
+  opacity: 0.55;
+}
+
+/* 表格在卡内的外框：卡片已有描边，表格自身再描一层会成「双层硬边」 */
+.el-card .el-table {
+  border: none !important;
+}
+
+/* ══════════════════════════════════════════════════════════════
+   三、分割线：el-divider → 渐隐发丝线（两端淡出，看不出「一条线」）
+   ══════════════════════════════════════════════════════════════ */
+
+/* 水平：用伪元素画「两端淡出」的发丝线。
+   （不用 border/背景层：EP 的 border-top 是整条实线，文字靠不透明底盖住中段，
+    左对齐时右半段仍是实线 ⇒ 仍是一根硬直线。伪元素可让两端真正淡出。） */
+.el-divider--horizontal {
+  position: relative;
+  border-top: none !important;
+  background: none !important;
+}
+
+.el-divider--horizontal::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  height: 1px;
+  background-image: var(--mizuki-fade-hairline);
+  background-repeat: no-repeat;
+  background-size: 100% 100%;
+  pointer-events: none;
+}
+
+/* 文字压在发丝线之上（自带不透明底 ⇒ 遮住中段） */
+.el-divider--horizontal .el-divider__text {
+  position: relative;
+  z-index: 1;
+}
+
+/* 垂直：同样的两端淡出 */
+.el-divider--vertical {
+  position: relative;
+  border-left: none !important;
+  background: none !important;
+}
+
+.el-divider--vertical::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 1px;
+  background-image: var(--mizuki-fade-hairline-v);
+  background-repeat: no-repeat;
+  background-size: 100% 100%;
+  pointer-events: none;
+}
+
+.el-divider--vertical .el-divider__text {
+  position: relative;
+  z-index: 1;
+}
+
+/* el-divider 的文字标签：给一枚胶囊底，去掉「文字骑在线上」的硬边感 */
+.el-divider__text {
+  background-color: var(--el-bg-color);
+  padding: 2px 12px;
+  border-radius: var(--mizuki-radius-pill);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--el-text-color-regular);
+}
+
+/* ══════════════════════════════════════════════════════════════
+   四、标签页：底线 → 胶囊轨道
+   ══════════════════════════════════════════════════════════════ */
+
+.el-tabs__nav-wrap::after {
+  display: none !important;
+}
+
+.el-tabs__item {
+  border-radius: var(--mizuki-radius-pill) !important;
+  padding: 6px 16px !important;
+  margin: 0 4px !important;
+  color: var(--el-text-color-regular);
+  transition: background-color var(--mizuki-motion-fast) ease, color var(--mizuki-motion-fast) ease;
+}
+
+.el-tabs__item:hover {
+  background-color: var(--mizuki-soft-hover);
+}
+
+.el-tabs__item.is-active {
+  background-color: var(--el-color-primary-light-9);
+  color: var(--el-color-primary);
+  font-weight: 600;
+}
+
+.el-tabs__active-bar {
+  display: none !important;
+}
+
+.el-tabs__nav-wrap.is-scrollable {
+  padding: 0;
+}
+
+/* ══════════════════════════════════════════════════════════════
+   五、步骤条：连接线 → 渐隐虚点 + 圆节点
+   ══════════════════════════════════════════════════════════════ */
+
+.el-step__icon {
+  border-radius: 50% !important;
+  border-width: 2px !important;
+  box-shadow: none;
+}
+
+.el-step__head.is-success .el-step__icon,
+.el-step__head.is-finish .el-step__icon {
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--el-color-success) 18%, transparent);
+}
+
+.el-step__line {
+  border-top-color: transparent !important;
+  background-image: var(--mizuki-fade-hairline);
+  background-repeat: no-repeat;
+  background-position: left center;
+  background-size: 100% 1px;
+}
+
+/* ══════════════════════════════════════════════════════════════
+   六、折叠面板：直角折线 → 圆角块面
+   ══════════════════════════════════════════════════════════════ */
+
+.el-collapse {
+  border: none !important;
+  background: transparent !important;
+}
+
+.el-collapse-item {
+  border: 1px solid var(--mizuki-soft-card-border) !important;
+  border-radius: var(--mizuki-radius-control) !important;
+  margin-bottom: 10px !important;
+  overflow: hidden;
+  background: var(--mizuki-soft-surface);
+}
+
+.el-collapse-item__header {
+  border-bottom-color: transparent !important;
+  height: 46px;
+  line-height: 46px;
+  font-weight: 600;
+  background-image: var(--mizuki-fade-hairline);
+  background-repeat: no-repeat;
+  background-position: left bottom;
+  background-size: 100% 1px;
+}
+
+.el-collapse-item__wrap {
+  border-bottom-color: transparent !important;
+}
+
+.el-collapse-item__content {
+  padding-bottom: 14px;
+}
+
+/* ══════════════════════════════════════════════════════════════
+   七、描述列表：格线 → 圆角块面
+   ══════════════════════════════════════════════════════════════ */
+
+.el-descriptions {
+  --el-descriptions-item-bordered-label-background: var(--el-fill-color-lighter);
+}
+
+.el-descriptions__body {
+  background: transparent !important;
+}
+
+.el-descriptions__table.is-bordered .el-descriptions__cell {
+  border: none !important;
+}
+
+.el-descriptions__table.is-bordered .el-descriptions__label {
+  border-radius: var(--mizuki-radius-control) 0 0 var(--mizuki-radius-control) !important;
+  background: var(--el-fill-color-lighter);
+}
+
+.el-descriptions__table.is-bordered .el-descriptions__content {
+  border-radius: 0 var(--mizuki-radius-control) var(--mizuki-radius-control) 0 !important;
+}
+
+.el-descriptions__table.is-bordered .el-descriptions__label + .el-descriptions__content {
+  background: var(--mizuki-soft-surface);
+}
+
+/* ══════════════════════════════════════════════════════════════
+   八、按钮组 / 单选按钮组：接缝 → 间隙 + 各自圆角
+   ══════════════════════════════════════════════════════════════ */
+
+.el-button-group {
+  display: inline-flex;
+  gap: 6px;
+}
+
+.el-button-group > .el-button {
+  border-radius: var(--mizuki-radius-control) !important;
+}
+
+.el-button-group > .el-button + .el-button {
+  margin-left: 0 !important;
+}
+
+.el-radio-button__inner {
+  border-radius: var(--mizuki-radius-pill) !important;
+  border-left: 1px solid var(--mizuki-soft-card-border) !important;
+  box-shadow: none !important;
+}
+
+.el-radio-button:first-child .el-radio-button__inner {
+  border-radius: var(--mizuki-radius-pill) !important;
+}
+
+.el-radio-button__original-radio:checked + .el-radio-button__inner {
+  box-shadow: none !important;
+}
+
+/* ══════════════════════════════════════════════════════════════
+   九、其它带棱角的件
+   ══════════════════════════════════════════════════════════════ */
+
+.el-alert {
+  border-radius: var(--mizuki-radius-control) !important;
+  border: 1px solid var(--mizuki-soft-card-border);
+}
+
+/* ── 弹窗 / 抽屉：头部与底部改成两端淡出的发丝线 ── */
+.el-dialog {
+  border: 1px solid var(--mizuki-soft-card-border) !important;
+}
+
+.el-dialog__header {
+  border-bottom: none !important;
+  margin-right: 0;
+  background-image: var(--mizuki-fade-hairline);
+  background-repeat: no-repeat;
+  background-position: left bottom;
+  background-size: 100% 1px;
+}
+
+.el-dialog__footer {
+  border-top: none !important;
+  background-image: var(--mizuki-fade-hairline);
+  background-repeat: no-repeat;
+  background-position: left top;
+  background-size: 100% 1px;
+}
+
+.el-drawer {
+  border-left: 1px solid var(--mizuki-soft-card-border) !important;
+}
+
+.el-drawer__header {
+  margin-bottom: 12px;
+  padding-bottom: 12px;
+  border-bottom: none !important;
+  color: var(--el-text-color-primary);
+  font-weight: 600;
+}
+
+.el-message-box {
+  border-radius: var(--mizuki-radius-card) !important;
+  border: 1px solid var(--mizuki-soft-card-border);
+  overflow: hidden;
+  box-shadow: var(--mizuki-lift-shadow) !important;
+}
+
+.el-message-box__header,
+.el-message-box__footer {
+  border-color: transparent !important;
+  background-image: var(--mizuki-fade-hairline);
+  background-repeat: no-repeat;
+  background-size: 100% 1px;
+  background-position: left bottom;
+}
+
+.el-message-box__footer {
+  background-position: left top;
+  background-image: var(--mizuki-fade-hairline-v);
+}
+
+.el-popper,
+.el-tooltip__popper,
+.el-select__popper,
+.el-picker__popper {
+  border-radius: var(--mizuki-radius-control) !important;
+}
+
+.el-dropdown__popper,
+.el-popper.is-dark {
+  border-radius: var(--mizuki-radius-control) !important;
+}
+
+.el-pagination {
+  --el-pagination-bg-color: transparent;
+  --el-pagination-button-bg-color: transparent;
+  gap: 4px;
+}
+
+.el-pagination button,
+.el-pagination .el-pager li {
+  border-radius: var(--mizuki-radius-control) !important;
+  min-width: 30px;
+  height: 30px;
+  line-height: 28px;
+}
+
+.el-pagination .el-pager li.is-active {
+  background-color: var(--el-color-primary-light-9);
+  color: var(--el-color-primary);
+}
+
+.el-progress-bar__outer,
+.el-progress-bar__inner {
+  border-radius: var(--mizuki-radius-pill) !important;
+}
+
+.el-progress-bar__inner {
+  background: var(--mizuki-gradient-primary) !important;
+}
+
+.el-switch__core {
+  border-radius: var(--mizuki-radius-pill) !important;
+  border: 1px solid var(--el-border-color);
+}
+
+.el-checkbox__inner,
+.el-radio__inner {
+  border-radius: 50% !important;
+}
+
+.el-checkbox__inner {
+  border-radius: var(--mizuki-radius-control) !important;
+}
+
+.el-upload-dragger {
+  border-radius: var(--mizuki-radius-card) !important;
+  border-style: dashed;
+  border-color: var(--mizuki-soft-card-border);
+  background-color: var(--mizuki-soft-surface);
+}
+
+.el-upload-dragger:hover {
+  border-color: var(--el-color-primary-light-5);
+  background-color: var(--mizuki-soft-hover);
+}
+
+.el-slider__runway {
+  border-radius: var(--mizuki-radius-pill);
+}
+
+.el-slider__bar,
+.el-slider__button {
+  border-radius: var(--mizuki-radius-pill);
+}
+
+.el-date-editor.el-input__wrapper,
+.el-date-editor.el-input__wrapper.is-focus {
+  border-radius: var(--mizuki-radius-control) !important;
+}
+
+.el-input-number .el-input__wrapper {
+  border-radius: var(--mizuki-radius-control) !important;
+}
+
+.el-input__wrapper,
+.el-select__wrapper,
+.el-textarea__inner {
+  border-radius: var(--mizuki-radius-control) !important;
+  box-shadow: 0 0 0 1px var(--el-border-color) inset !important;
+  transition: box-shadow var(--mizuki-motion-fast) ease, background-color var(--mizuki-motion-fast) ease;
+}
+
+.el-input__wrapper:hover,
+.el-select__wrapper:hover,
+.el-textarea__inner:hover {
+  box-shadow: 0 0 0 1px var(--el-border-color-dark) inset !important;
+}
+
+.el-input__wrapper.is-focus,
+.el-select__wrapper.is-focused,
+.el-textarea__inner:focus {
+  box-shadow: 0 0 0 1px var(--el-color-primary) inset, var(--mizuki-focus-ring) !important;
+}
+
+.el-input__wrapper.is-error,
+.el-textarea__inner.is-error {
+  box-shadow: 0 0 0 1px var(--el-color-danger) inset !important;
+}
+
+.el-textarea__inner {
+  padding: 10px 14px;
+}
+
+/* 标签 / 徽标：胶囊化（el-tag 已有，补 el-badge） */
+.el-tag {
+  border-radius: var(--mizuki-radius-pill) !important;
+  border-color: transparent;
+}
+
+.el-badge__content {
+  border-radius: var(--mizuki-radius-pill);
+  border: 1px solid var(--el-bg-color);
+}
+
+/* 空态：去掉插图底部的硬方块感 */
+.el-empty__image svg {
+  border-radius: var(--mizuki-radius-card);
+}
+
+/* 全局滚动条：细圆角胶囊 */
+::-webkit-scrollbar-thumb {
+  border-radius: var(--mizuki-radius-pill) !important;
+}
+
+/* 终端保持直角（等宽字体的可读性优先），其余滚动条已全局胶囊化 */
+.terminal-container::-webkit-scrollbar-thumb {
+  border-radius: 0 !important;
+}
+
+/* ── 外壳内的滚动容器：隐去滚动条本身 ────────────────────────────
+   轨道在浅色底上会呈现为一条硬直线，与「无棱角」目标相悖。
+   容器仍可正常滚动（滚轮 / 触控板 / 键盘），只是不画轨道。
+   选择器需压过 theme.css 的全局 `*:not(...)::-webkit-scrollbar`（0,2,1）
+   与 `*:not(...)` 的 scrollbar-width 规则，故带 :root 前缀提权。 */
+:root .shell .rail-nav,
+:root .shell .stage-main {
+  scrollbar-width: none;
+}
+
+:root .shell .rail-nav::-webkit-scrollbar,
+:root .shell .stage-main::-webkit-scrollbar {
+  display: none;
+}

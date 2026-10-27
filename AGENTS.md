@@ -145,6 +145,19 @@ docs/            规格、决策、台账、阶段提示词（见 §10）
 - **状态**：`stores/auth.ts`（localStorage；refreshToken 只用于 refresh）、`stores/system.ts`（运行模式，失败 fail-open）。
 - **构建要点**：vite 把 `@mizuki/shared` 别名指到 `src/index.ts`（shared 的 CJS 产物 rollup 无法静态分析 `__exportStar`）；
   dev 代理 `/api` 与 `/site-assets` → 20154。
+- **[UI-U3] 布局外壳「Nebula Shell」**（`layouts/MainLayout.vue`，2026-10-26 重写）：
+  - 结构 = **左悬浮胶囊导航栏**（`rail`：品牌区 + 五组导航 + 底部动作区[主题三态/登出]）
+    + **浮动玻璃顶栏**（`topbar`：折叠钮 + 页面标题 + 副标题 + AI 助手胶囊 + 用户胶囊）
+    + **内容浮岛**（`stage-main`，独立滚动）；
+  - **页面标题一律上提到顶栏**（取 `route.meta.title`；集合页按 `route.params.type` 映射七类中文名），
+    页内**不再写大标题**，只留副标题与右对齐操作簇 —— 加新页时遵循此约定，别再写页内 `<h2>`；
+  - 激活态自绘（`isActive()`：路径或子路径命中；`/settings` 带 `exact` 标记，
+    否则会与 `/settings/ai` 抢高亮）—— **不再使用 `el-menu`**；
+  - **「无棱角无硬直线」的唯一样式收敛点 = `src/styles/soft-ui.css`**（在 `theme.css` 之后加载，
+    顺序敏感）。所有分隔统一走 `--mizuki-fade-hairline`（两端淡出的发丝线）；
+    表格格线全拆改斑马底纹；圆角一律走 `--mizuki-radius-*` 族，**禁写魔法数**。
+  - 外壳令牌在 `styles/theme.css`（`--mizuki-rail-width` / `--mizuki-shell-bg` / `--mizuki-fade-hairline` 等）。
+  - **例外**：终端、编辑器内部正文排版、仪表盘点阵网格保留棱角/直线（见 `docs/audits/ui-u3/README.md` §5）。
 
 ## 7. 数据与运行时目录
 
@@ -204,9 +217,12 @@ docs/            规格、决策、台账、阶段提示词（见 §10）
   不再对 chunk 做语法降级与 JS 压缩，>1 MiB 链路不触发。代价＝未压缩产物（JS 6.08 MB / gzip 1.35 MB，
   部署侧需 gzip/br），一行可回退。**勿用 `manualChunks` 拆 element-plus 去复现「绿色 build」——
   实测运行期 TDZ 崩溃（环形 chunk 破坏 ESM 求值序）。** 见 ADR-027 与 `docs/SESSIONS.md` 本轮记录。
-- **本机 `pnpm test` 全绿**（2026-10-20 实测，U3-P3 批）：**62 文件 / 546 用例全绿**
-  （全量单批 `--maxWorkers=1`；分批 <=6 文件亦全绿）。此前记的「本机 484/490，失败在 p9 进程链」
+- **本机 `pnpm test` 全绿**（2026-10-26 实测，UI-U3 批）：**74 文件 / 652 用例（648 通过 + 4 跳过）全绿**
+  （分批 ≤6 文件 + `--maxWorkers=1`，13 批逐批计数相加）。此前记的「本机 484/490，失败在 p9 进程链」
   系 **DSH 运行时无 npm/pnpm** 时的表现；在具备 pnpm 的普通终端里已不复现。
+  **再一条（2026-10-26 实测）**：`pnpm test` **单批全量并行跑会撞限流器** ⇒ 出现 HTTP 429
+  （典型如 `p9e` 的 ④⑥ 期望 200 得 429）；`p9e` 单独跑 8/8 绿 ⇒ **不是回归，是并行度问题**。
+  **判据**：出现 429 一律先单独跑该文件，再按分批口径复核全量。
 - **非本仓产物**（2026-10-06 落盘，均未跟踪）：`.acl-recovery/`、`.mnemosyne-test/`、`dump-config-final.txt`、
   `junction-snapshot-20261006.txt`。别当项目内容，也**不要在未确认前删除**。
   （同期的 `cordis.patch.yml` 与 `README.zh.md`——DSH 插件脚手架残留——已于 2026-10-15 经确认删除。）
@@ -214,7 +230,14 @@ docs/            规格、决策、台账、阶段提示词（见 §10）
 - **媒体白名单口径（曾漂移，已订正 2026-10-15）**：根 `README.md` 曾写六格式（ADR-013 时代口径），已改为终集
   九扩展名 `jpg/jpeg/png/gif/webp/avif/bmp/tiff/tif`（ADR-017，`svg` 排除；**媒体库面 bmp 防御拒绝、相册面准入**）。
   权威源：`docs/decisions/ADR-017-upload-whitelist-final.md` 与 `modules/media/media.service.ts` 的常量。
-- **未清项（2026-10-23 U4-AI2 交付后）**：
+- **未清项（2026-10-26 UI-U3 交付后）**：
+  - **已交付（UI-U3）**：面板布局重构「Nebula Shell」——左悬浮胶囊导航栏 + 浮动玻璃顶栏 + 内容浮岛，
+    全局柔化层 `apps/web/src/styles/soft-ui.css`（无棱角无硬直线），18 视图页标题上提顶栏；
+    报告 `docs/audits/ui-u3/README.md`。**只碰 `apps/web/**`，零后端改动、零新增依赖。**
+    ⚠ **工作树里 `AiSettingsPage.vue` 的 550/183 行批量改动是 U4-UI1 批遗留的未提交工作**
+    （AI 设置页版式重做：区块化 + 生成参数改滑条），**不是 UI-U3 产物**；UI-U3 在该文件内只有
+    2 条分隔符柔化规则（`--mizuki-fade-hairline` / `-v`），且这些分隔符元素只存在于 U4-UI1 的新结构里
+    ⇒ **文本上无法拆分**，提交时须整文件入库并在提交信息中标明这条边界。
   - **已交付**：U4-AI1（AI 接入后端：provider 档案 / 掩码读取 / 出站安全闸 / SSE 流式代理 / 动作提示词与上下文注入 /
     F1·F2 既存缺陷；真链路 L1–L4 全绿；报告 `docs/audits/u4-ai1/README.md`）。
   - **已交付**：U4-AI2（前端：全局右侧聊天栏 + `/settings/ai` + 5 动作 + 上下文注册 + 三键插入 + shared 纯函数 17 单测；

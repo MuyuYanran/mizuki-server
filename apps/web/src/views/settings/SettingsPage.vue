@@ -204,10 +204,6 @@ onMounted(() => {
 <template>
   <el-card v-loading="loading">
     <template #header>
-      <div class="card-header">
-        <span class="page-title">系统设置</span>
-        <span class="page-subtitle">运行态参数与账户安全管理</span>
-      </div>
     </template>
     <el-alert type="info" :closable="false" class="boundary-note">
       本页仅管理运行态设置（site_setting 表）。启动配置（如 Mizuki 项目根路径、运行模式）在初始化向导设定，不在此修改。Mizuki 侧 config/主题配置文件接管属二期能力。
@@ -276,20 +272,6 @@ onMounted(() => {
 </template>
 
 <style scoped>
-.card-header {
-  display: flex;
-  align-items: baseline;
-  gap: 12px;
-}
-.page-title {
-  font-size: 18px;
-  font-weight: 700;
-  color: var(--el-text-color-primary);
-}
-.page-subtitle {
-  font-size: 13px;
-  color: var(--el-text-color-secondary);
-}
 .boundary-note {
   margin-bottom: 16px;
   border-radius: var(--mizuki-radius-control);

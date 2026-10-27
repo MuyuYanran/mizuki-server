@@ -105,7 +105,7 @@ const styleObject = computed(() => {
   padding: 0;
   overflow: hidden;
   background: var(--el-bg-color);
-  border: 1px solid var(--mizuki-border-hairline);
+  border: 1px solid var(--mizuki-soft-card-border);
   border-radius: var(--mizuki-radius-card);
   box-shadow: var(--mizuki-card-shadow);
   transition: box-shadow var(--mizuki-motion-base), border-color var(--mizuki-motion-base);
@@ -132,7 +132,12 @@ const styleObject = computed(() => {
   justify-content: space-between;
   padding: 12px 16px;
   background: var(--el-fill-color-extra-light);
-  border-bottom: 1px solid var(--mizuki-border-hairline);
+  /* [UI-U3] 去掉硬底线，改渐隐发丝线（两端淡出 ⇒ 视觉无直线棱角） */
+  border-bottom: none;
+  background-image: var(--mizuki-fade-hairline);
+  background-repeat: no-repeat;
+  background-position: left bottom;
+  background-size: 100% 1px;
   user-select: none;
   flex-shrink: 0;
 }

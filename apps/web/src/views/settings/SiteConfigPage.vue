@@ -780,7 +780,6 @@ onMounted(() => {
 <template>
   <div v-loading="loading" class="site-config-page panel-card">
     <div class="page-header">
-      <h2 class="page-title">站点配置</h2>
       <span class="page-subtitle">Astro 博客受控配置管理</span>
     </div>
     <el-alert

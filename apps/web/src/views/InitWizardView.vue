@@ -384,7 +384,7 @@ async function submit(): Promise<void> {
   background: var(--mizuki-glass-bg);
   backdrop-filter: var(--mizuki-glass-blur);
   -webkit-backdrop-filter: var(--mizuki-glass-blur);
-  border: 1px solid var(--mizuki-border-hairline);
+  border: 1px solid var(--mizuki-soft-card-border);
   padding: 32px;
 }
 .wizard-title {
@@ -401,7 +401,7 @@ async function submit(): Promise<void> {
   margin-bottom: 24px;
   border-radius: var(--mizuki-radius-control);
   overflow: hidden;
-  border: 1px solid var(--mizuki-border-hairline);
+  border: 1px solid var(--mizuki-soft-card-border);
 }
 /* [Phase2-B1 / R2-3] 步骤标签不折行：nowrap + 防收缩；窄窗口字号略缩 */
 .wizard-steps :deep(.el-step__title) {
@@ -418,7 +418,7 @@ async function submit(): Promise<void> {
 }
 /* [U3-P3/K2] 目录点选器 */
 .browse-panel {
-  border: 1px solid var(--mizuki-border-hairline);
+  border: 1px solid var(--mizuki-soft-card-border);
   border-radius: var(--mizuki-radius-control);
   padding: 12px 14px;
   background: var(--el-fill-color-extra-light);
@@ -458,7 +458,7 @@ async function submit(): Promise<void> {
   margin: 0;
   max-height: 220px;
   overflow-y: auto;
-  border: 1px solid var(--mizuki-border-hairline);
+  border: 1px solid var(--mizuki-soft-card-border);
   border-radius: var(--mizuki-radius-control);
 }
 .browse-item {
@@ -467,7 +467,7 @@ async function submit(): Promise<void> {
   gap: 8px;
   padding: 7px 10px;
   cursor: pointer;
-  border-bottom: 1px dashed var(--mizuki-border-hairline);
+  border-bottom: 1px dashed var(--mizuki-soft-card-border);
 }
 .browse-item:last-child {
   border-bottom: none;
@@ -504,7 +504,7 @@ async function submit(): Promise<void> {
   align-items: center;
   gap: 8px;
   padding: 8px 0;
-  border-bottom: 1px dashed var(--mizuki-border-hairline);
+  border-bottom: 1px dashed var(--mizuki-soft-card-border);
 }
 .check-name {
   font-weight: 600;
@@ -528,7 +528,7 @@ async function submit(): Promise<void> {
   width: 100%;
   box-sizing: border-box;
   align-items: flex-start;
-  border: 1px solid var(--mizuki-border-hairline);
+  border: 1px solid var(--mizuki-soft-card-border);
   border-radius: var(--mizuki-radius-control);
   background: var(--el-fill-color-extra-light);
   transition: all var(--mizuki-motion-fast) ease;

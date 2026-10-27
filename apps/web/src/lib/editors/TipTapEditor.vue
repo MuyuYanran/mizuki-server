@@ -443,9 +443,11 @@ defineExpose({
 <style scoped>
 /* [Phase2-B1.5 / R2-11] 全部颜色改挂主题变量：亮/暗随 Element 变量与
    theme.css 的终端配色自动切换，本文件零硬编码颜色。 */
+/* [UI-U3] 编辑器外壳：圆角放大 + 极淡描边（去 4px 直角棱） */
 .tiptap-editor {
-  border: 1px solid var(--el-border-color);
-  border-radius: 4px;
+  border: 1px solid var(--mizuki-soft-card-border);
+  border-radius: var(--mizuki-radius-control);
+  overflow: hidden;
 }
 
 .tiptap-toolbar {
@@ -453,8 +455,13 @@ defineExpose({
   flex-wrap: wrap;
   gap: 8px;
   padding: 8px;
-  border-bottom: 1px solid var(--el-border-color);
-  background: var(--el-fill-color-light);
+  /* [UI-U3] 工具栏下缘改发丝线 */
+  border-bottom: none;
+  background-color: var(--el-fill-color-light);
+  background-image: var(--mizuki-fade-hairline);
+  background-repeat: no-repeat;
+  background-position: left bottom;
+  background-size: 100% 1px;
 }
 
 /* [Phase5-E1/A6b] 粘贴/拖拽直传占位指示（灰字，随 Element 双主题） */
@@ -488,7 +495,8 @@ defineExpose({
 
 .tiptap-content :deep(.ProseMirror th),
 .tiptap-content :deep(.ProseMirror td) {
-  border: 1px solid var(--el-border-color);
+  border: 1px solid var(--mizuki-vditor-cell-border);
+  border-radius: var(--mizuki-radius-control);
   padding: 6px 10px;
 }
 

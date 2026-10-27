@@ -263,10 +263,6 @@ onBeforeUnmount(() => {
 <template>
   <div v-loading="loading" class="dashboard-page panel-card">
     <div class="page-header">
-      <div class="header-left">
-        <h2 class="page-title">系统仪表盘</h2>
-        <span class="page-subtitle">工作台自由画布 · 随意拖拽卡片与调整尺寸</span>
-      </div>
       <div class="header-actions">
         <el-button size="default" class="reset-btn" title="清空自定义位置并恢复默认排布" @click="resetLayout">
           <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 4px;">
@@ -475,7 +471,7 @@ onBeforeUnmount(() => {
 .page-header {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-end;
   flex-shrink: 0;
 }
 

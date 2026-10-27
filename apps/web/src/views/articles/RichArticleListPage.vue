@@ -58,7 +58,6 @@ async function onDelete(row: ArticleAdminView): Promise<void> {
   <div class="rich-article-list-page panel-card">
     <div class="page-header">
       <div class="header-title-wrap">
-        <h2>富文本文章</h2>
         <span class="header-desc">可视化所见即所得文章列表</span>
       </div>
       <el-button type="primary" class="btn-gradient-primary" @click="goNew">

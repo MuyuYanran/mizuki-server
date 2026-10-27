@@ -158,7 +158,6 @@ onMounted(() => {
   <el-card v-loading="loading">
     <template #header>
       <div class="card-header">
-        <span class="page-title">相册管理</span>
         <el-button type="primary" class="btn-gradient-primary" @click="openCreate">
           <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 4px;">
             <line x1="12" y1="5" x2="12" y2="19" />
@@ -274,12 +273,8 @@ onMounted(() => {
 .card-header {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-}
-.page-title {
-  font-size: 18px;
-  font-weight: 700;
-  color: var(--el-text-color-primary);
+  justify-content: flex-end;
+  gap: 10px;
 }
 .date-input {
   width: 100%;
@@ -296,7 +291,7 @@ onMounted(() => {
   cursor: pointer;
   margin-bottom: 16px;
   border-radius: var(--mizuki-radius-card);
-  border: 1px solid var(--mizuki-border-hairline);
+  border: 1px solid var(--mizuki-soft-card-border);
   box-shadow: var(--mizuki-card-shadow);
   transition: transform var(--mizuki-motion-fast) var(--mizuki-motion-spring),
               box-shadow var(--mizuki-motion-fast),

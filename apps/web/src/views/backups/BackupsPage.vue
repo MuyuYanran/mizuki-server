@@ -111,7 +111,6 @@ onMounted(() => {
   <el-card v-loading="loading">
     <template #header>
       <div class="card-header">
-        <span class="page-title">备份与恢复</span>
         <el-button type="primary" class="btn-gradient-primary" @click="openCreate">
           <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 4px;">
             <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
@@ -165,11 +164,7 @@ onMounted(() => {
 .card-header {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-}
-.page-title {
-  font-size: 18px;
-  font-weight: 700;
-  color: var(--el-text-color-primary);
+  justify-content: flex-end;
+  gap: 10px;
 }
 </style>

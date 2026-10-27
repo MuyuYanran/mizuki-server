@@ -394,9 +394,11 @@ defineExpose({ getValue, setValue, insertAtCursor, getSelectedText, hasSelection
 }
 
 /* 让 Vditor 容器跟随 Element 边框变量，避免硬编码 */
+/* [UI-U3] 编辑器外壳：圆角放大 + 极淡描边（去 4px 直角棱） */
 :deep(.vditor) {
-  border: 1px solid var(--el-border-color);
-  border-radius: 4px;
+  border: 1px solid var(--mizuki-soft-card-border);
+  border-radius: var(--mizuki-radius-control);
+  overflow: hidden;
 }
 
 :deep(.vditor.vditor--fullscreen) {

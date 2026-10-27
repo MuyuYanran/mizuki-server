@@ -340,7 +340,7 @@ async function onDelete(item: CustomThemeItem): Promise<void> {
 .preset-card {
   display: flex;
   flex-direction: column;
-  border: 1px solid var(--mizuki-border-hairline);
+  border: 1px solid var(--mizuki-soft-card-border);
   border-radius: var(--mizuki-radius-card);
   padding: 16px;
   transition: border-color var(--mizuki-motion-fast) ease,
@@ -403,7 +403,7 @@ async function onDelete(item: CustomThemeItem): Promise<void> {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  border: 1px solid var(--el-border-color-lighter);
+  border: 1px solid var(--mizuki-soft-card-border);
   border-radius: var(--mizuki-radius-control);
   padding: 10px 14px;
   transition: border-color 150ms ease;

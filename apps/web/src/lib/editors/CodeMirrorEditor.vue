@@ -210,9 +210,10 @@ defineExpose({ getValue, insertAtCursor, getSelectedText, hasSelection, replaceS
 <style scoped>
 /* [R2-11] 零硬编码颜色：亮色面走 Element 变量（:not(.dark) 前缀确保不被
    oneDark 注入样式 unpredictable 覆盖），暗色由 oneDark 扩展全量接管。 */
+/* [UI-U3] 编辑器外壳：圆角放大 + 极淡描边（去 4px 直角棱） */
 .cm-editor-wrap {
-  border: 1px solid var(--el-border-color);
-  border-radius: 4px;
+  border: 1px solid var(--mizuki-soft-card-border);
+  border-radius: var(--mizuki-radius-control);
   overflow: hidden;
 }
 
@@ -222,8 +223,13 @@ defineExpose({ getValue, insertAtCursor, getSelectedText, hasSelection, replaceS
 
 /* 亮色行号栏 / current-line / placeholder（暗色交由 oneDark） */
 html:not(.dark) .cm-editor-wrap :deep(.cm-gutters) {
-  border-right: 1px solid var(--el-border-color);
+  /* [UI-U3] 行号栏右侧改发丝线 */
+  border-right: none;
   background: var(--el-fill-color-light);
+  background-image: var(--mizuki-fade-hairline-v);
+  background-repeat: no-repeat;
+  background-position: right top;
+  background-size: 1px 100%;
 }
 
 html:not(.dark) .cm-editor-wrap :deep(.cm-activeLine) {

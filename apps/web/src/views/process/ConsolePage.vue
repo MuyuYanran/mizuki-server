@@ -436,10 +436,6 @@ onMounted(() => {
 <template>
   <el-card class="console-card">
     <template #header>
-      <div class="card-header">
-        <span class="page-title">构建与运行控制台</span>
-        <span class="page-subtitle">执行构建任务与查看实时日志输出</span>
-      </div>
     </template>
 
     <div class="task-bar">
@@ -618,20 +614,6 @@ onMounted(() => {
 </template>
 
 <style scoped>
-.card-header {
-  display: flex;
-  align-items: baseline;
-  gap: 12px;
-}
-.page-title {
-  font-size: 18px;
-  font-weight: 700;
-  color: var(--el-text-color-primary);
-}
-.page-subtitle {
-  font-size: 13px;
-  color: var(--el-text-color-secondary);
-}
 .task-bar {
   display: flex;
   gap: 10px;
@@ -726,7 +708,7 @@ onMounted(() => {
   font-size: 12px;
   line-height: 1.6;
   background: var(--el-fill-color-extra-light);
-  border: 1px solid var(--mizuki-border-hairline);
+  border: 1px solid var(--mizuki-soft-card-border);
   border-radius: var(--mizuki-radius-control);
   padding: 10px 12px;
 }

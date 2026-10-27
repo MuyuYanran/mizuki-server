@@ -80,7 +80,6 @@ onMounted(() => {
   <el-card v-loading="loading">
     <template #header>
       <div class="card-header">
-        <span class="page-title">媒体库</span>
         <ImageUploader multiple label="上传图片" @uploaded="onUploaded" />
       </div>
     </template>
@@ -126,21 +125,17 @@ onMounted(() => {
 .card-header {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-end;
+  gap: 10px;
 }
 
-.page-title {
-  font-size: 18px;
-  font-weight: 700;
-  color: var(--el-text-color-primary);
-}
 
 .thumb {
   width: 56px;
   height: 56px;
   border-radius: var(--mizuki-radius-control);
   background: var(--el-fill-color-light);
-  border: 1px solid var(--mizuki-border-hairline);
+  border: 1px solid var(--mizuki-soft-card-border);
   transition: transform var(--mizuki-motion-fast) ease;
 }
 

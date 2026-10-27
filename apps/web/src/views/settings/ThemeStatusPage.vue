@@ -241,7 +241,6 @@ onMounted(() => {
   <div v-loading="loading" class="theme-status-page panel-card">
     <div class="page-header">
       <div class="page-heading">
-        <h2 class="page-title">主题状态</h2>
         <span class="page-subtitle">主题身份 / 指纹 / 漂移基线 / 声明探针（只读诊断）</span>
       </div>
       <div class="page-actions">

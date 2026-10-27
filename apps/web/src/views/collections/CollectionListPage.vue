@@ -345,7 +345,6 @@ function goHome(): void {
   <el-card v-else v-loading="loading">
     <template #header>
       <div class="card-header">
-        <span class="collection-title">{{ config.title }}</span>
         <el-button type="primary" class="btn-gradient-primary" @click="openCreate">
           <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 4px;">
             <line x1="12" y1="5" x2="12" y2="19" />
@@ -418,12 +417,8 @@ function goHome(): void {
 .card-header {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-}
-.collection-title {
-  font-size: 18px;
-  font-weight: 700;
-  color: var(--el-text-color-primary);
+  justify-content: flex-end;
+  gap: 10px;
 }
 .group-bar {
   margin-bottom: 16px;
@@ -446,7 +441,7 @@ function goHome(): void {
   padding: 10px 14px;
   background: var(--el-fill-color-light);
   border-radius: var(--mizuki-radius-control);
-  border: 1px solid var(--mizuki-border-hairline);
+  border: 1px solid var(--mizuki-soft-card-border);
 }
 .quick-label {
   color: var(--el-text-color-secondary);

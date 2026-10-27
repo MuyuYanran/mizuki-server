@@ -102,6 +102,54 @@
   --mizuki-nav-item-bg-hover: oklch(0.95 0.025 240);     /* 主题 --btn-plain-bg-hover 亮（variables.styl:37） */
   --mizuki-nav-item-bg-active: oklch(0.98 0.01 240);     /* 主题 --btn-plain-bg-active 亮（variables.styl:39） */
   --mizuki-nav-divider: rgba(0, 0, 0, 0.08);             /* 主题 --line-divider 亮 black(0.08)（variables.styl:47） */
+
+  /* ── [UI-U3] 柔化外壳令牌（Nebula Shell） ─────────────────────────
+     布局重构新增：左侧导航栏 + 浮动顶栏 + 浮岛内容区。全部走变量，
+     亮暗两态各给一套值（暗态覆盖块见文末）。 */
+  --mizuki-rail-width: 244px;
+  --mizuki-rail-width-collapsed: 78px;
+  --mizuki-stage-pad: 22px;
+  --mizuki-radius-shell: 1.5rem;      /* 顶栏 / 导航面板外壳圆角 */
+  --mizuki-radius-item: 0.9rem;       /* 导航项 / 胶囊按钮圆角 */
+
+  /* 渐隐发丝线：代替硬直线分隔（两端淡出 ⇒ 视觉上无「棱角直线」） */
+  --mizuki-fade-hairline: linear-gradient(
+    90deg,
+    transparent 0%,
+    var(--mizuki-border-hairline) 12%,
+    var(--mizuki-border-hairline) 88%,
+    transparent 100%
+  );
+  --mizuki-fade-hairline-v: linear-gradient(
+    180deg,
+    transparent 0%,
+    var(--mizuki-border-hairline) 14%,
+    var(--mizuki-border-hairline) 86%,
+    transparent 100%
+  );
+
+  /* 浮岛玻璃面（顶栏 / 导航面板）：半透 + 模糊，不用实色直线框 */
+  --mizuki-shell-glass: rgba(255, 255, 255, 0.66);
+  --mizuki-shell-glass-strong: rgba(255, 255, 255, 0.82);
+
+  /* 外壳背景：多层柔和径向光晕叠在页底色上（无直线、无硬边） */
+  --mizuki-shell-bg:
+    radial-gradient(
+      1100px 640px at 6% -10%,
+      color-mix(in srgb, var(--el-color-primary) 15%, transparent) 0%,
+      transparent 62%
+    ),
+    radial-gradient(
+      900px 520px at 98% 4%,
+      color-mix(in srgb, var(--el-color-primary-light-5) 14%, transparent) 0%,
+      transparent 60%
+    ),
+    radial-gradient(
+      820px 560px at 82% 104%,
+      color-mix(in srgb, var(--el-color-primary) 11%, transparent) 0%,
+      transparent 62%
+    ),
+    var(--mizuki-body-bg);
 }
 
 /* ── 暗色（Element Plus 官方 dark 变量 + Mizuki 主色阶重设） ────── */
@@ -174,6 +222,10 @@ html.dark {
   --mizuki-nav-item-bg-hover: oklch(0.3 0.035 240);      /* 主题 --btn-plain-bg-hover 暗（variables.styl:37） */
   --mizuki-nav-item-bg-active: oklch(0.27 0.025 240);    /* 主题 --btn-plain-bg-active 暗（variables.styl:39） */
   --mizuki-nav-divider: rgba(255, 255, 255, 0.08);       /* 主题 --line-divider 暗 white(0.08)（variables.styl:47） */
+
+  /* ── [UI-U3] 柔化外壳令牌（暗态） ── */
+  --mizuki-shell-glass: rgba(26, 22, 28, 0.62);
+  --mizuki-shell-glass-strong: rgba(26, 22, 28, 0.82);
 }
 
 /* ── 全局观感（卡片柔化投影 / 页面背景由布局层引用变量） ───────── */

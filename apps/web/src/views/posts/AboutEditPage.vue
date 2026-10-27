@@ -113,7 +113,6 @@ function onUploadReplace(event: Event): void {
 <template>
   <div class="about-edit-page panel-card" v-loading="loading">
     <div class="page-header">
-      <h2>关于页编辑</h2>
       <div class="header-actions">
         <el-select v-model="engine" size="small" @change="onEngineChange" style="width: 100px">
           <el-option label="Vditor" value="vditor" />

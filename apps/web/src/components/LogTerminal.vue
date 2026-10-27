@@ -119,7 +119,7 @@ onBeforeUnmount(() => {
   font-size: 12px;
   padding: 12px;
   border-radius: var(--mizuki-radius-control);
-  border: 1px solid var(--mizuki-border-hairline);
+  border: 1px solid var(--mizuki-soft-card-border);
   box-shadow: inset 0 2px 6px rgba(0, 0, 0, 0.05);
 }
 /* 滚动条走主题变量（webkit + firefox 两套） */

@@ -195,7 +195,6 @@ function goBack(): void {
   <div class="rich-article-edit-page panel-card" v-loading="loading">
     <div class="page-header">
       <el-button @click="goBack">返回</el-button>
-      <h2>{{ isEdit ? '编辑富文本文章' : '新建富文本文章' }}</h2>
       <div class="header-actions">
         <el-button size="small" @click="onExportHtml" :loading="exporting">导出 HTML</el-button>
         <el-button size="small" @click="onExportMd">导出 Markdown</el-button>
@@ -291,7 +290,7 @@ function goBack(): void {
 
 .meta-sidebar {
   flex-shrink: 0;
-  border: 1px solid var(--mizuki-border-hairline);
+  border: 1px solid var(--mizuki-soft-card-border);
   border-radius: var(--mizuki-radius-control);
   background: var(--el-fill-color-blank);
   padding: 14px;
@@ -314,7 +313,7 @@ function goBack(): void {
   width: 4px;
   height: 48px;
   border-radius: var(--mizuki-radius-pill);
-  background: var(--mizuki-border-hairline);
+  background: var(--mizuki-soft-card-border);
   transition: background var(--mizuki-motion-fast), height var(--mizuki-motion-fast);
 }
 
