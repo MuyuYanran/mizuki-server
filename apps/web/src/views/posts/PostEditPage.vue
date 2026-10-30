@@ -29,6 +29,10 @@ import { dateOrEmpty } from '../../lib/format';
 import { useSplitter } from '../../lib/float';
 // [U4-AI2] AI 聊天栏上下文注册（编辑器 ⇄ 聊天栏的唯一接线口）
 import { registerEditorContext, type AiEditorHandle } from '../../lib/ai/context';
+// [U4-AI3/B] meta 回填目标注册 + 发布前检查清单（纯函数，规则不在此重写）
+import { registerMetaTarget } from '../../lib/ai/backfill';
+import { checkPublishReadiness } from '@mizuki/shared';
+import { isShironeTheme, postExtensions } from '../../stores/theme';
 
 const {
   width: sidebarWidth,
@@ -81,13 +85,57 @@ const editorRef = ref<AiEditorHandle | null>(null);
 
 // [U4-AI2] 把本页编辑器注册为 AI 聊天栏的上下文来源（卸载时自动注销）
 let unregisterAiContext: (() => void) | null = null;
+// [U4-AI3/B] 把本页表单注册为 AI meta 的回填目标（卸载时自动注销）
+let unregisterMetaTarget: (() => void) | null = null;
 onMounted(() => {
   unregisterAiContext = registerEditorContext('markdown', editorRef);
+  unregisterMetaTarget = registerMetaTarget({
+    read: () => ({
+      title: fm.value.title,
+      summary: fm.value.description,
+      tags: [...fm.value.tags],
+    }),
+    apply: (patch) => {
+      // 只改传入的字段；未传的键一个字节都不动（回填卡片已按用户勾选组装 patch）
+      if (patch.title !== undefined) fm.value.title = patch.title;
+      if (patch.summary !== undefined) fm.value.description = patch.summary;
+      if (patch.tags !== undefined) fm.value.tags = patch.tags;
+    },
+    describe: () => '标题 / 摘要 / 标签',
+  });
 });
 onBeforeUnmount(() => {
   unregisterAiContext?.();
   unregisterAiContext = null;
+  unregisterMetaTarget?.();
+  unregisterMetaTarget = null;
 });
+
+/**
+ * [U4-AI3/B] 发布前检查清单（消费 shared 纯函数；规则不在此重写）。
+ *
+ * `requirePublished` 按**主题能力**取：Shirone 的构建期 schema 把 published 定为必填，
+ * 缺它构建会 throw；Mizuki 档允许为空（作草稿）。用能力面而非档位名判定，
+ * 与后端 `capabilities` 保持同一口径。
+ */
+const publishCheck = computed(() =>
+  checkPublishReadiness({
+    frontmatter: {
+      ...fullFm.value,
+      title: fm.value.title,
+      description: fm.value.description,
+      tags: fm.value.tags,
+      category: fm.value.category,
+      ...(fm.value.published !== '' ? { published: fm.value.published } : {}),
+    },
+    content: content.value,
+    extensions: postExtensions.value,
+    requirePublished: isShironeTheme.value,
+  }),
+);
+
+/** 检查区是否展开（默认折叠：不打扰，但状态徽标常显） */
+const publishCheckOpen = ref(false);
 
 /** [Phase4-D2/需求4] 编辑器图片按钮 → MediaPicker 选图后于光标处插入 Markdown 图片引用 */
 const imagePickerVisible = ref(false);
@@ -474,8 +522,45 @@ function formatValue(value: unknown): string {
           <span>上传 Markdown</span>
           <input type="file" accept=".md,.markdown,.txt" hidden @change="onMdUpload" />
         </label>
+        <!-- [U4-AI3/B] 发布前检查清单（默认折叠；状态徽标常显） -->
+        <el-badge
+          :value="publishCheck.errorCount > 0 ? publishCheck.errorCount : 0"
+          :hidden="publishCheck.errorCount === 0"
+          type="danger"
+        >
+          <el-button size="small" @click="publishCheckOpen = !publishCheckOpen">
+            发布前检查
+            <span class="publish-check-summary">
+              {{ publishCheck.canPublish ? '可发布' : `${publishCheck.errorCount} 项待处理` }}
+            </span>
+          </el-button>
+        </el-badge>
         <el-button type="primary" :loading="saving" class="btn-gradient-primary" @click="onSave">保存</el-button>
       </div>
+    </div>
+
+    <!-- [U4-AI3/B] 检查清单展开区：error 阻止发布、warning 只提示（不逼用户编造内容） -->
+    <div v-if="publishCheckOpen" class="publish-check-panel">
+      <div class="publish-check-head">
+        <span>
+          {{ publishCheck.canPublish ? '未发现阻止发布的问题' : `有 ${publishCheck.errorCount} 项必须先处理` }}
+          <template v-if="publishCheck.warningCount > 0">
+            ；另有 {{ publishCheck.warningCount }} 项建议
+          </template>
+        </span>
+        <el-button text size="small" @click="publishCheckOpen = false">收起</el-button>
+      </div>
+      <ul class="publish-check-list">
+        <li
+          v-for="item in publishCheck.items"
+          :key="item.id"
+          :class="['publish-check-item', `is-${item.level}`, { 'is-passed': item.passed }]"
+        >
+          <span class="publish-check-mark">{{ item.passed ? '✓' : item.level === 'error' ? '✕' : '!' }}</span>
+          <span class="publish-check-label">{{ item.label }}</span>
+          <span class="publish-check-detail">{{ item.detail }}</span>
+        </li>
+      </ul>
     </div>
 
     <!-- [Phase4-D4f] 文件形态提示条（编辑/删除均已解除；封面经 image 字段，见下方灰字指引） -->
@@ -706,6 +791,70 @@ function formatValue(value: unknown): string {
 </template>
 
 <style scoped>
+/* [U4-AI3/B] 发布前检查清单（error 阻止 / warning 只提示） */
+.publish-check-summary {
+  margin-left: 6px;
+  font-size: 11px;
+  color: var(--el-text-color-secondary);
+}
+
+.publish-check-panel {
+  margin-bottom: 12px;
+  padding: 10px 12px;
+  border-radius: var(--mizuki-radius-md, 10px);
+  background: var(--el-fill-color-light);
+}
+
+.publish-check-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 12px;
+  color: var(--el-text-color-regular);
+  margin-bottom: 6px;
+}
+
+.publish-check-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.publish-check-item {
+  display: grid;
+  grid-template-columns: 16px 64px 1fr;
+  gap: 6px;
+  align-items: baseline;
+  padding: 3px 0;
+  font-size: 12px;
+}
+
+.publish-check-mark {
+  font-weight: 700;
+}
+
+.publish-check-item.is-passed .publish-check-mark {
+  color: var(--el-color-success);
+}
+
+.publish-check-item.is-error:not(.is-passed) .publish-check-mark,
+.publish-check-item.is-error:not(.is-passed) .publish-check-detail {
+  color: var(--el-color-danger);
+}
+
+.publish-check-item.is-warning:not(.is-passed) .publish-check-mark,
+.publish-check-item.is-warning:not(.is-passed) .publish-check-detail {
+  color: var(--el-color-warning);
+}
+
+.publish-check-label {
+  color: var(--el-text-color-primary);
+}
+
+.publish-check-detail {
+  color: var(--el-text-color-secondary);
+  line-height: 1.5;
+}
 .post-edit-page {
   padding: 16px;
   /* [Phase4-D1/缺陷三] 视口高度对齐：页高 = 视口高 − MainLayout 顶栏 60px

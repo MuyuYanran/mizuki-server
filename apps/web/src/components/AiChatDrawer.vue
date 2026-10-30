@@ -17,7 +17,7 @@
 import { computed, nextTick, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import { ElMessage } from 'element-plus';
-import { AI_ACTION_LABELS, AI_ACTIONS, AI_LIMITS, truncateForContext, type AiAction } from '@mizuki/shared';
+import { AI_ACTION_LABELS, AI_ACTIONS, AI_LIMITS, parseMetaOutput, planMetaBackfill, truncateForContext, type AiAction, type MetaBackfillPlan, type MetaFieldAction } from '@mizuki/shared';
 import { useSplitter } from '../lib/float/use-splitter';
 import { aiApi } from '../api/ai';
 import {
@@ -38,6 +38,8 @@ import {
 } from '../stores/ai';
 import { activeAiContext, describeActiveContext } from '../lib/ai/context';
 import { AI_ACTION_HINTS, AI_CHAT_PLACEHOLDER } from '../lib/ai/actions';
+// [U4-AI3/B] meta 回填目标注册（编辑器注册，本组件只在用户确认后调用其 apply）
+import { activeMetaTarget } from '../lib/ai/backfill';
 
 const router = useRouter();
 
@@ -160,7 +162,19 @@ function runStream(body: { action?: AiAction; userText: string; echoUser: boolea
       onDone: () => {
         aiStreaming.value = false;
         abortStream = null;
-        if (assistant.content.trim() === '') assistant.error = '模型没有返回内容。';
+        if (assistant.content.trim() === '') {
+          assistant.error = '模型没有返回内容。';
+        } else if (assistant.action === 'meta') {
+          // [U4-AI3/B] meta 结果解析 + 回填计划。
+          // **只在有回填目标时解析**：没有目标就无处可填，解析出来只是噪音。
+          // 计划由 shared 纯函数算出（四态 fill/conflict/same/empty），
+          // 界面据此渲染差异；**此处不写入任何表单值** —— 写入必须等用户确认。
+          const target = activeMetaTarget.value;
+          if (target !== null) {
+            const parsed = parseMetaOutput(assistant.content);
+            assistant.meta = { parsed, plan: planMetaBackfill(parsed, target.read()) };
+          }
+        }
         void scrollToBottom();
       },
       onError: (error, aborted) => {
@@ -186,6 +200,82 @@ function runStream(body: { action?: AiAction; userText: string; echoUser: boolea
 function runAction(action: AiAction): void {
   if (!canSend.value) return;
   runStream({ action, userText: AI_ACTION_HINTS[action], echoUser: false });
+}
+
+// ── [U4-AI3/B] meta 回填卡片 ──────────────────────────────────────────
+//
+// 铁律：**conflict 项默认不勾选**。用户必须主动勾选才会覆盖自己已写的内容；
+// `fill`（原字段为空）默认勾选，因为那不会破坏任何既有内容。
+
+/** 每条 meta 消息的勾选状态（按 messageId 存，避免污染消息对象） */
+const metaChecked = ref<Record<string, Record<string, boolean>>>({});
+
+/** 字段键 → 中文名（差异展示用） */
+const META_FIELD_LABELS: Record<string, string> = {
+  title: '标题',
+  summary: '摘要',
+  tags: '标签',
+};
+
+/** 该字段的默认勾选态：只有 fill 默认为真（见上方铁律） */
+function defaultChecked(action: MetaFieldAction): boolean {
+  return action === 'fill';
+}
+
+/** 读某条消息某字段的勾选态（未初始化时取默认值） */
+function isChecked(messageId: string, field: string, action: MetaFieldAction): boolean {
+  const perMessage = metaChecked.value[messageId];
+  const stored = perMessage?.[field];
+  return stored ?? defaultChecked(action);
+}
+
+function setChecked(messageId: string, field: string, value: boolean): void {
+  const perMessage = metaChecked.value[messageId] ?? {};
+  perMessage[field] = value;
+  metaChecked.value = { ...metaChecked.value, [messageId]: perMessage };
+}
+
+/** 是否有任何字段被勾选（决定「应用」按钮是否可用） */
+function hasAnyChecked(messageId: string, plan: MetaBackfillPlan): boolean {
+  return (['title', 'summary', 'tags'] as const).some((field) =>
+    isChecked(messageId, field, plan[field].action),
+  );
+}
+
+/** 动作 → 界面提示（让用户知道「填」与「覆盖」的区别） */
+function actionHint(action: MetaFieldAction): string {
+  if (action === 'fill') return '将填入（原为空）';
+  if (action === 'conflict') return '将覆盖你已写的内容 —— 请确认';
+  if (action === 'same') return '与现有内容一致';
+  return '本次没有该字段的建议';
+}
+
+/**
+ * 应用勾选的字段。**只提交被勾选的键** ——
+ * 未勾选的字段一个字节都不动（不是「部分更新」，是「只改这些」）。
+ */
+function applyMeta(message: AiMessage): void {
+  const meta = message.meta;
+  const target = activeMetaTarget.value;
+  if (meta === undefined || target === null) return;
+
+  const patch: { title?: string; summary?: string; tags?: string[] } = {};
+  if (isChecked(message.id, 'title', meta.plan.title.action) && meta.parsed.title !== null) {
+    patch.title = meta.parsed.title;
+  }
+  if (isChecked(message.id, 'summary', meta.plan.summary.action) && meta.parsed.summary !== null) {
+    patch.summary = meta.parsed.summary;
+  }
+  if (isChecked(message.id, 'tags', meta.plan.tags.action) && meta.parsed.tags.length > 0) {
+    patch.tags = meta.parsed.tags;
+  }
+  if (Object.keys(patch).length === 0) {
+    ElMessage.info('没有勾选任何字段');
+    return;
+  }
+  target.apply(patch);
+  message.metaApplied = true;
+  ElMessage.success('已回填到表单（记得点保存才会落盘）');
 }
 
 function send(): void {
@@ -361,6 +451,48 @@ function collapse(): void {
         <!-- 禁 v-html：模型输出是不可信文本 -->
         <div class="ai-msg-body">{{ message.error ?? message.content }}</div>
         <span v-if="message.inserted" class="ai-msg-inserted">已插入</span>
+
+        <!--
+          [U4-AI3/B] meta 回填卡片：差异预览 + 逐项确认。
+          铁律的可视化：conflict 项**默认不勾选**，且文案显式说明「将覆盖你已写的内容」。
+        -->
+        <div v-if="message.meta !== undefined" class="ai-meta-card">
+          <div class="ai-meta-title">
+            回填到表单<template v-if="activeMetaTarget !== null">（{{ activeMetaTarget.describe() }}）</template>
+          </div>
+          <label
+            v-for="field in (['title', 'summary', 'tags'] as const)"
+            :key="field"
+            class="ai-meta-row"
+            :class="{ 'is-conflict': message.meta.plan[field].action === 'conflict' }"
+          >
+            <input
+              type="checkbox"
+              :checked="isChecked(message.id, field, message.meta.plan[field].action)"
+              :disabled="message.meta.plan[field].action === 'empty' || message.metaApplied === true"
+              @change="setChecked(message.id, field, ($event.target as HTMLInputElement).checked)"
+            />
+            <span class="ai-meta-label">{{ META_FIELD_LABELS[field] }}</span>
+            <span class="ai-meta-hint">{{ actionHint(message.meta.plan[field].action) }}</span>
+            <span class="ai-meta-diff">
+              <template v-if="message.meta.plan[field].action === 'conflict'">
+                <del>{{ message.meta.plan[field].current }}</del>
+                <span class="ai-meta-arrow">→</span>
+              </template>
+              <ins>{{ message.meta.plan[field].next }}</ins>
+            </span>
+          </label>
+          <div class="ai-meta-actions">
+            <button
+              class="ai-pill ai-pill--primary"
+              :disabled="message.metaApplied === true || !hasAnyChecked(message.id, message.meta.plan)"
+              @click="applyMeta(message)"
+            >
+              {{ message.metaApplied === true ? '已回填' : '应用勾选项' }}
+            </button>
+            <span class="ai-meta-note">只改勾选的字段；保存后才落盘</span>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -742,6 +874,87 @@ function collapse(): void {
   margin-top: 4px;
   font-size: 11px;
   color: var(--el-color-success);
+}
+
+/* [U4-AI3/B] meta 回填卡片（差异预览 + 逐项确认） */
+.ai-meta-card {
+  margin-top: 8px;
+  padding: 8px 10px;
+  border-radius: var(--mizuki-radius-sm, 8px);
+  background: var(--el-fill-color-light);
+  font-size: 12px;
+}
+
+.ai-meta-title {
+  font-weight: 600;
+  margin-bottom: 6px;
+  color: var(--el-text-color-primary);
+}
+
+.ai-meta-row {
+  display: grid;
+  grid-template-columns: auto 40px 1fr;
+  gap: 6px;
+  align-items: baseline;
+  padding: 4px 0;
+  cursor: pointer;
+}
+
+/* 覆盖项用左侧色条 + 加粗提示，让人一眼看到「这条会覆盖我的东西」 */
+.ai-meta-row.is-conflict {
+  border-left: 2px solid var(--el-color-warning);
+  padding-left: 6px;
+}
+
+.ai-meta-label {
+  color: var(--el-text-color-primary);
+}
+
+.ai-meta-hint {
+  color: var(--el-text-color-secondary);
+  font-size: 11px;
+}
+
+.ai-meta-row.is-conflict .ai-meta-hint {
+  color: var(--el-color-warning);
+}
+
+.ai-meta-diff {
+  grid-column: 2 / -1;
+  font-size: 11px;
+  color: var(--el-text-color-regular);
+  word-break: break-all;
+}
+
+.ai-meta-diff del {
+  color: var(--el-text-color-secondary);
+}
+
+.ai-meta-diff ins {
+  text-decoration: none;
+  color: var(--el-color-primary);
+}
+
+.ai-meta-arrow {
+  margin: 0 4px;
+}
+
+.ai-meta-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.ai-meta-note {
+  font-size: 11px;
+  color: var(--el-text-color-secondary);
+}
+
+.ai-pill--primary {
+  background: var(--el-color-primary);
+  color: #fff;
+  border-color: var(--el-color-primary);
 }
 
 /* 三键 */

@@ -11,7 +11,7 @@
  *
  * 纪律：本文件**不拼** baseUrl、不碰 key、不做 provider 协议适配（那是服务端的事）。
  */
-import { AI_SSE, parseSseChunk, type AiChatBody, type AiConfigView, type AiPutConfigBody } from '@mizuki/shared';
+import { AI_SSE, parseSseChunk, type AiChatBody, type AiConfigView, type AiPutConfigBody, type AiUsageView } from '@mizuki/shared';
 import { API_PREFIX, ApiError, request } from './http';
 import { getAccessToken } from '../stores/auth';
 
@@ -51,6 +51,17 @@ export interface AiStreamCallbacks {
 export const aiApi = {
   getConfig(): Promise<AiConfigView> {
     return request<AiConfigView>('GET', '/admin/ai/config');
+  },
+
+  /**
+   * [U4-AI3/A] 用量台账（窗口内 totals + 按动作聚合 + 最近明细）。
+   *
+   * `aborted`（用户主动停止 / 断连）**不计入 `successRate` 的分母** ——
+   * 该口径由服务端与 `@mizuki/shared` 单点定义，前端不重算。
+   */
+  getUsage(days?: number): Promise<AiUsageView> {
+    const query = days === undefined ? '' : `?days=${String(days)}`;
+    return request<AiUsageView>('GET', `/admin/ai/usage${query}`);
   },
 
   putConfig(body: AiPutConfigBody): Promise<AiConfigView> {

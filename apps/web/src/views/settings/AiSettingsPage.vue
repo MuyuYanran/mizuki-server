@@ -24,6 +24,7 @@
 import { computed, onMounted, ref } from 'vue';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import {
+  AI_ACTION_LABELS,
   AI_LIMITS,
   AI_PROXY_MODES,
   type AiAction,
@@ -31,6 +32,7 @@ import {
   type AiProfile,
   type AiProxyMode,
   type AiPutConfigBody,
+  type AiUsageView,
 } from '@mizuki/shared';
 import { aiApi, aiFailureText, type AiPingResult } from '../../api/ai';
 import { ensureAiConfig } from '../../stores/ai';
@@ -113,7 +115,42 @@ const tempLabel = computed(() => temperature.value.toFixed(1));
 
 onMounted(() => {
   void load();
+  void loadUsage();
 });
+
+/**
+ * [U4-AI3/A] 用量台账。
+ *
+ * ⚠ 口径不在此重算：`successRate` 由服务端给出，且其分母**不含 aborted**
+ * （用户主动停止不是故障）。前端只负责展示，避免两处口径漂移。
+ */
+const usage = ref<AiUsageView | null>(null);
+const usageLoading = ref(false);
+const usageDays = ref(7);
+/** 用量区展开态（默认收起：设置页的主任务是配置，不是看报表） */
+const usageOpen = ref(false);
+
+async function loadUsage(): Promise<void> {
+  usageLoading.value = true;
+  try {
+    usage.value = await aiApi.getUsage(usageDays.value);
+  } catch (error) {
+    // 用量拉取失败**不**打断配置页（它是旁路信息，不是页面主体）
+    ElMessage.warning(error instanceof Error ? error.message : '用量加载失败');
+  } finally {
+    usageLoading.value = false;
+  }
+}
+
+function onUsageDaysChange(): void {
+  void loadUsage();
+}
+
+/** 动作 → 中文名（自由聊天 / 连通性测试没有 action，单独给名） */
+function usageActionLabel(action: string | null): string {
+  if (action === null) return '自由对话 / 连通性测试';
+  return (AI_ACTION_LABELS as Record<string, string>)[action] ?? action;
+}
 
 async function load(): Promise<void> {
   loading.value = true;
@@ -306,6 +343,64 @@ const actionCount = Object.keys(ACTION_HINT).length;
       <div class="header-actions">
         <el-button :loading="pingLoading" @click="runPing">测试连接</el-button>
         <el-button type="primary" class="btn-gradient-primary" :loading="saving" @click="save">保存</el-button>
+      </div>
+    </div>
+
+    <!-- [U4-AI3/A] 用量台账（默认折叠；旁路信息，不打断配置主任务） -->
+    <div class="usage-strip">
+      <div class="usage-head">
+        <span class="usage-title">用量统计</span>
+        <span v-if="usage !== null" class="usage-brief">
+          {{ usage.windowDays }} 天内 {{ usage.totals.calls }} 次调用 ·
+          {{ usage.totals.totalTokens }} tokens
+          <template v-if="usage.totals.successRate !== null">
+            · 成功率 {{ usage.totals.successRate }}%
+          </template>
+          <template v-if="usage.totals.abortedCalls > 0">
+            · {{ usage.totals.abortedCalls }} 次被中止（不计入成功率）
+          </template>
+        </span>
+        <div class="usage-actions">
+          <el-select v-model="usageDays" size="small" style="width: 96px" @change="onUsageDaysChange">
+            <el-option label="近 1 天" :value="1" />
+            <el-option label="近 7 天" :value="7" />
+            <el-option label="近 30 天" :value="30" />
+            <el-option label="近 90 天" :value="90" />
+          </el-select>
+          <el-button size="small" @click="usageOpen = !usageOpen">
+            {{ usageOpen ? '收起' : '查看明细' }}
+          </el-button>
+        </div>
+      </div>
+
+      <div v-if="usageOpen" v-loading="usageLoading" class="usage-body">
+        <el-table v-if="usage !== null && usage.byAction.length > 0" :data="usage.byAction" stripe size="small">
+          <el-table-column label="动作" min-width="150">
+            <template #default="{ row }">{{ usageActionLabel(row.action) }}</template>
+          </el-table-column>
+          <el-table-column prop="calls" label="调用" width="70" />
+          <el-table-column prop="okCalls" label="成功" width="70" />
+          <el-table-column prop="errorCalls" label="失败" width="70" />
+          <el-table-column prop="abortedCalls" label="中止" width="70" />
+          <el-table-column label="tokens" width="100">
+            <template #default="{ row }">
+              {{ row.totalTokens }}
+              <span v-if="row.tokenSamples < row.calls" class="usage-note">
+                （{{ row.tokenSamples }}/{{ row.calls }} 有计数）
+              </span>
+            </template>
+          </el-table-column>
+          <el-table-column label="平均耗时" width="100">
+            <template #default="{ row }">{{ row.avgDurationMs }} ms</template>
+          </el-table-column>
+        </el-table>
+        <el-empty v-else :description="usageLoading ? '加载中' : '该时间窗内没有调用记录'" />
+        <div v-if="usage !== null" class="usage-foot">
+          台账保留最近 {{ usage.keepLimit }} 条（当前 {{ usage.retainedRows }} 条）。
+          <template v-if="usage.totals.tokenSamples < usage.totals.calls">
+            部分调用未返回 token 用量，故 tokens 仅为已知样本之和。
+          </template>
+        </div>
       </div>
     </div>
 
@@ -535,6 +630,54 @@ const actionCount = Object.keys(ACTION_HINT).length;
 </template>
 
 <style scoped>
+/* [U4-AI3/A] 用量台账（默认折叠的旁路信息区） */
+.usage-strip {
+  margin-bottom: 14px;
+  padding: 10px 12px;
+  border-radius: var(--mizuki-radius-md, 10px);
+  background: var(--el-fill-color-light);
+}
+
+.usage-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.usage-title {
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--el-text-color-primary);
+}
+
+.usage-brief {
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
+  flex: 1;
+}
+
+.usage-actions {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.usage-body {
+  margin-top: 10px;
+}
+
+.usage-note {
+  font-size: 11px;
+  color: var(--el-text-color-secondary);
+}
+
+.usage-foot {
+  margin-top: 8px;
+  font-size: 11px;
+  color: var(--el-text-color-secondary);
+  line-height: 1.6;
+}
 /* ── 页面外壳：与仪表盘 / 站点配置同一口径（panel-card + page-header） ── */
 .ai-page {
   display: flex;

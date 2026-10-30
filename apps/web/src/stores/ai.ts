@@ -8,7 +8,7 @@
  * - **只持久化 UI 偏好**：抽屉开合与宽度（宽度在组件里用 useSplitter 自己管）。
  */
 import { ref } from 'vue';
-import type { AiAction, AiConfigView } from '@mizuki/shared';
+import type { AiAction, AiConfigView, MetaBackfillPlan, ParsedMeta } from '@mizuki/shared';
 import { aiApi } from '../api/ai';
 
 /** 抽屉开合的持久化键（只存 '1' / '0'） */
@@ -24,6 +24,14 @@ export interface AiMessage {
   error?: string;
   /** 供「替换选区/插入」使用：本条是否已经插入过（避免误重复插入） */
   inserted?: boolean;
+  /**
+   * [U4-AI3/B] `meta` 动作：解析结果与回填计划。
+   * 只在流结束、且当前页面注册了回填目标时才有值 ——
+   * 没有目标时不必解析（解析出来也无处可填，徒增界面噪音）。
+   */
+  meta?: { parsed: ParsedMeta; plan: MetaBackfillPlan };
+  /** 回填是否已应用（应用后卡片转为只读态，避免重复点击） */
+  metaApplied?: boolean;
 }
 
 /** 服务端配置视图（null = 未加载） */

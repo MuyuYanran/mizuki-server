@@ -45,6 +45,9 @@ export * from './ai-usage';
 // [U4-AI3/B] meta 动作结构化契约 + 非破坏性回填计划（解析器与回填规则两端共用）
 export * from './ai-meta';
 
+// [U4-AI3/B] 发布前检查清单（纯函数；error 阻止、warning 只提示）
+export * from './publish-check';
+
 // [T1] 主题适配层契约（mizuki / shirone 识别 + 能力画像；命名避让见文件头）
 export * from './theme-adapter';
 
