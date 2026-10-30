@@ -511,7 +511,7 @@ DEV（裁决在案、规格文本未修订）：minimal 菜单范围、timeline 
 
 ### 4. 环境性发现（复盘用，非代码问题）
 
-- DSH 运行时 node.exe（`C:\Users\…\.dsh\dsh-runtimes\…`）进程为低完整性：写中完整性的既有产物（`packages/shared/dist` 旧文件等）必 EPERM，但能写低标记目录（`.test-tmp`）。系统 node（Medium）同文件读写正常，icacls 实测无 deny 且 Authenticated Users 有 Modify——此前「孤立 SID 致 EPERM」的推断据此修正。**构建/测试一律用 PATH 系统工具链，不动旧产物 ACL。**
+- DSH 运行时 node.exe（`<user-home>\.dsh\dsh-runtimes\…`）进程为低完整性：写中完整性的既有产物（`packages/shared/dist` 旧文件等）必 EPERM，但能写低标记目录（`.test-tmp`）。系统 node（Medium）同文件读写正常，icacls 实测无 deny 且 Authenticated Users 有 Modify——此前「孤立 SID 致 EPERM」的推断据此修正。**构建/测试一律用 PATH 系统工具链，不动旧产物 ACL。**
 - `eslint.config.mjs` ignores 增 `_attic/**`（U2 遗留 junction-probe*.cjs 产生 17 个 lint 错，属交付卫生，非产品代码改动）。
 
 ### 5. 提交状态
@@ -979,7 +979,7 @@ U3-P4c（A-GAP-13★ + A-GAP-04 开关）。
 - **浏览器手验（隔离实例 + bsk，12 步完成 10 步）**：抽屉开合 / 档案名回显 / 未挂载上下文态 / 菜单项 /
   编辑页上下文挂载（「当前文档 3875 字」）/ 5 动作解锁 / **真实请求打到上游并只回分类文案** / 三键状态随输出变化 /
   Vditor 源码块选区不误判。余 2 步（富文本插入 K5、刷新清空会话）因**真 key 已失效**与未走刷新而未实测，已登记。
-- **环境故障（非本批引入）**：`bsk` 截图路径被拼成 `D:_pathsTempsBskTempFiles\…`（`os error 5`，宿主 TEMP 无 Low 完整性标签）
+- **环境故障（非本批引入）**：`bsk` 截图路径被拼成 `<system-temp>\BskTempFiles\…`（`os error 5`，宿主 TEMP 无 Low 完整性标签）
   ⇒ 本次以可访问性树快照作文本证据，无截图。
 - **已知缺口（登记，不追补）**：富文本插入未浏览器实测；刷新清空会话未实测；Vditor 无选区替换真 API（依赖 `deleteValue`，
   退化路径留痕）；抽屉窄屏浮层 z-index 未验证；`meta` 动作不回填表单（属 U4-AI3）。
