@@ -1700,3 +1700,104 @@ repo 红线 §4.1 要求写盘前置 `pre_write` 备份。但 `BackupService.pre
 | 跨根 `pre_write` 备份 | 见 §24.5，独立立项候选 |
 | 面板面（T6） | series / moments 的渲染与表单 |
 | `series` 的正文语义 | 上游 `glob` 只约束 `.md`，schema 只有 3 个元数据键、**无正文约束**；本批按「正文照存照回」处理（`content` 字段），不额外收紧 |
+
+---
+
+## 25. 追加（2026-10-30 第十八回合）：T4-4 交付 —— `posts` 真正跟随内容仓 + **封条解除**
+
+### 25.1 核心设计：**逻辑路径**恒不变，**物理落点**随部署形态切换
+
+这是本回合唯一但决定性的抽象。**若不分开，两边必坏一边**：
+
+| 若让 `article.filePath` 存物理路径 | 若让 posts 继续写死 `src/content/posts` |
+|---|---|
+| 索引随部署形态漂移（同一篇文章在 local / external 下 filePath 不同）；且泄漏内部绝对路径（红线 6 禁止） | external 档写进会被 `prune` 裁掉的副本 ⇒ 静默丢数据（正是 T4-3b 要拦的） |
+
+⇒ **两条正交口径**：
+
+| 口径 | 取值 | 消费者 |
+|---|---|---|
+| **逻辑路径** | **恒为** `src/content/...`（`LOGICAL_CONTENT_ROOT`） | `article.filePath`、`post.changed.filePath`、`content.changed.filePaths`、响应体 |
+| **物理落点** | `resolveContentLogicalPath()` 现算 | 所有 `fs.*` IO |
+
+新增 L0 能力 `resolveContentLogicalPath(root, logicalRel)`（`content-source.ts`）：
+
+| 档位 | 物理落点 |
+|---|---|
+| `local`（含 `SHIRONE_CONTENT_SYNC` 关闭、Mizuki 两档） | `<root>/src/content/<rest>` |
+| `external` + path 源 | `<contentRoot>/content/<rest>` |
+| git 源 / `mounts.content` 禁用 / `mounts` 非法 / 版本超限 | **拒绝**（reason 与 `resolveContentSubdirTarget` **同源**，不另立一套） |
+
+**为什么用 `rest` 而不是直接替换前缀**：清单可把 `content` 挂到 `src/my-content`，
+此时逻辑路径与物理目录**根本不同名**。但逻辑口径恒为 `src/content`（索引不漂移），
+故反向映射时把逻辑前缀换成 `mountTarget`，两侧才对得上。
+
+### 25.2 读写**分轴**：读降级、写不降级
+
+| 方向 | 方法 | 行为 |
+|---|---|---|
+| **读** | `resolveLogicalRead()` | 映射成功 ⇒ 用映射结果；**被拒 ⇒ 降级到代码仓 `src/content/...` 并 warn** |
+| **写** | `resolveLogicalWrite()` | 映射成功 ⇒ 用映射结果；**被拒 ⇒ 403**（`logger.error` 标为「判据劈叉，属缺陷」） |
+
+**读为什么要降级**：git 源下写必丢（故写拒绝），但代码仓里的 `src/content/posts`
+**正是上次同步物化下来的副本** —— 读它完全安全，且是**唯一**可读的东西。
+同理 `mounts` 写坏时也该尽量读出盘上现状，而不是把整个文章列表变成 403。
+代价是「读到的可能是陈旧副本」，由 pino warn 记录可见。
+
+**写为什么不能降级**：降级写进代码仓副本**正是** T4-3b 要拦的静默丢数据。
+写侧走到 `resolveLogicalWrite` 时 `assertPostsWritable` 已放行（两者消费同一个
+`resolveContentSubdirTarget`），故映射理论上必成功；失败即判据劈叉，用 403 暴露而非静默。
+
+### 25.3 闸门语义升级（T4-3b → T4-4）
+
+`assertPostsWritable` 不再自己算，改为**复用** `resolveContentSubdirTarget(root,'posts')`：
+
+| 情形 | T4-3b | T4-4 |
+|---|---|---|
+| Mizuki legacy | 放行 | 放行 |
+| Mizuki HEAD（junction 写穿） | 放行 | 放行 |
+| Shirone **local** | 放行 | 放行 |
+| Shirone **external + path 源** | **403 拒绝** | **放行，写进内容仓** ← 封条解除 |
+| Shirone external + **git 源** | 403 | **403**（写必丢） |
+| `mounts.content: null` | 403 | **403**（死路：该挂载点不参与同步） |
+| `mounts` 非法 / 版本超限 | 403 | **403**（连真实落点都无法确定，不许猜） |
+
+### 25.4 `pre_write` 备份的跨根限制（与 §24.5 同一条，此处是最终记账）
+
+T4-4 让 posts 真的写到主题根之外，于是 `BackupService.preWriteBackup` 的监狱根
+（`mizukiRoot`）成为**实际会遇到**的约束，不再只是理论问题。
+
+新增 `backupBeforePostWrite()`：**根内 ⇒ 正常备份；根外 ⇒ 跳过 + `logger.warn`**。
+**不为它开跨根通道**的理由（再述一次，因为这是本轮最大的一处「知其不可而不为」）：
+`manifest.files[].path` 的契约是「相对 mizukiRoot 的 POSIX 路径」，恢复侧
+`joinWithinRoot(entry.path)` 依赖它；跨根要改 manifest 契约 + 改恢复语义 + 处理
+「一个备份集混两个根」——属**独立的安全面重构**，不该塞进功能批。
+内容的最终恢复通道是**内容仓自己的 git 历史**。
+
+📌 独立立项候选：**跨根 pre_write 备份**（T4-4 之后最该做的一件安全面工作）。
+
+### 25.5 本回合验收
+
+| 项 | 结果 |
+|---|---|
+| 新增 L0 `resolveContentLogicalPath` + `LOGICAL_CONTENT_ROOT` | 全段映射，拒绝判据与底座同源 |
+| `posts.service.ts` | 新增 `resolveLogicalRead` / `resolveLogicalWrite` / `backupBeforePostWrite`；`scanPosts`、sync 哈希、create 写、update 写、delete、uploadCover 全部改走映射 |
+| 新增单测 `theme-content-logical-path.spec.ts` | **12/12 绿** |
+| **重写** `p5h-posts-write-gate.e2e-spec.ts` | **11/11 绿** —— external 档从「断言 403」升级为「断言写进内容仓 + 代码仓递归快照零字节变化」；git / mounts 禁用 / mounts 非法三组仍断言 403 且盘上零变化 |
+| posts 面全回归 | **72/72 绿**（9 个 spec） |
+| `pnpm test` 全量 | 见下一节 |
+| `pnpm lint` / `pnpm build` | 见下一节 |
+
+### 25.6 📌 封条解除
+
+§21.7 那条「**在 T4-4 落地之前，posts 模块不得宣称在「Shirone + 内容分离」下可用**」
+**至此解除**。现在可以宣称：
+
+> **Shirone external + 本地 `path` 内容源：posts 的增删改查与封面上传全部真正作用于内容仓
+> （真源），代码仓副本零脏写。git 源 / `mounts.content` 禁用 / `mounts` 非法三种
+> 结构性不可写情形仍被明确拒绝并指路。**
+
+**仍不可宣称的**：
+- **git 源下写文章**——不提供（工作副本每次 sync 被强检强清，写入必丢）。读可用（降级副本）。
+- **跨根 `pre_write` 备份**——内容仓在主题根外时快照被跳过（有 warn，非静默）。
+  恢复依赖内容仓自身的 git 历史。

@@ -60,6 +60,8 @@ import { type ArticleStatus, deriveStatus, toArticleRow } from '../../common/mar
 import { parseMarkdown, stringifyMarkdown } from '../../common/markdown/frontmatter';
 import { type MagicFormat } from '../../common/security/magic-sniff';
 // [T4-3] 主题档位现探：与 collections/registry.ts 同款（不注入 provider、不缓存）
+// [T4-4] 逻辑路径 → 物理落点映射（local ⇒ 代码仓；external+path 源 ⇒ 内容仓）
+import { resolveContentLogicalPath, resolveContentSubdirTarget } from '../../common/theme/content-source';
 import { resolvePostsWriteTarget } from '../../common/theme/posts-write-target';
 import { ThemeAdapter } from '../../common/theme/theme-adapter';
 import { parseOrBadRequest, safeParseIssues } from '../../common/validation/zod-issues';
@@ -203,42 +205,63 @@ function stripNullDeleteKeys(
 }
 
 /**
- * [T4-3b] 写盘前的**持久性闸门**（ADR-028 §21.7）。
+ * [T4-3b → T4-4] 写盘前的**持久性闸门**（ADR-028 §21.7 / §25）。
  *
- * 为什么必须有：内容分离下代码仓的 `src/content/posts` 是**物化副本**，
+ * 【T4-3b 时的语义】内容分离下代码仓的 `src/content/posts` 是**物化副本**，
  * Shirone 档的 `content:sync` 用 `copyFileSync` + `prune` 默认 true ⇒ 写进去
- * 要么被裁剪删掉、要么被内容仓的版本覆盖，**静默丢数据**。
- * 在 T4-4（真正的路径跟随）落地前，把「静默丢」变成「一条带指路牌的拒绝」。
+ * 要么被裁剪删掉、要么被内容仓的版本覆盖。当时**没有**路径跟随能力，
+ * 故 external 档一律拒绝，把「静默丢」变成「带指路牌的拒绝」。
  *
- * 【为什么是 403 而不是 400/409】这不是「请求体写错了」（400）、也不是「和现有资源冲突」（409），
- * 而是**当前部署形态下这个操作不可能成功**——语义上接近「禁止在此落点写」。
- * 错误形状沿用全仓 `{ code, message, detail }`（异常过滤器自动补 code）。
+ * 【T4-4 起的语义】**外部 path 源已经能真正写入内容仓了**（`resolveContentLogicalPath`），
+ * 故 external + path 源从「拒绝」升级为「放行 + 写入内容仓」。仍然拒绝的只剩三种
+ * **结构性不可写**：
+ *   - `content-source-git`：工作副本每次 sync 被 `checkout --force` + `clean -ffdx`；
+ *   - `content-mount-disabled`：`mounts.content` 被显式关闭 ⇒ 该挂载点不参与同步，是死路；
+ *   - `mounts-invalid` / `manifest-unsupported-version`：连真实落点都无法确定，不许猜。
  *
- * 【只拦写路径】`listPosts` / `getPost` / `scanPosts` / 导入**预览**一律不受影响：
- * 读永远安全（读的是盘上现状），且预览明确「零落盘」。
+ * 【判据来源唯一】这里不再自己算，而是**复用** `resolveContentSubdirTarget(root, 'posts')`
+ * —— 与 `resolveLogicalWrite` 消费同一个函数，两处判据不会劈叉（劈叉由
+ * `resolveLogicalWrite` 的 error 分支兜底暴露）。
+ *
+ * 【为什么是 403 而不是 400/409】不是「请求体写错了」，也不是「和现有资源冲突」，
+ * 而是**当前部署形态下这个操作不可能成功** —— 语义上「禁止在此落点写」。
+ *
+ * 【只拦写路径】`listPosts` / `getPost` / `scanPosts` / 导入**预览**一律不受影响。
  */
 function assertPostsWritable(operation: string): void {
-  const target = resolvePostsWriteTarget(getAppConfig().mizukiRoot);
+  const root = getAppConfig().mizukiRoot;
+
+  // Mizuki 两档（legacy / HEAD）走 T4-3b 的判定：HEAD 是 junction 写穿，天然持久；
+  // 只有它的两个早退子情形（sync 关闭 / 无内容目录）才拒绝。
+  const target = resolvePostsWriteTarget(root);
+  if (!target.ok && target.form !== 'shirone') {
+    logger.warn(
+      { operation, reason: target.reason, materialization: target.materialization },
+      'posts 写入被拒绝：当前主题形态下写代码仓不持久',
+    );
+    throw new ForbiddenException({
+      message: target.message,
+      detail: { reason: target.reason, materialization: target.materialization, themeKind: target.form },
+    });
+  }
   if (target.ok) {
-    // 非致命提醒（如 HEAD 的 symlink 降级风险）只进日志，不打断写入
     for (const note of target.notes) {
       logger.warn({ operation, note }, 'posts 写入口径提醒');
     }
-    return;
   }
-  // 证据只进 pino（含绝对路径也安全），**不进响应体**（仓规红线 6）
-  logger.warn(
-    { operation, reason: target.reason, materialization: target.materialization },
-    'posts 写入被拒绝：当前主题形态下写代码仓不持久',
-  );
-  throw new ForbiddenException({
-    message: target.message,
-    detail: {
-      reason: target.reason,
-      materialization: target.materialization,
-      themeKind: target.form,
-    },
-  });
+
+  // [T4-4] Shirone 档：交给寻址底座 —— external + path 源**放行**，三种结构性不可写才拒
+  const subdir = resolveContentSubdirTarget(root, 'posts');
+  if (!subdir.ok) {
+    logger.warn(
+      { operation, reason: subdir.reason },
+      'posts 写入被拒绝：内容源配置下无法确定安全落点',
+    );
+    throw new ForbiddenException({
+      message: subdir.message,
+      detail: { reason: subdir.reason },
+    });
+  }
 }
 
 /**
@@ -473,13 +496,16 @@ export class PostsService {
     // 不做创建期扩展名开关（那属面板面 T6）；日后编辑既有 `.mdx` 一律**保留盘上原扩展名**。
     const createExt = face.extensions[0] ?? '.md';
     const isFileForm = body.form === 'file';
-    const fileAbs = isFileForm ? this.postFileFormAbs(slug, createExt) : this.postFileAbs(slug);
+    // [T4-4] 创建是**写路径** ⇒ 用无降级的映射（写侧不许落回代码仓副本）
+    const fileAbs = this.resolveLogicalWrite(
+      isFileForm ? `${POSTS_REL_DIR}/${slug}${createExt}` : `${POSTS_REL_DIR}/${slug}/index.md`,
+    );
     const relPath = isFileForm ? this.postFileFormRelPath(slug, createExt) : this.postRelFilePath(slug);
     if (!isFileForm) {
-      fs.mkdirSync(dirAbs, { recursive: true });
+      fs.mkdirSync(path.dirname(fileAbs), { recursive: true });
     }
     const text = stringifyPostMarkdown(frontmatter, body.content);
-    await this.backup.preWriteBackup(fileAbs, `post create: ${slug}`); // 新文件 → 跳过（无物可备）
+    await this.backupBeforePostWrite(fileAbs, `post create: ${slug}`); // 新文件 → 跳过（无物可备）
     this.atomicWrite(fileAbs, text);
 
     const fileHash = sha256Text(text);
@@ -526,7 +552,7 @@ export class PostsService {
     // [Phase4-D4/C2] 写回定位：existing.fileAbs 由 resolvePostFile 产出（目录式 =
     // posts/<slug>/index.md，与原 postFileAbs(slug) 同值；文件式 = posts/<slug>.md）。
     const fileAbs = existing.fileAbs;
-    await this.backup.preWriteBackup(fileAbs, `post update: ${slug}`);
+    await this.backupBeforePostWrite(fileAbs, `post update: ${slug}`);
     const text = stringifyPostMarkdown(frontmatter, content);
     this.atomicWrite(fileAbs, text);
 
@@ -555,7 +581,7 @@ export class PostsService {
     if (existing.form === 'file') {
       // [Phase4-D4f/F3] 单文件分支：先备份后 unlink（先读哈希供删除事件）
       const fileHash = sha256Text(fs.readFileSync(existing.fileAbs, 'utf8'));
-      const info = await this.backup.preWriteBackup(existing.fileAbs, `post delete: ${slug}`);
+      const info = await this.backupBeforePostWrite(existing.fileAbs, `post delete: ${slug}`);
       if (info) {
         backupIds.push(info.id);
       }
@@ -577,7 +603,7 @@ export class PostsService {
       if (!fs.statSync(abs).isFile()) {
         continue;
       }
-      const info = await this.backup.preWriteBackup(abs, `post delete: ${slug}`);
+      const info = await this.backupBeforePostWrite(abs, `post delete: ${slug}`);
       if (info) {
         backupIds.push(info.id);
       }
@@ -626,7 +652,7 @@ export class PostsService {
     }
 
     const coverAbs = path.join(this.postDirAbs(slug), 'cover.jpg');
-    await this.backup.preWriteBackup(coverAbs, `post cover: ${slug}`);
+    await this.backupBeforePostWrite(coverAbs, `post cover: ${slug}`);
     this.atomicWrite(coverAbs, jpegBuffer);
 
     // frontmatter.image 更新（随同一次写管线落盘）
@@ -641,7 +667,7 @@ export class PostsService {
     // [T4-3] 写回定位改用 `existing.fileAbs`：原 `postFileAbs(slug)` 恒指 `index.md`，
     // 碰上目录式 `.mdx` 文章会在同目录**新建一个 index.md**（正文分身），属真写坏。
     const fileAbs = existing.fileAbs;
-    await this.backup.preWriteBackup(fileAbs, `post cover(fm): ${slug}`);
+    await this.backupBeforePostWrite(fileAbs, `post cover(fm): ${slug}`);
     const text = stringifyPostMarkdown(frontmatter, existing.content);
     this.atomicWrite(fileAbs, text);
 
@@ -922,7 +948,8 @@ export class PostsService {
         continue;
       }
       // [Phase4-D4/B2] 哈希取实际盘上路径（文件形态 = <slug>.md，禁再走目录形态硬编码）
-      const fileAbs = this.resolveWithinRoot(post.relPath);
+      // [T4-4] 读侧用逻辑映射（external ⇒ 内容仓；git ⇒ 降级代码仓副本），与 scanPosts 同源
+      const fileAbs = this.resolveLogicalRead(post.relPath);
       const fileHash = sha256Text(fs.readFileSync(fileAbs, 'utf8'));
       const values = toArticleRow(post.slug, post.frontmatter, fileHash, post.relPath);
       const existing = bySlug.get(post.slug);
@@ -985,7 +1012,8 @@ export class PostsService {
    * [T4-3] `<ext>` 为**主题面扩展名集**（Mizuki：`.md`；Shirone：`.md` + `.mdx`，按优先级排序）。
    */
   private scanPosts(): ScannedPost[] {
-    const postsDirAbs = this.resolveWithinRoot(POSTS_REL_DIR);
+    // [T4-4] 扫描根随主题落点：external + path 源 ⇒ 内容仓（真源）；git 源 ⇒ 降级到代码仓副本
+    const postsDirAbs = this.resolveLogicalRead(POSTS_REL_DIR);
     if (!fs.existsSync(postsDirAbs)) {
       return [];
     }
@@ -1191,22 +1219,101 @@ export class PostsService {
     atomicWriteFile(absPath, data, { ensureDir: true });
   }
 
-  /** root 内相对路径 → 绝对路径（未配置 400 / 越界 403，单源见 common/fs/mizuki-root） */
+  /**
+   * [T4-4] 写前备份（含**跨根降级**）。
+   *
+   * `BackupService.preWriteBackup` 的监狱根是 mizukiRoot（`joinWithinRoot` 越界抛 403），
+   * 而 T4-4 后 posts 在 external 档写的是**主题根之外**的内容仓。要让备份跨根，
+   * 必须改 manifest 契约（`files[].path` 目前恒为「相对 mizukiRoot 的 POSIX 路径」，
+   * 恢复侧 `joinWithinRoot(entry.path)` 依赖这一点）——那是一次独立的安全面重构，
+   * 不在本批（ADR-028 §24.5 / §25.4）。
+   *
+   * 本批处理：**根内 ⇒ 正常备份；根外 ⇒ 跳过 + warn**（绝不静默）。
+   * 内容的最终恢复通道是内容仓自己的 git 历史。
+   *
+   * @returns 备份记录；根外跳过或目标不存在时 `undefined`（与 `preWriteBackup` 同形）
+   */
+  private async backupBeforePostWrite(
+    abs: string,
+    note: string,
+  ): Promise<Awaited<ReturnType<BackupService['preWriteBackup']>>> {
+    const root = this.options.mizukiRoot;
+    const rel = root === '' ? '..' : path.relative(path.resolve(root), path.resolve(abs));
+    const inside = root !== '' && rel !== '' && !rel.startsWith('..') && !path.isAbsolute(rel);
+    if (inside) {
+      return this.backup.preWriteBackup(abs, note);
+    }
+    logger.warn(
+      { note },
+      'pre_write 备份跳过：目标位于主题根之外（内容仓外部路径），见 ADR-028 §24.5',
+    );
+    return undefined;
+  }
+
+  /**
+   * root 内相对路径 → 绝对路径（未配置 400 / 越界 403，单源见 common/fs/mizuki-root）。
+   * [T4-4] 保留给**非内容**路径（about 页不在 posts 路径跟随范围内）。
+   */
   private resolveWithinRoot(rel: string): string {
     return toMizukiAbs(this.options.mizukiRoot, rel);
   }
 
+  /**
+   * [T4-4] **逻辑内容路径 → 物理绝对路径**（读侧，带降级）。
+   *
+   * 逻辑路径恒为 `src/content/...`（索引与事件口径不随部署漂移，见 content-source 的 [T4-4] 段）。
+   * 物理落点由 `resolveContentLogicalPath` 映射：local ⇒ 代码仓；external+path 源 ⇒ 内容仓。
+   *
+   * **[读侧为什么要降级而不是拒绝]** git 源下映射会被拒（写必丢），但代码仓里的
+   * `src/content/posts` **正是上次同步物化下来的副本** —— 读它完全安全且是唯一可读的。
+   * 同理 `mounts` 写坏时也该尽量读出盘上现状，而不是把整个列表变成 403。
+   * 唯一的代价是「读到的可能是陈旧副本」，由 `lastReadDegraded` 记录并在日志里可见。
+   */
+  private resolveLogicalRead(rel: string): string {
+    const resolution = resolveContentLogicalPath(this.options.mizukiRoot, rel);
+    if (resolution.ok) {
+      return resolution.abs;
+    }
+    logger.warn(
+      { rel, reason: resolution.reason },
+      '文章逻辑路径映射被拒：读侧降级到代码仓物化副本（写侧仍会被闸门拒绝）',
+    );
+    return this.resolveWithinRoot(rel);
+  }
+
+  /**
+   * [T4-4] **逻辑内容路径 → 物理绝对路径**（写侧，无降级）。
+   *
+   * 写侧不降级：降级写进代码仓副本正是 T4-3b 要拦的静默丢数据。
+   * 走到这里时 `assertPostsWritable` 已经放行（两者消费同一个 `resolveContentSubdirTarget`），
+   * 故映射理论上必成功；失败说明两处判据劈叉，属**编程错误**，直接 403 暴露而非静默。
+   */
+  private resolveLogicalWrite(rel: string): string {
+    const resolution = resolveContentLogicalPath(this.options.mizukiRoot, rel);
+    if (resolution.ok) {
+      return resolution.abs;
+    }
+    logger.error(
+      { rel, reason: resolution.reason },
+      '文章写入路径映射失败：闸门已放行但映射被拒（判据劈叉，属缺陷）',
+    );
+    throw new ForbiddenException({
+      message: `文章写入落点无法确定：${resolution.message}`,
+      detail: { reason: resolution.reason },
+    });
+  }
+
   private postDirAbs(slug: string): string {
-    return this.resolveWithinRoot(`${POSTS_REL_DIR}/${slug}`);
+    return this.resolveLogicalRead(`${POSTS_REL_DIR}/${slug}`);
   }
 
   private postFileAbs(slug: string): string {
-    return this.resolveWithinRoot(`${POSTS_REL_DIR}/${slug}/index.md`);
+    return this.resolveLogicalRead(`${POSTS_REL_DIR}/${slug}/index.md`);
   }
 
   /** [Phase4-D4/B2] 文件形态绝对路径：<posts>/<slug><ext>（[T4-3] ext 由主题面注入，缺省 `.md`） */
   private postFileFormAbs(slug: string, ext = '.md'): string {
-    return this.resolveWithinRoot(`${POSTS_REL_DIR}/${slug}${ext}`);
+    return this.resolveLogicalRead(`${POSTS_REL_DIR}/${slug}${ext}`);
   }
 
   /** [Phase4-D4f/F2] 文件形态相对路径（POSIX 风格；与 scanPosts/resolvePostFile 投影同值） */

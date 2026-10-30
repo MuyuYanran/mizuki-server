@@ -841,3 +841,106 @@ export function resolveContentSubdirTarget(
     mountTarget,
   };
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// [T4-4] 逻辑路径 → 物理落点（全段版）
+//
+// `resolveContentSubdirTarget` 只能处理**一级子目录**（series / moments / spec / posts）。
+// `posts` 需要更深：`posts/<slug>/index.md`、`posts/<slug>/cover.jpg`、`posts/<slug>.md`。
+// ⇒ 本节提供「任意深度」的同一套映射，让 posts 的每个路径 helper 都能跟随 mounts。
+//
+// **[口径决定] 逻辑路径（`src/content/...`）是索引与事件的外投影口径，物理落点只用于 IO。**
+// 理由：`article.filePath`、`content.changed` 的 `filePaths` 都是**对外/跨模块契约**，
+// 若把它们改成内容仓的绝对路径，既泄漏内部路径（红线 6），又会让索引随部署形态漂移。
+// ⇒ 逻辑路径**恒为** `src/content/posts/...`；读盘前经本函数映射到真实落点。
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** 逻辑内容路径的固定前缀（与 mounts.content 的默认目标一致） */
+export const LOGICAL_CONTENT_ROOT = 'src/content';
+
+/** 逻辑路径映射失败的原因 */
+export type ContentPathRejectionReason =
+  | ContentSubdirRejectionReason
+  /** 传入的 logicalRel 不在逻辑内容根之下（调用方拼错，属编程错误而非配置问题） */
+  | 'logical-path-outside-content-root';
+
+export interface ContentPathOk {
+  ok: true;
+  /** 物理绝对路径（内容仓或代码仓），**仅供后端内部使用** */
+  abs: string;
+  /** 相对挂载目标之后的剩余段（POSIX），如 `posts/hello/index.md` */
+  rest: string;
+  needsSync: boolean;
+  inContentRepo: boolean;
+}
+
+export interface ContentPathRejected {
+  ok: false;
+  reason: ContentPathRejectionReason;
+  message: string;
+}
+
+export type ContentPathResolution = ContentPathOk | ContentPathRejected;
+
+/**
+ * [T4-4] 把**逻辑内容路径**（如 `src/content/posts/hello/index.md`）映射为**物理绝对路径**。
+ *
+ * 映射规则（与上游 `syncMount(sourceRoot, sourceDir, targetDir)` 逐条对应）：
+ * - `local` 档 ⇒ `<root>/<mountTarget>/<rest>`
+ * - `external` + path 源 ⇒ `<contentRoot>/content/<rest>`
+ *
+ * 其中 `rest` = 逻辑路径去掉 `mountTarget` 前缀后的剩余部分。
+ * `mountTarget` 来自 `mounts.content`（默认 `src/content`，可被清单改写）。
+ *
+ * ⚠ **为什么用 mountTarget 而不是写死 `src/content`**：清单可以把 `content` 挂到
+ * `src/my-content`，此时逻辑路径 `src/content/...` 与物理目录**根本不是一个名字**。
+ * 但我们的逻辑口径恒为 `src/content`（索引口径不随部署漂移）⇒ 反向映射时需要把
+ * 逻辑前缀替换成 mountTarget。两侧都对得上，索引才不会与磁盘劈叉。
+ */
+export function resolveContentLogicalPath(root: string, logicalRel: string): ContentPathResolution {
+  const profile = resolveContentSource(root);
+
+  // 逻辑口径恒为 `src/content`；物理目标可能被 mounts 改写
+  const normalized = logicalRel.replace(/\\/g, '/').replace(/^\.\//, '');
+  const logicalPrefix = `${LOGICAL_CONTENT_ROOT}/`;
+  if (!normalized.startsWith(logicalPrefix)) {
+    return {
+      ok: false,
+      reason: 'logical-path-outside-content-root',
+      message: `内部路径口径错误：${normalized} 不在 ${LOGICAL_CONTENT_ROOT}/ 之下`,
+    };
+  }
+  const rest = normalized.slice(logicalPrefix.length);
+
+  if (profile.mode === 'local') {
+    return {
+      ok: true,
+      abs: path.join(root, LOGICAL_CONTENT_ROOT, rest),
+      rest,
+      needsSync: false,
+      inContentRepo: false,
+    };
+  }
+
+  // external：与 resolveContentSubdirTarget 完全同源的拒绝判据（不另立一套）
+  const subdir = rest.split('/')[0] ?? '';
+  const subdirTarget = resolveContentSubdirTarget(
+    root,
+    (['posts', 'series', 'moments', 'spec'] as const).includes(
+      subdir as 'posts' | 'series' | 'moments' | 'spec',
+    )
+      ? (subdir as ContentSubdir)
+      : 'posts',
+  );
+  if (!subdirTarget.ok) {
+    return { ok: false, reason: subdirTarget.reason, message: subdirTarget.message };
+  }
+
+  return {
+    ok: true,
+    abs: path.join(profile.contentRoot, 'content', rest),
+    rest,
+    needsSync: true,
+    inContentRepo: true,
+  };
+}
