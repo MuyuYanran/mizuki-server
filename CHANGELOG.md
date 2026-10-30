@@ -1,5 +1,79 @@
 # 变更日志
 
+## 主题双兼容批（二）（2026-10-30 · 文章跨主题读写 + Shirone 内容集合 + 内容仓路径跟随）
+
+> 数账 **92 文件 / 972 用例**（968 通过 + 4 跳过，**零失败**），`pnpm build` 0、`pnpm lint` 0。
+> 全部依据 `docs/decisions/ADR-028-bi-theme-adapter.md`（§21–§25）。
+> 三个提交：`33807a8`（T4-2/T4-3/T4-3b）、`965e517`（T5b-1）、`21b3d1f`（T5b-2）、`4346cc4`（T4-4）。
+
+### 一条贯穿本批的规律：**构造面 ≠ 写入口面**
+
+Astro 主题的 `content.config.ts` schema 是**构建期读取时的内存归一化器**（补默认值、跑 `transform`、
+`z.date()` 强转），而本服务在**落盘前**校验用户 YAML。本仓的读写路径**不对称**：
+读走裸 `parseMarkdown`（不过 schema），写走 `Schema.parse()`。
+⇒ 把上游 schema 直接当写入口会**真写坏文件**：
+① 默认值物化进用户文件（用户改个标题就被塞进一堆默认键）；
+② `.transform()` 静默改字（`password: 12345` → `"12345"`、`series` 剪缘）；
+③ `z.date()` 把 YAML 字符串日期判死。
+
+所以三套 schema 一律**两面制**：构造面（上游契约锚，逐字转录，**不入写路径**）+ 写入口面
+（零默认、零转换、日期放宽为 `string | Date`、可删键配 `null` 哨兵）。两面字段名集合由单测钉死恒等。
+
+### 文章跨主题读写（T4-2 / T4-3 / T4-3b）
+
+- `packages/shared/src/posts-frontmatter-shirone.ts`：Shirone posts 构造面（28 字段逐字转录上游）。
+- `packages/shared/src/posts-frontmatter-shirone-write.ts`：**写入口面** + `SHIRONE_NULL_DELETE_KEYS`（16 键）。
+- 删键集是**推导式**：`(Mizuki 12 键 ∩ Shirone 字段面 = 幸存 8) ∪ Shirone 新增 8 = 16`。
+  并钉一条闭合性不变量：写入口面里接受 `null` 的键集合 **恰等于** 删键集 ∪ 上游原文可空键（仅 `category`）。
+- `posts.service.ts` 新增 `postsFrontmatterFace()`（现探主题档；unknown 档回落 Mizuki 面 + `.md`），
+  6 处消费点改走主题面；`stripNullDeleteKeys()` 改为删键集参数化。
+- **修掉五处隐式 `.md` 假设**（不止 dj 点到的那一处）：`scanPosts` 目录式/文件式、`resolvePostFile` 双分支、
+  `createPost` 409 占用检测，以及最重的第五处 —— `uploadCover` 写回 / `deletePost` 哈希 / 两者事件 `relPath`
+  恒指 `index.md` ⇒ 目录式 `.mdx` 文章上传封面会在同目录**新建一个 `index.md` 孪生文件**、删除时 ENOENT 500、
+  事件下发错误 filePath 污染索引。全部收口为「扩展名只由主题面决定、盘上原扩展名一路带进 `relPath`」。
+- 新增 L0 `common/theme/posts-write-target.ts`：**按物化方式而非「是否 external」**判定写入持久性。
+  这条判据救下了 Mizuki HEAD（`posts` 走 `symlinkSync(junction)` 写穿内容仓 ⇒ 写代码仓天然持久），
+  避免了教条式一刀切把整档合法用户误拒在门外。
+
+### Shirone 内容集合 series / moments（T5b-1 / T5b-2）
+
+- 新增 L0 寻址底座（`content-source.ts`）：`resolveHeadEnv` / `resolveHeadContentDir` /
+  `resolveContentSubdirTarget`。**收敛掉两处内联的 `.env` 解析副本**（config / posts 各持一份，靠注释互指）。
+  收敛前后等价性可证：37/37 → 54/54 无回归。
+- 关键接口决策：**两条方向相反的上游事实分开表达**——Mizuki HEAD 是「文件键压过进程 env」，
+  Shirone 是「进程 env 优先」。强行统一必有一边与上游劈叉，故保留两个具名读取器。
+- `packages/shared/src/shirone-content-collections.ts`：series（3 字段）/ moments（7 字段）两面制。
+  ⚠ **按源码纠正了两处旧记忆错误**：`moments` 的图片字段是 **`images`**（复数）且元素是
+  **`{ src, alt? }` 对象**，不是 `image: string[]`；两集合上游 `glob` 是 `**/*.md` ⇒ **仅 `.md`，无 `.mdx`**。
+- 新增模块 `modules/shirone-content/`：路由 `GET/POST /admin/content/:kind`、
+  `GET/PATCH/DELETE /admin/content/:kind/:slug`。**不进 `article` 统一索引**（纯文件扫描）。
+- **一处路线修正**：最初写 `admin/:kind`，会把 `/admin/*` 整段吸进该控制器（`/admin/backups` 等会先撞上它
+  然后返回 400）—— 路由遮蔽。改用 `admin/content/:kind`。「风格对齐」不能凌驾于「路由不冲突」。
+- 两条轴分开：主题不支持该集合 ⇒ **404**（资源不存在）；支持但落点被拒 ⇒ **403**（落点不安全）。
+- git 源下**读写分轴**：写 403（工作副本必被强检强清），读 200 回退 `.content-src` 工作副本并标 `readOnly: true`。
+
+### 内容仓路径跟随（T4-4）
+
+- 新增 L0 `resolveContentLogicalPath(root, logicalRel)`：**逻辑路径恒为 `src/content/...`**
+  （`article.filePath` / 事件 `filePaths` / 响应体的口径，不随部署漂移、不泄漏绝对路径），
+  **物理落点**现算（local ⇒ 代码仓；external + path 源 ⇒ 内容仓）。
+- `posts` 读写**分轴**：读侧映射被拒时**降级**读代码仓物化副本（git 源下那是唯一可读的），
+  写侧映射被拒时 **403**（降级写进副本正是要拦的静默丢数据）。
+- **封条解除**：Shirone external + 本地 `path` 内容源下，posts 的增删改查与封面上传
+  **全部真正作用于内容仓（真源）**，代码仓副本零脏写（e2e 递归快照比对）。
+  `p5h` 从「断言 403」重写为「断言写穿内容仓」；git / `mounts.content: null` / `mounts` 非法三组仍断言 403。
+
+### 已知限制（本批明确不做，已挂账）
+
+- **跨根 `pre_write` 备份**：`BackupService.preWriteBackup` 的监狱根是 `mizukiRoot`，
+  内容仓在主题根外时快照被**跳过 + warn**（绝不静默）。要跨根需改 manifest 契约
+  （`files[].path` 恒为相对 mizukiRoot 的 POSIX 路径）+ 改恢复语义，属独立安全面重构。
+  ⇒ 记为 T4-4 之后最该做的立项。内容的最终恢复通道是内容仓自身的 git 历史。
+- **git 源下写文章**：不提供。读可用（降级读代码仓副本）。
+- **面板面（T6）**：series / moments 的渲染与表单尚未做。
+
+---
+
 ## 主题双兼容批（2026-10-29 · 主题适配层 + 配置域写入 + 内容同步任务）
 
 > 数账 **84 文件 / 836 用例**（较基线 74/652 新增 **10 文件 184 用例**；唯一失败为 `p9e` ⑥ 的 HTTP 429

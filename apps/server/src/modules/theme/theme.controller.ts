@@ -10,7 +10,13 @@
  */
 import { Controller, Get, HttpCode, HttpStatus, Post } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
-import type { ThemeAdapterProfileView, ThemeStatusView } from '@mizuki/shared';
+// [T4-4 汇总] 类型 + 值同批导入：`summarizeContentCapabilities` 是运行时函数
+import {
+  summarizeContentCapabilities,
+  type ContentCapabilitySummary,
+  type ThemeAdapterProfileView,
+  type ThemeStatusView,
+} from '@mizuki/shared';
 import { getAppConfig } from '../../config/app-config';
 import { ThemeAdapterService } from './theme-adapter.service';
 import { ThemeRegistryService } from './theme-registry.service';
@@ -50,6 +56,20 @@ export class ThemeController {
         publicDir: layout.publicDir,
       },
     };
+  }
+
+  /**
+   * [T4-2..T4-4 汇总] 内容能力速查（人读摘要）。
+   *
+   * 为什么不并入 `GET profile`：`profile` 是**机器契约**（六组能力面，面板据此驱动渲染），
+   * 加人读文案会让契约混入展示关注点。这里单独一个只读端点，供面板「知识」区与
+   * 文档引用；规则仍在 `@mizuki/shared` 的 `summarizeContentCapabilities` 一处。
+   */
+  @ApiOperation({ summary: '内容能力速查（可纳管文章扩展名 / 是否支持内容集合 / 一句话摘要）' })
+  @Get('content-capabilities')
+  getContentCapabilities(): ContentCapabilitySummary {
+    const { capabilities } = this.adapter.resolve(getAppConfig().mizukiRoot, getAppConfig().mode);
+    return summarizeContentCapabilities(capabilities);
   }
 
   @ApiOperation({ summary: '捕获主题基线（重置漂移轴；探针轴不受影响）' })

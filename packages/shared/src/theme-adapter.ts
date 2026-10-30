@@ -161,3 +161,49 @@ export type ThemeAdapterProfile = z.infer<typeof ThemeAdapterProfileSchema>;
 export type ThemeAdapterProfileView = Omit<ThemeAdapterProfile, 'layout'> & {
   layout: Omit<ThemeLayout, 'root'>;
 };
+
+/**
+ * [T4-2..T4-4 汇总] 内容能力速查 —— 由 `capabilities` 派生的**人读摘要**，供面板与文档引用。
+ *
+ * 为什么需要它：能力画像本身是机器契约（六组布尔 + 数组），面板要展示「这个主题下我能做什么」
+ * 时不该自己按六个字段拼文案 —— 那样每加一档主题就多一处需要同步改的 UI 逻辑。
+ * 本函数把判定收敛到 shared 一处，前后端共用同一份规则（L0 纯函数，零 I/O）。
+ *
+ * ⚠ **这是纯投影，不新增任何真源**：全部输入来自 `capabilities`，本函数只做「读法」的统一。
+ */
+export interface ContentCapabilitySummary {
+  /** 可纳管 Markdown 文章扩展名（如 `['.md', '.mdx']`） */
+  postExtensions: string[];
+  /** 是否支持 series / moments 这类 Shirone 独有集合 */
+  contentCollections: boolean;
+  contentCollectionIds: string[];
+  /** frontmatter 面标识（`mizuki-posts` / `shirone-posts` / `''`） */
+  frontmatterSchemaId: string;
+  /** 一句话人读摘要（面板「知识」区直接用） */
+  headline: string;
+}
+
+export function summarizeContentCapabilities(
+  capabilities: ThemeCapabilities,
+): ContentCapabilitySummary {
+  const postExtensions = [...capabilities.posts.extensions];
+  const contentCollectionIds = [...capabilities.contentCollections.ids];
+  const contentCollections = capabilities.contentCollections.supported;
+
+  let headline: string;
+  if (!capabilities.posts.supported) {
+    headline = '当前主题不支持内容管理';
+  } else if (contentCollections) {
+    headline = `Markdown 文章（${postExtensions.join(' / ')}）+ 内容集合（${contentCollectionIds.join(' / ')}）`;
+  } else {
+    headline = `Markdown 文章（${postExtensions.join(' / ')}）`;
+  }
+
+  return {
+    postExtensions,
+    contentCollections,
+    contentCollectionIds,
+    frontmatterSchemaId: capabilities.posts.frontmatterSchemaId,
+    headline,
+  };
+}
