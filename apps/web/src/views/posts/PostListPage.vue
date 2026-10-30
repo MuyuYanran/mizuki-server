@@ -28,10 +28,45 @@ import {
   type RecycleEntry,
 } from '../../api/posts';
 import { ApiError } from '../../api/http';
+// [T6a] 能力感知：同步按钮按主题形态单显；写落点提示由服务端响应驱动
+import ContentSyncButton from '../../components/ContentSyncButton.vue';
+import ContentWriteHint from '../../components/ContentWriteHint.vue';
+import { usesContentSeparation } from '../../stores/theme';
 
 type TabKind = 'all' | 'drafts' | 'recycle';
 
 const router = useRouter();
+
+/** [T6a] 上一次写操作是否要求同步（由写响应驱动，不靠前端猜主题） */
+const lastWriteNeedsSync = ref(false);
+
+/**
+ * [T6a] 写落点提示条。
+ * - 内容仓档：常驻 info，提醒「改完要同步」；
+ * - 列表加载失败且是 403/404：展示服务端原话（其文案已含「下一步」）。
+ *   这条很重要：用户进页面就能看到「这里写不了、为什么、怎么办」，
+ *   而不是填完表单点保存才被拒。
+ */
+const writeHint = computed<{ tone: 'info' | 'warning' | 'error'; message: string; detail: string } | null>(
+  () => {
+    // 注意：computed 的 getter 里访问 ref 需要显式 `.value`（自动解包只在模板里生效）
+    const denied = accessDenied.value;
+    if (denied !== null) {
+      return { tone: 'warning', message: denied, detail: '' };
+    }
+    if (usesContentSeparation.value) {
+      return {
+        tone: 'info',
+        message: '当前主题启用了内容分离：文章的增删改会写入内容仓，需要跑一次内容同步才会在主题中生效。',
+        detail: '',
+      };
+    }
+    return null;
+  },
+);
+
+/** [T6a] 列表加载被拒时的服务端原话（含 reason 的指路牌） */
+const accessDenied = ref<string | null>(null);
 
 const activeTab = ref<TabKind>('all');
 const loading = ref(false);
@@ -61,7 +96,12 @@ async function load(): Promise<void> {
       posts.value = await postsApi.list();
     }
     recycle.value = recycleStore.list();
+    accessDenied.value = null;
   } catch (err) {
+    // [T6a] 403/404 是「落点被拒」，服务端文案已含「下一步」——常驻展示而非一闪而过的 toast
+    if (err instanceof ApiError && (err.status === 403 || err.status === 404)) {
+      accessDenied.value = err.message;
+    }
     ElMessage.error(err instanceof ApiError ? err.message : '加载失败');
   } finally {
     loading.value = false;
@@ -427,6 +467,8 @@ async function commitImport(): Promise<void> {
         <span class="header-desc">管理博客文章、草稿与回收站</span>
       </div>
       <div class="header-actions">
+        <!-- [T6a] 内容同步按钮：按主题形态单显（Mizuki HEAD → sync-content；Shirone → content:sync） -->
+        <ContentSyncButton :needs-sync="lastWriteNeedsSync" />
         <el-button @click="openImport">导入</el-button>
         <el-button type="primary" class="btn-gradient-primary" @click="goNew">
           <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 4px;">
@@ -437,6 +479,14 @@ async function commitImport(): Promise<void> {
         </el-button>
       </div>
     </div>
+
+    <!-- [T6a] 写操作落点提示：内容仓档下改完需同步；可写性被拒时展示服务端原话 -->
+    <ContentWriteHint
+      v-if="writeHint !== null"
+      :tone="writeHint.tone"
+      :message="writeHint.message"
+      :detail="writeHint.detail"
+    />
 
     <el-tabs :model-value="activeTab" @tab-change="onTabChange">
       <el-tab-pane label="全部" name="all" />

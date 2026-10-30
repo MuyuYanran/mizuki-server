@@ -31,6 +31,8 @@ import SettingsPage from '../views/settings/SettingsPage.vue';
 import SiteConfigPage from '../views/settings/SiteConfigPage.vue';
 import ThemePage from '../views/settings/ThemePage.vue';
 import ThemeStatusPage from '../views/settings/ThemeStatusPage.vue';
+// [T6b] Shirone 内容集合（series / moments 共用一个页面，字段表驱动）
+import ContentCollectionPage from '../views/content/ContentCollectionPage.vue';
 // [U4-AI2] AI 服务设置（provider 档案 / 代理三态 / 生成参数 / 连通性测试）
 import AiSettingsPage from '../views/settings/AiSettingsPage.vue';
 
@@ -68,6 +70,9 @@ const routes: RouteRecordRaw[] = [
       { path: 'theme-status', component: ThemeStatusPage, meta: { title: '主题状态' } },
       // [U4-AI2] AI 服务设置（消费 /admin/ai/config + /admin/ai/ping）
       { path: 'settings/ai', component: AiSettingsPage, meta: { title: 'AI 服务' } },
+      // [T6b] Shirone 内容集合（series / moments）：`kind` 由路由参数分派，
+      //   非法值不会是路由匹配问题——页面内回退 series，后端 404 再兜底。
+      { path: 'content/:kind', component: ContentCollectionPage, meta: { title: '内容集合' } },
     ],
   },
   { path: '/:pathMatch(.*)*', redirect: '/' },

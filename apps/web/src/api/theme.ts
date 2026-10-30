@@ -10,13 +10,33 @@
  * 类型**从 `@mizuki/shared` 取**（`ThemeStatusViewSchema` 是前后端唯一共享面，
  * `.strict()`），不在前端复制字段面。
  */
-import type { ThemeStatusView } from '@mizuki/shared';
+import type {
+  ContentCapabilitySummary,
+  ThemeAdapterProfileView,
+  ThemeStatusView,
+} from '@mizuki/shared';
 import { request } from './http';
 
 export const themeApi = {
   /** 只读快照：身份 / 指纹 / 基线四态 / 漂移三态 / 探针结果 */
   getStatus(): Promise<ThemeStatusView> {
     return request<ThemeStatusView>('GET', '/admin/theme/status');
+  },
+
+  /**
+   * [T6a] 主题识别画像（kind / layout / capabilities / 证据链）。
+   * layout.root 已被服务端逐键剔除（红线 6），前端拿到的永远不含绝对路径。
+   */
+  getProfile(): Promise<ThemeAdapterProfileView> {
+    return request<ThemeAdapterProfileView>('GET', '/admin/theme/profile');
+  },
+
+  /**
+   * [T6a] 内容能力速查（人读摘要：可纳管扩展名 / 是否支持内容集合 / headline）。
+   * 判定规则在 `@mizuki/shared` 的 `summarizeContentCapabilities` 一处，前端不重写。
+   */
+  getContentCapabilities(): Promise<ContentCapabilitySummary> {
+    return request<ContentCapabilitySummary>('GET', '/admin/theme/content-capabilities');
   },
 
   /**

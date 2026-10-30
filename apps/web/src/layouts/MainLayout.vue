@@ -30,6 +30,15 @@ import { ElMessage } from 'element-plus';
 import { authApi } from '../api/auth';
 import { authState, clearAuth } from '../stores/auth';
 import { ensureSystemMode, isMinimalMode, resetSystemMode, systemMode } from '../stores/system';
+// [T6a] 主题能力感知（导航显隐 / 集合类型 / 同步任务名的唯一判定源）
+import {
+  availableCollections,
+  contentCollectionIds,
+  ensureThemeCapabilities,
+  postExtensions,
+  resetThemeCapabilities,
+  themeProfile,
+} from '../stores/theme';
 import { THEME_LABELS, cycleTheme, themePreference } from '../lib/theme';
 import MenuIcon from '../components/MenuIcon.vue';
 // [U4-AI2] 全局右侧 AI 聊天栏（开合状态在 stores/ai，这里只做挂载与顶栏开关）
@@ -39,6 +48,17 @@ import { aiDrawerOpen, toggleDrawer } from '../stores/ai';
 const route = useRoute();
 const router = useRouter();
 
+/**
+ * 侧边栏菜单（§3.6 清单逐字；P10c 拆分文章为 Markdown / 富文本两项；
+ * [B2/裁决 7] 六类集合在 manage 模式下保留，仅富文本文章隐藏）。
+ *
+ * [T6a] 两条**动态过滤**维度（都 fail-open）：
+ *   - `mode`（stores/system）：既有语义不变，隐藏富文本文章；
+ *   - **主题能力**（stores/theme）：集合项按 `capabilities.dataFiles.collections` 过滤
+ *     （Mizuki 无 compass/games/music；Shirone 无 diary），内容集合项（series/moments）
+ *     仅在 `contentCollections.supported` 时出现。
+ *   ⇒ 判定全部收敛在 store 里，本文件只做**取交集**，不重写任何 if/else 业务判断。
+ */
 interface MenuItem {
   path: string;
   title: string;
@@ -48,22 +68,34 @@ interface MenuItem {
   group?: string;
   /** 仅精确路径命中才算激活（避免 '/settings' 抢 '/settings/ai' 的激活态） */
   exact?: boolean;
+  /**
+   * [T6a] 该项依赖哪一类能力（缺省 = 与主题无关，恒显示）：
+   *   - `collection:<type>` ⇒ 需该集合在当前主题的能力面里；
+   *   - `content-collection:<id>` ⇒ 需该内容集合可用（series / moments）；
+   *   - `ext:mdx` ⇒ 需当前主题可纳管 `.mdx`（文章列表副标题用，导航暂不用）。
+   * 用**数据驱动**而非「按档位名写死」，将来新主题支持同名能力即自动生效。
+   */
+  requires?: string;
 }
 
-/** 侧边栏菜单（§3.6 清单逐字；P10c 拆分文章为 Markdown / 富文本两项；
- * [B2/裁决 7] 六类集合在 manage 模式下保留，仅富文本文章隐藏） */
 const MENU: MenuItem[] = [
   { path: '/', title: '仪表盘' },
   { path: '/posts', title: 'Markdown 文章', group: '内容' },
   { path: '/articles', title: '富文本文章', minimalHidden: true, group: '内容' },
   { path: '/about', title: '关于页', group: '内容' },
-  { path: '/collections/diary', title: '日记', group: '集合' },
-  { path: '/collections/friends', title: '友链', group: '集合' },
-  { path: '/collections/projects', title: '项目', group: '集合' },
-  { path: '/collections/timeline', title: '时间线', group: '集合' },
-  { path: '/collections/skills', title: '技能', group: '集合' },
-  { path: '/collections/devices', title: '设备', group: '集合' },
-  { path: '/collections/anime', title: '番剧', group: '集合' },
+  // [T6a] 内容集合（Shirone 独有）：需能力面支持才出现
+  { path: '/content/series', title: '系列', requires: 'content-collection:series', group: '内容' },
+  { path: '/content/moments', title: '动态', requires: 'content-collection:moments', group: '内容' },
+  { path: '/collections/diary', title: '日记', requires: 'collection:diary', group: '集合' },
+  { path: '/collections/friends', title: '友链', requires: 'collection:friends', group: '集合' },
+  { path: '/collections/projects', title: '项目', requires: 'collection:projects', group: '集合' },
+  { path: '/collections/timeline', title: '时间线', requires: 'collection:timeline', group: '集合' },
+  { path: '/collections/skills', title: '技能', requires: 'collection:skills', group: '集合' },
+  { path: '/collections/devices', title: '设备', requires: 'collection:devices', group: '集合' },
+  { path: '/collections/anime', title: '番剧', requires: 'collection:anime', group: '集合' },
+  { path: '/collections/compass', title: '指南针', requires: 'collection:compass', group: '集合' },
+  { path: '/collections/games', title: '游戏', requires: 'collection:games', group: '集合' },
+  { path: '/collections/music', title: '音乐', requires: 'collection:music', group: '集合' },
   { path: '/albums', title: '相册', group: '媒体' },
   { path: '/media', title: '媒体库', group: '媒体' },
   { path: '/backups', title: '备份', group: '运维' },
@@ -82,10 +114,34 @@ const MENU: MenuItem[] = [
 /** [Phase4-D3] 分组渲染顺序（固定；组内顺序随 MENU 声明序） */
 const MENU_GROUPS = ['内容', '集合', '媒体', '运维', '配置'] as const;
 
-/** 可见菜单：mode 未知（fail-open）时全量显示（R2-5） */
-const visibleMenu = computed<MenuItem[]>(() =>
-  isMinimalMode() ? MENU.filter((item) => !item.minimalHidden) : MENU,
-);
+/**
+ * [T6a] 主题能力判定：`requires` 是否满足。
+ *
+ * **[fail-open 的关键]** 能力未加载（`themeProfile === null`，含请求失败）时**一律返回 true**
+ * —— 宁可多显示一个可能进不去的入口，也不让用户在能力拉取失败时整个导航被清空
+ * （那会把「网络抖动」放大成「面板看起来坏了」）。真正的兜底在页面与后端：
+ * 页面会按能力渲染只读态，后端对不支持的操作给 404/403 带指路牌。
+ */
+function satisfiesThemeRequirement(requires: string | undefined): boolean {
+  if (requires === undefined) return true;
+  if (themeProfile.value === null) return true; // 未加载/失败 ⇒ fail-open
+  if (requires.startsWith('collection:')) {
+    return availableCollections.value.includes(requires.slice('collection:'.length));
+  }
+  if (requires.startsWith('content-collection:')) {
+    return contentCollectionIds.value.includes(requires.slice('content-collection:'.length));
+  }
+  if (requires === 'ext:mdx') {
+    return postExtensions.value.includes('.mdx');
+  }
+  return true; // 未知 requires 前缀 ⇒ 不拦（前向兼容）
+}
+
+/** 可见菜单：mode 未知（fail-open）时全量显示（R2-5）；主题能力同样 fail-open（T6a） */
+const visibleMenu = computed<MenuItem[]>(() => {
+  const byMode = isMinimalMode() ? MENU.filter((item) => !item.minimalHidden) : MENU;
+  return byMode.filter((item) => satisfiesThemeRequirement(item.requires));
+});
 
 /** [Phase4-D3] 组内可见项；过滤后组空 → 组壳隐藏（模板 v-if，manage 收窄边界） */
 function menuByGroup(group: string): MenuItem[] {
@@ -180,6 +236,8 @@ function toggleCollapse(): void {
 onMounted(() => {
   // 登录后拉取系统状态读取 mode（R2-5 判定源；失败 fail-open 不阻塞）
   void ensureSystemMode();
+  // [T6a] 能力画像与运行模式并行拉取（互不阻塞；两者都 fail-open）
+  void ensureThemeCapabilities();
   handleResize();
   window.addEventListener('resize', handleResize);
 });
@@ -195,6 +253,35 @@ watch(systemMode, () => {
   }
 });
 
+/**
+ * [T6a] 能力加载完成/变化时，若当前正处于**本主题不支持**的页面 → 重定向仪表盘。
+ *
+ * 为什么需要：导航已在加载完成后隐藏这些入口，但两种情况会让用户停在「不存在的页」：
+ *   ① 用户直接输 URL / 用书签进入；
+ *   ② 从「支持该集合的主题」切换过来时，浏览器停在旧路径上。
+ * 只处理**确定不支持**的情形（`themeProfile` 已加载且能力面明确排除）——
+ * 未加载/失败一律不重定向（fail-open，不误伤）。
+ */
+watch(themeProfile, () => {
+  if (themeProfile.value === null) return;
+  const current = visibleMenu.value.find((item) => routesMatch(item, route.path));
+  const inMenu = current !== undefined;
+  // 只有当当前路径**在 MENU 里有对应项、却因能力被过滤掉**时才重定向，
+  // 避免把「不在菜单里的合法页面」（如 /posts/new、/albums/:id 详情页）误判成不支持。
+  if (!inMenu) {
+    const declared = MENU.find((item) => routesMatch(item, route.path));
+    if (declared !== undefined && !satisfiesThemeRequirement(declared.requires)) {
+      void router.replace('/');
+    }
+  }
+});
+
+/** 菜单项与当前路径是否匹配（精确项要求完全相等，其余按前缀段匹配） */
+function routesMatch(item: MenuItem, path: string): boolean {
+  if (item.exact === true) return path === item.path;
+  return path === item.path || path.startsWith(`${item.path}/`);
+}
+
 async function logout(): Promise<void> {
   try {
     await authApi.logout();
@@ -203,6 +290,7 @@ async function logout(): Promise<void> {
   }
   clearAuth();
   resetSystemMode();
+  resetThemeCapabilities();
   ElMessage.success('已登出');
   void router.push('/login');
 }
