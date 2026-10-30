@@ -8,14 +8,19 @@
  *
  * 约定：
  *   - 备份目录：`<backupDir>/<时间戳-nanoid>/`，产物按相对路径镜像存放；
- *   - manifest.files[].path：文件备份为相对 Mizuki 根的 POSIX 风格相对路径，
+ *   - manifest.files[].path：文件备份为**相对受管根**的 POSIX 风格相对路径，
  *     db 备份为数据库文件绝对路径（恢复时按 scope 分派）；
- *   - 所有涉及 Mizuki 根的路径解析一律经 safeJoin（P1 路径监狱）；
+ *   - **受管根是闭集双根**（`theme` = mizukiRoot；`content` = 内容分离的本地持久内容仓根）：
+ *     条目用可选 `root: 'theme' | 'content'` 标识；**缺省即 `theme`**（存量备份逐字节兼容）。
+ *     归档布局：无标签 ⇒ `<rel>`（与历史一致）；有标签 ⇒ `<root>/<rel>`。
+ *     详见 `common/fs/backup-roots.ts`（含「为何不放开任意绝对路径」的理由）。
+ *   - 所有路径解析一律经 `resolveManifestEntryPath`（拒绝绝对路径与 `..`，拼后二次校验）；
+ *   - **manifest 永不写入宿主机绝对路径**（仓规红线 6）；
  *   - 备份成功出口恰好一次发射 backup.completed（payload 先过 zod parse）。
  */
 import fs from 'node:fs';
 import path from 'node:path';
-import { BadRequestException, Inject, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { nanoid } from 'nanoid';
 import { asc, desc, eq } from 'drizzle-orm';
@@ -23,8 +28,18 @@ import Database from 'better-sqlite3';
 import { z } from 'zod';
 import { BackupCompletedPayload, EVENTS } from '@mizuki/shared';
 import { sha256File } from '../../common/crypto/hash';
+// [跨根备份] 受管根闭集（theme / content）+ manifest 条目落点解析（L0 单源）
+import {
+  type BackupRootTag,
+  type ManagedRoots,
+  type ManifestPathFailure,
+  archiveSubPath,
+  classifyManagedTarget,
+  resolveManagedRoots,
+  resolveManifestEntryPath,
+} from '../../common/fs/backup-roots';
 import { atomicReplace, tempPathFor } from '../../common/fs/atomic-write';
-import { requireMizukiRoot, toMizukiAbs, tryToMizukiAbs } from '../../common/fs/mizuki-root';
+import { requireMizukiRoot, toMizukiAbs } from '../../common/fs/mizuki-root';
 import { toPosixPath } from '../../common/fs/posix';
 import { logger } from '../../common/logger';
 import { type DrizzleDb, DRIZZLE_DB, SQLITE_CONNECTION } from '../db/db.module';
@@ -56,7 +71,14 @@ export interface BackupRecordInfo {
   manifestPath: string;
 }
 
-/** manifest.json 结构（zod 校验，篡改/损坏 → 400） */
+/**
+ * manifest.json 结构（zod 校验，篡改/损坏 → 400）
+ *
+ * [跨根备份] `files[].root` 为**可选**新增字段（additive，向后兼容）：
+ *   - 省略 / `'theme'` ⇒ 相对 Mizuki 根（**存量备份全是这种**，逐字节原样可读可恢复）；
+ *   - `'content'`     ⇒ 相对内容分离的本地持久内容仓根。
+ * 只存**根标签 + 相对路径**，绝不存宿主机绝对路径（红线 6）。
+ */
 const ManifestSchema = z.object({
   id: z.string(),
   scope: z.string(),
@@ -64,7 +86,13 @@ const ManifestSchema = z.object({
   fileCount: z.number(),
   sizeBytes: z.number(),
   note: z.string().optional(),
-  files: z.array(z.object({ path: z.string(), sha256: z.string() })),
+  files: z.array(
+    z.object({
+      path: z.string(),
+      sha256: z.string(),
+      root: z.enum(['theme', 'content']).optional(),
+    }),
+  ),
 });
 type Manifest = z.infer<typeof ManifestSchema>;
 
@@ -84,17 +112,55 @@ export class BackupService {
 
   /**
    * pre_write 备份：写管线前置快照，只备单个目标文件。
-   * @param targetAbsPath 目标文件绝对路径（须位于 mizukiRoot 内，经 safeJoin 校验）
+   *
+   * [跨根备份] 目标可以在**两个受管根**之一：
+   *   - 主题根内（含其下的 `content/` 等路径）—— 旧行为逐字不变；
+   *   - 内容分离的**本地持久内容仓根**内（可能在主题根之外）—— 新增能力，
+   *     manifest 条目带 `root: 'content'`，归档落到 `content/<rel>` 子目录。
+   * 其它位置 ⇒ **明确拒绝**（400 + 指路），不再静默跳过：写盘无备份是数据安全缺口，
+   * 必须让调用方知道「这里备份不了」，而不是让用户以为有悔棋。
+   *
+   * @param targetAbsPath 目标文件绝对路径（必须落在某个受管根内）
    * @returns 备份记录；目标文件不存在时返回 undefined（无物可备）
    */
   async preWriteBackup(targetAbsPath: string, note?: string): Promise<BackupRecordInfo | undefined> {
-    const rel = path.relative(this.requireMizukiRoot(), path.resolve(targetAbsPath));
-    const verified = this.joinWithinRoot(rel); // 越界 → ForbiddenException
-    if (!fs.existsSync(verified)) {
+    // [语义分轴·第一道] 主题根**未配置**是**配置问题** ⇒ 400 + 「未配置」文案
+    // （与 manualBackup / 既有契约一致）。必须先判这一条：若先走分类，
+    // 空主题根会让任何路径都落进「不在受管根内」，于是把配置问题误报成路径越界。
+    this.requireMizukiRoot();
+
+    const roots = resolveManagedRoots(this.options.mizukiRoot);
+    const classified = classifyManagedTarget(roots, path.resolve(targetAbsPath));
+    if (classified === null) {
+      // [语义分轴·第二道] 根**已配置**但仍不在任何受管根内 = **路径越界** ⇒ 403，
+      // 沿用既有契约（与 safeJoin 同码），不改成 400：403 表达「这里不许写」，
+      // 400 会被误读成「请求体写错了」。
+      logger.warn({ target: targetAbsPath }, 'pre_write：目标不在任何受管根内，拒绝备份');
+      throw new ForbiddenException(
+        '该路径不在任何受管根内，拒绝备份：可备份的位置只有主题根与（内容分离启用时的）本地内容仓根。下一步：确认主题根/内容仓配置正确，或把文件放到这两个目录之一。',
+      );
+    }
+    const verified = resolveManifestEntryPath(roots, { root: classified.root, path: classified.rel });
+    if (!verified.ok) {
+      throw new ForbiddenException(`备份目标路径非法：${verified.reason}`);
+    }
+    if (!fs.existsSync(verified.abs)) {
       logger.info({ target: targetAbsPath }, 'pre_write：目标文件不存在，跳过备份');
       return undefined;
     }
-    return this.createFileBackup('pre_write', [{ abs: verified, rel: toPosixPath(rel) }], note);
+    // [布局] 单条目备份只在**内容根**时打标签：
+    //   纯 theme ⇒ 无标签 ⇒ 扁平布局，与存量 manifest 逐字节一致（向下兼容硬约束）；
+    //   content ⇒ 打标签 ⇒ 归档落到 `content/` 子目录，恢复时据标签选根。
+    return this.createFileBackup(
+      'pre_write',
+      [
+        classified.root === 'content'
+          ? { abs: verified.abs, rel: classified.rel, root: classified.root }
+          : { abs: verified.abs, rel: classified.rel },
+      ],
+      note,
+      roots,
+    );
   }
 
   /**
@@ -146,6 +212,17 @@ export class BackupService {
     const manifest = this.readManifestOrThrow(record.manifestPath);
     logger.info({ backupId, scope: record.scope }, '恢复开始');
 
+    // [跨根恢复] 先一次性解析当前受管根，并**在写盘前**校验全部目标可落
+    // ——「恢复到一半才发现内容仓已切走」是最坏的失败方式（半成品现场）。
+    const roots = resolveManagedRoots(this.options.mizukiRoot);
+    if (record.scope !== 'db') {
+      const blocker = this.findRestoreBlocker(roots, manifest.files);
+      if (blocker !== null) {
+        logger.warn({ backupId, reason: blocker.reason }, '恢复被拒绝：受管根不可用或清单被篡改');
+        this.blockerToException(blocker);
+      }
+    }
+
     // 1. 恢复前快照（当前状态，保证可回滚）
     let safetyBackupId: string | undefined;
     let safetyInfo: BackupRecordInfo | undefined;
@@ -154,11 +231,18 @@ export class BackupService {
       safetyBackupId = safetyInfo.id;
     } else {
       const existing = manifest.files
-        .map((entry) => ({ entry, abs: this.tryJoinWithinRoot(entry.path) }))
+        .map((entry) => {
+          const resolved = resolveManifestEntryPath(roots, entry);
+          return { entry, abs: resolved.ok ? resolved.abs : null };
+        })
         .filter((item) => item.abs !== null && fs.existsSync(item.abs))
-        .map((item) => ({ abs: item.abs as string, rel: item.entry.path }));
+        .map((item) => ({
+          abs: item.abs as string,
+          rel: item.entry.path,
+          root: item.entry.root,
+        }));
       if (existing.length > 0) {
-        safetyInfo = await this.createFileBackup('manual', existing, '恢复前快照');
+        safetyInfo = await this.createFileBackup('manual', existing, '恢复前快照', roots);
         safetyBackupId = safetyInfo.id;
       }
     }
@@ -166,7 +250,7 @@ export class BackupService {
     // 2. 完整性校验（逐文件 sha256）
     const backupRoot = path.dirname(record.manifestPath);
     for (const entry of manifest.files) {
-      const product = this.productPath(backupRoot, record.scope, entry.path);
+      const product = this.productPath(backupRoot, record.scope, entry);
       if (!fs.existsSync(product)) {
         throw new BadRequestException(`备份产物缺失：${entry.path}`);
       }
@@ -179,7 +263,7 @@ export class BackupService {
     if (record.scope === 'db') {
       // .backup() 逆向：以备份产物为源，写回现场 db 文件路径
       // （better-sqlite3 的 backup 目标只接受文件路径；写回时活动连接须处于空闲）
-      const product = this.productPath(backupRoot, record.scope, manifest.files[0]?.path ?? '');
+      const product = this.productPath(backupRoot, record.scope, manifest.files[0] ?? { path: '' });
       const source = new Database(product);
       try {
         await source.backup(this.options.dbPath);
@@ -205,9 +289,14 @@ export class BackupService {
       }
     } else {
       for (const entry of manifest.files) {
-        const target = this.joinWithinRoot(entry.path);
+        const resolved = resolveManifestEntryPath(roots, entry);
+        if (!resolved.ok) {
+          // 已在 findRestoreBlocker 前置拦过，这里是纵深防御（不可达）
+          throw new BadRequestException(`恢复目标路径非法：${resolved.reason}`);
+        }
+        const target = resolved.abs;
         fs.mkdirSync(path.dirname(target), { recursive: true });
-        const product = this.productPath(backupRoot, record.scope, entry.path);
+        const product = this.productPath(backupRoot, record.scope, entry);
         // 原子覆盖（单源）：临时文件与目标同目录 → rename 即原子提交
         const tmp = tempPathFor(target, '.restore-');
         fs.copyFileSync(product, tmp);
@@ -240,11 +329,69 @@ export class BackupService {
    * 文件备份：产物按相对路径镜像存放；db 备份：manifest 记录 db 绝对原路径，
    * 产物文件名为其 basename。
    */
-  private productPath(backupRoot: string, scope: string, entryPath: string): string {
+  /**
+   * [跨根恢复] 恢复前的**安全闸门**：逐条目解析当前落点，任一不可落即整批拒绝。
+   *
+   * 为什么必须整批、不能跳过个别条目：恢复是「把时间倒回去」的原子语义。
+   * 若受管根已变（用户从 external 切回 local / 切到 git 源 / 内容仓目录被移走），
+   * 悄悄跳过 content 条目会让用户以为「恢复成功了」，而实际上内容仓那部分根本没回来
+   * —— 这比直接失败更危险。故一律 400 + 指路。
+   *
+   * @returns null ⇒ 全部可落；否则给出拒绝原因与文案（文案零绝对路径，红线 6）
+   */
+  private findRestoreBlocker(
+    roots: ManagedRoots,
+    files: { path: string; root?: BackupRootTag }[],
+  ): { reason: ManifestPathFailure; message: string } | null {
+    for (const entry of files) {
+      const resolved = resolveManifestEntryPath(roots, entry);
+      if (resolved.ok) continue;
+      if (resolved.reason === 'content-root-unavailable') {
+        return {
+          reason: resolved.reason,
+          message:
+            '该备份包含内容仓文件，但当前配置下没有可用的本地内容仓根（可能已切回本地模式、切到 git 源，或内容仓目录不存在）：为避免把内容文件倾倒到主题代码仓，本次恢复被拒绝。下一步：先恢复「内容分离 + 本地 path 源」的配置并确认内容仓目录存在，然后重试。',
+        };
+      }
+      if (resolved.reason === 'theme-root-uninitialized') {
+        return {
+          reason: resolved.reason,
+          message: '主题根未初始化，无法恢复文件：请先完成初始化，或确认 config.json 里的主题根配置正确。',
+        };
+      }
+      return {
+        reason: resolved.reason,
+        message: `备份清单里有非法路径条目（${entry.path}）：恢复被拒绝。下一步：该备份可能已损坏或被篡改，请从其他备份恢复。`,
+      };
+    }
+    return null;
+  }
+
+  /**
+   * [跨根恢复] 把 blocker 映射为 HTTP 异常。
+   *
+   * 语义分轴（两类失败**不可混同**）：
+   *   - `rel-path-invalid` ⇒ **403 ForbiddenException**：manifest 里的 `..`/绝对路径是
+   *     **路径篡改/越界**，与 `safeJoin` 的拒绝同源、同码（沿用既有安全契约，勿改成 400）；
+   *   - 其余（受管根不可用 / 主题根未初始化）⇒ **400 BadRequestException**：这是
+   *     **配置态问题**，用户改配置即可解决，文案必须带「下一步」指路。
+   */
+  private blockerToException(blocker: { reason: ManifestPathFailure; message: string }): never {
+    if (blocker.reason === 'rel-path-invalid') {
+      throw new ForbiddenException(blocker.message);
+    }
+    throw new BadRequestException(blocker.message);
+  }
+
+  private productPath(
+    backupRoot: string,
+    scope: string,
+    entry: { path: string; root?: BackupRootTag },
+  ): string {
     if (scope === 'db') {
       return path.join(backupRoot, path.basename(this.options.dbPath));
     }
-    return path.join(backupRoot, entryPath);
+    return path.join(backupRoot, ...archiveSubPath(entry).split('/'));
   }
 
   /** 未配置 root → 400（备份专属文案，逐字保留） */
@@ -261,10 +408,11 @@ export class BackupService {
     });
   }
 
-  /** 同上，但不抛错：路径非法或 root 未配置时返回 null（用于恢复前快照的现存文件收集） */
-  private tryJoinWithinRoot(rel: string): string | null {
-    return tryToMizukiAbs(this.options.mizukiRoot, rel);
-  }
+  /**
+   * [跨根备份] 原先此处有 `tryJoinWithinRoot()`（单根、不抛错的 safeJoin 包装）。
+   * 双根改造后「条目 → 落点」统一走 L0 的 `resolveManifestEntryPath()`（返回 Result 形态，
+   * 天然带失败原因），该包装失去唯一调用点，已删除（勿复活：两套路径解析就是事故来源）。
+   */
 
   /** 收集 REST scope 对应的源文件（相对 Mizuki 根，POSIX 风格） */
   private collectSources(restScope: Exclude<RestBackupScope, 'db'>): { abs: string; rel: string }[] {
@@ -309,28 +457,49 @@ export class BackupService {
     }
   }
 
-  /** 文件备份核心：镜像复制 + manifest + 记录 + 事件 +（pre_write）保留策略 */
+  /**
+   * 文件备份核心：镜像复制 + manifest + 记录 + 事件 +（pre_write）保留策略
+   *
+   * [跨根备份] `sources[].root` 可选。**布局一致性铁律**（见 `archiveSubPath` 注释）：
+   * 只要**任一**条目带 root 标签，就给**全部**条目打标签（无标签的补 `'theme'`），
+   * 从而 `theme/<rel>` 与 `content/<rel>` 永不撞名；纯 theme 备份则一个标签都不打
+   * —— 存量归档布局与 manifest 形状**逐字节不变**。
+   */
   private async createFileBackup(
     scope: 'pre_write' | 'manual',
-    sources: { abs: string; rel: string }[],
+    sources: { abs: string; rel: string; root?: BackupRootTag }[],
     note?: string,
+    roots?: ManagedRoots,
   ): Promise<BackupRecordInfo> {
     const dirName = `${formatTimestamp(new Date())}-${nanoid(8)}`;
     const backupDir = path.join(this.options.backupDir, dirName);
     fs.mkdirSync(backupDir, { recursive: true });
 
-    const files: { path: string; sha256: string }[] = [];
+    const anyTagged = sources.some((source) => source.root !== undefined);
+    const effectiveRoots: ManagedRoots = roots ?? resolveManagedRoots(this.options.mizukiRoot);
+
+    const files: { path: string; sha256: string; root?: BackupRootTag }[] = [];
     let sizeBytes = 0;
     for (const source of sources) {
       if (!fs.existsSync(source.abs)) {
         continue; // 源缺失（如尚未建过的新文件）跳过
       }
-      const product = path.join(backupDir, ...source.rel.split('/'));
+      const tag: BackupRootTag | undefined = anyTagged ? (source.root ?? 'theme') : undefined;
+      const subPath = archiveSubPath(
+        tag === undefined ? { path: source.rel } : { root: tag, path: source.rel },
+      );
+      const product = path.join(backupDir, ...subPath.split('/'));
       fs.mkdirSync(path.dirname(product), { recursive: true });
       fs.copyFileSync(source.abs, product);
-      files.push({ path: source.rel, sha256: sha256File(product) });
+      files.push(
+        tag === undefined
+          ? { path: source.rel, sha256: sha256File(product) }
+          : { path: source.rel, sha256: sha256File(product), root: tag },
+      );
       sizeBytes += fs.statSync(product).size;
     }
+    // effectiveRoots 目前仅用于将来扩展（如按根统计）；保留参数以免调用方反复解析
+    void effectiveRoots;
 
     const id = nanoid();
     const manifest: Manifest = {

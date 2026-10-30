@@ -1220,34 +1220,21 @@ export class PostsService {
   }
 
   /**
-   * [T4-4] 写前备份（含**跨根降级**）。
+   * [T4-4 → 跨根备份] 写前备份。
    *
-   * `BackupService.preWriteBackup` 的监狱根是 mizukiRoot（`joinWithinRoot` 越界抛 403），
-   * 而 T4-4 后 posts 在 external 档写的是**主题根之外**的内容仓。要让备份跨根，
-   * 必须改 manifest 契约（`files[].path` 目前恒为「相对 mizukiRoot 的 POSIX 路径」，
-   * 恢复侧 `joinWithinRoot(entry.path)` 依赖这一点）——那是一次独立的安全面重构，
-   * 不在本批（ADR-028 §24.5 / §25.4）。
+   * T4-4 时这里对「目标在主题根之外」做的是**跳过 + warn**，因为当时 `BackupService`
+   * 的监狱只有单根。本轮 `infra/backup` 已升级为**闭集双根**（theme / content），
+   * 内容仓文件同样有 `pre_write` 快照 ⇒ 本方法收窄为**纯转发**，不再有降级分支。
    *
-   * 本批处理：**根内 ⇒ 正常备份；根外 ⇒ 跳过 + warn**（绝不静默）。
-   * 内容的最终恢复通道是内容仓自己的 git 历史。
-   *
-   * @returns 备份记录；根外跳过或目标不存在时 `undefined`（与 `preWriteBackup` 同形）
+   * 唯一仍需处理的边界：目标既不在主题根、也不在当前解析出的内容仓根内
+   * （配置在**两次调用之间**被改掉，属竞态）。此时 `preWriteBackup` 会抛 400 ——
+   * 让它抛：写盘无备份是数据安全缺口，必须让调用方知道，不得静默。
    */
   private async backupBeforePostWrite(
     abs: string,
     note: string,
   ): Promise<Awaited<ReturnType<BackupService['preWriteBackup']>>> {
-    const root = this.options.mizukiRoot;
-    const rel = root === '' ? '..' : path.relative(path.resolve(root), path.resolve(abs));
-    const inside = root !== '' && rel !== '' && !rel.startsWith('..') && !path.isAbsolute(rel);
-    if (inside) {
-      return this.backup.preWriteBackup(abs, note);
-    }
-    logger.warn(
-      { note },
-      'pre_write 备份跳过：目标位于主题根之外（内容仓外部路径），见 ADR-028 §24.5',
-    );
-    return undefined;
+    return this.backup.preWriteBackup(abs, note);
   }
 
   /**

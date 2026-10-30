@@ -172,12 +172,11 @@ function stripNullDeleteKeys(
   return result;
 }
 
-/** 目标是否位于主题根之内（决定 pre_write 备份是否可行；见文件头「备份」段） */
-function isInsideRoot(root: string, targetAbs: string): boolean {
-  if (root === '') return false;
-  const rel = path.relative(path.resolve(root), path.resolve(targetAbs));
-  return rel !== '' && !rel.startsWith('..') && !path.isAbsolute(rel);
-}
+/**
+ * [跨根备份] 原先此处有 `isInsideRoot()`（判断目标是否在主题根内，决定备份是否跳过）。
+ * `BackupService` 双根化后「目标属于哪个受管根」由 L0 的 `classifyManagedTarget()` 统一回答，
+ * 本服务不再需要自己判根（两处判根 = 事故来源），故删除。
+ */
 
 @Injectable()
 export class ShironeContentService {
@@ -292,20 +291,12 @@ export class ShironeContentService {
       throw new NotFoundException(`${spec.label}不存在：${slug}`);
     }
     const backupIds: string[] = [];
-    let backupSkipped = false;
-    if (isInsideRoot(this.options.mizukiRoot, abs)) {
-      const info = await this.backup.preWriteBackup(abs, `${kind} delete: ${slug}`);
-      if (info) backupIds.push(info.id);
-    } else {
-      backupSkipped = true;
-      logger.warn(
-        { kind, slug },
-        `${spec.label}删除：目标位于主题根之外，pre_write 备份不可用（见 ADR-028 §24）`,
-      );
-    }
+    // [跨根备份] 内容仓文件现在也能 pre_write 备份（`BackupService` 已双根化）
+    const info = await this.backup.preWriteBackup(abs, `${kind} delete: ${slug}`);
+    if (info) backupIds.push(info.id);
     fs.unlinkSync(abs);
-    logger.info({ kind, slug, backupIds, backupSkipped }, `${spec.label}删除完成`);
-    return { deleted: true, backupIds, needsSync: resolved.needsSync, backupSkipped };
+    logger.info({ kind, slug, backupIds }, `${spec.label}删除完成`);
+    return { deleted: true, backupIds, needsSync: resolved.needsSync, backupSkipped: false };
   }
 
   // ── 根部解析（读写分轴：读有 git 回退、写没有） ──
@@ -390,19 +381,18 @@ export class ShironeContentService {
   }
 
   /**
-   * 写前备份：目标在主题根内 ⇒ 正常备份；在根外 ⇒ 跳过 + warn（返回 true 让调用方
-   * 在响应里透出 `backupSkipped`，用户可见「这次没备份」而非静默）。
+   * [跨根备份] 写前备份 —— 纯转发。
+   *
+   * T4-3b/T5b-2 时这里对「目标在主题根之外」做跳过 + `backupSkipped: true`，因为
+   * `BackupService` 当时只有单根监狱。本轮它已升级为**闭集双根**（theme / content），
+   * 内容仓文件同样有 `pre_write` 快照 ⇒ 不再有降级分支，`backupSkipped` 恒为 false。
+   *
+   * 保留该字段（而不是删掉）的理由：它是**对外的响应契约**，面板已按它渲染提示；
+   * 契约值恒 false 比删字段更稳（老前端不会因缺字段报错，新前端也不会误报）。
    */
   private async backupBeforeWrite(abs: string, note: string): Promise<boolean> {
-    if (isInsideRoot(this.options.mizukiRoot, abs)) {
-      await this.backup.preWriteBackup(abs, note);
-      return false;
-    }
-    logger.warn(
-      { note },
-      'pre_write 备份跳过：目标位于主题根之外（内容仓外部路径），见 ADR-028 §24',
-    );
-    return true;
+    await this.backup.preWriteBackup(abs, note);
+    return false;
   }
 
   /** 原子写（同目录临时文件 → rename）；`ensureDir` 保留「目标目录自动创建」语义 */

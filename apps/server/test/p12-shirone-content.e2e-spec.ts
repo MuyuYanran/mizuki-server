@@ -303,12 +303,16 @@ describe('[T5b-2] series / moments e2e', () => {
       );
     });
 
-    it('② 目标在主题根外 ⇒ backupSkipped=true（不静默，响应里透出）', async () => {
+    it('② 目标在主题根外 ⇒ 现在**也**能 pre_write 备份（跨根备份批次的能力升级）', async () => {
       const res = await h.server()
         .post('/api/v1/admin/content/moments')
         .send({ slug: 'ext-m', frontmatter: { published: '2026-10-30' } });
       expect(res.status).toBe(201);
-      expect(res.body).toMatchObject({ needsSync: true, backupSkipped: true });
+      expect(res.body).toMatchObject({ needsSync: true });
+      // [跨根备份] T5b-2 当时因 BackupService 只有单根监狱而跳过备份（backupSkipped: true）；
+      // 双根化之后内容仓文件同样有 pre_write 快照 ⇒ 恒为 false。
+      // 字段本身保留（对外契约），但语义已变为「恒 false」。
+      expect(res.body.backupSkipped).toBe(false);
       expect(
         fs.existsSync(path.join(contentRepo, 'content', 'moments', 'ext-m.md')),
       ).toBe(true);
@@ -333,7 +337,9 @@ describe('[T5b-2] series / moments e2e', () => {
 
       const del = await h.server().delete('/api/v1/admin/content/series/ext-series');
       expect(del.status).toBe(200);
-      expect(del.body).toMatchObject({ deleted: true, needsSync: true, backupSkipped: true });
+      // [跨根备份] 删除现在也产出 pre_write 快照（双根化后内容仓文件可备份）⇒ backupIds 非空
+      expect(del.body).toMatchObject({ deleted: true, needsSync: true, backupSkipped: false });
+      expect((del.body.backupIds as string[]).length).toBeGreaterThan(0);
       expect(
         fs.existsSync(path.join(contentRepo, 'content', 'series', 'ext-series.md')),
       ).toBe(false);

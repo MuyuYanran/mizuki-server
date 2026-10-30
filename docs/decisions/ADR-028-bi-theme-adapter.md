@@ -1801,3 +1801,110 @@ T4-4 让 posts 真的写到主题根之外，于是 `BackupService.preWriteBacku
 - **git 源下写文章**——不提供（工作副本每次 sync 被强检强清，写入必丢）。读可用（降级副本）。
 - **跨根 `pre_write` 备份**——内容仓在主题根外时快照被跳过（有 warn，非静默）。
   恢复依赖内容仓自身的 git 历史。
+
+---
+
+## 26. 追加（2026-10-30 第十九回合）：跨根 `pre_write` 备份与恢复 —— **受管根闭集双根化**
+
+### 26.1 问题回顾（§24.5 / §25.4 记录的那条缺口）
+
+T4-4 之后 posts / config / series / moments 在内容分离下会写到**主题根之外**的内容仓，
+而 `BackupService` 的路径监狱只有**一个根**（`mizukiRoot`）⇒ `preWriteBackup` 被
+`safeJoin` 判越界，只能跳过 + warn。**用户在面板上改文章/改配置，没有悔棋。**
+
+### 26.2 方案：**闭集双根**，绝不放开任意绝对路径
+
+这是本批最关键的取舍。若为了备份而允许任意绝对路径，等于在**最该保守**的恢复通道上
+开一个任意写口子 —— 一份被篡改的 `manifest.json` 就能往宿主机任意位置回灌文件。
+
+⇒ 只认**闭集**两个受管根（`common/fs/backup-roots.ts`，L0 单源）：
+
+| 标签 | 含义 | 何时存在 |
+|---|---|---|
+| `theme` | 主题根（`BackupOptions.mizukiRoot`） | 已初始化即存在 |
+| `content` | 内容分离的**本地持久内容仓根** | 仅「external + 版本受支持 + `mounts` 合法 + `path` 源 + 目录真实存在」五条**同时**成立 |
+
+闭集之外的路径 ⇒ `classifyManagedTarget()` 返回 `null` ⇒ `preWriteBackup` **明确抛 400 + 指路**
+（不再静默跳过：写盘无备份是数据安全缺口，必须让调用方知道）。
+
+`content` 根**不重新解析清单**，复用 `resolveContentSource()`（L0 内部互导合法）——
+避免两套解析器劈叉（这是本项目反复踩过的坑）。
+
+### 26.3 manifest 向下兼容：**要么全不标、要么全标**
+
+`ManifestSchema.files[]` 新增**可选**字段 `root?: 'theme' | 'content'`：
+
+| 情形 | manifest 形状 | 归档布局 |
+|---|---|---|
+| 存量备份 / 纯 theme 备份 | **无 `root` 字段** | `<rel>`（**与历史逐字节一致**） |
+| 任一 involved 内容根的备份 | **全部条目都带 `root`** | `theme/<rel>` 与 `content/<rel>` |
+
+**为什么必须「全标」**：若 theme 条目走扁平、content 条目走 `content/` 子目录，那么 theme 侧
+一个恰好叫 `content/...` 的相对路径就会与 content 条目**撞名**（归档到同一位置）。
+全标即根命名空间隔离；不标即存量布局零变化。两种模式各自自洽，不存在混搭。
+
+**铁律（红线 6）**：manifest 里**只存根标签 + 相对路径**，永不写宿主机绝对路径。
+由 `p14` e2e 对**全部** manifest.json 做正则扫描断言（`/[A-Za-z]:[\\/]/` 与内容仓路径均不得出现）。
+
+### 26.4 恢复的安全闸门：**写盘前整批校验**
+
+`restore()` 在执行任何写操作**之前**先调 `findRestoreBlocker()` 逐条目解析当前落点，
+任一不可落即**整批 400 拒绝**：
+
+| 失败原因 | 触发条件 | 用户看到的 |
+|---|---|---|
+| `content-root-unavailable` | 备份含 content 条目，但当前已无有效内容仓根（切回 local / 切到 git 源 / 目录被移走） | 「为避免把内容文件倾倒到主题代码仓，本次恢复被拒绝」+ 下一步 |
+| `theme-root-uninitialized` | 主题根未初始化 | 要求先完成初始化 |
+| `rel-path-invalid` | 条目路径含 `..` / 绝对路径 / 空段（疑似篡改） | 「该备份可能已损坏或被篡改」 |
+
+**为什么整批拒绝、不能跳过个别条目**：恢复是「把时间倒回去」的**原子**语义。
+悄悄跳过 content 条目会让用户以为恢复成功，而实际内容仓那部分根本没回来 ——
+比直接失败更危险。
+
+**路径解析的纵深防御**（`resolveManifestEntryPath`，因为 manifest 可被篡改）：
+① 拒绝绝对路径（`path.isAbsolute` **与** `path.win32.isAbsolute` 双判，覆盖平台怪形）；
+② 拒绝任何 `..` 段与空段；
+③ 拼到根后**再校验一次**确实落在该根之内。绝不靠单次 `path.resolve` 判断。
+
+### 26.5 一处顺序陷阱（已在代码注释里钉住）
+
+`classifyManagedTarget()` 的判定顺序是 **content 优先，theme 次之**。这不是随意选择：
+
+> 默认形态下 `contentRoot = <themeRoot>/content`（**在主题根之内**）。
+> 若先按 theme 判，内容仓文件会被标成 `theme` 条目 —— 于是「内容仓已切走」这道闸门
+> **永远不会触发**，会把内容文件回灌到用户已经改配置的代码仓位置。
+
+这条由 `backup-roots.spec` 的一个专门用例钉住（「content 优先于 theme」）。
+
+### 26.6 三处调用点收口
+
+| 模块 | 改动 |
+|---|---|
+| `posts.service.ts` | `backupBeforePostWrite()` 从「根外跳过 + warn」收窄为**纯转发**（不再有降级分支） |
+| `shirone-content.service.ts` | `backupBeforeWrite()` 同上收窄；删除路径也接上备份。`backupSkipped` 字段**保留但恒 false**（对外契约，删字段比恒 false 更易伤老前端） |
+| `theme/config-writer.service.ts` | 原本就是直接调用（内容仓落在主题根内时不越界）；双根化后**跨根场景自然可用**，无需改动 |
+
+同时删除两个因收窄而失去调用点的私有 helper（`tryJoinWithinRoot` / `isInsideRoot`），
+并在原位置留注释说明「为何不要复活」—— 两套路径解析就是事故来源。
+
+### 26.7 本回合验收
+
+| 项 | 结果 |
+|---|---|
+| 新增 L0 `common/fs/backup-roots.ts` | 受管根解析 / 分类 / manifest 落点解析 / 归档子路径（全部纯函数） |
+| 新增单测 `backup-roots.spec.ts` | **24/24 绿**（六组：双根判定 / content 优先 / 逃逸拒绝 / 布局 / 零泄漏 / 跨平台） |
+| 新增装配层 e2e `p14-cross-root-backup.e2e-spec.ts` | **3/3 绿** —— 含「改文章 ⇒ 产出 pre_write ⇒ REST 恢复 ⇒ 内容仓文件逐字节回到原文」 |
+| 存量回归 | `p2-backup` **13/13 绿**（纯 theme 备份 manifest 零 `root` 字段，布局逐字节不变） |
+| `pnpm test` 全量 / `lint` / `build` | 见提交报告 |
+
+### 26.8 📌 封条解除
+
+§24.5 / §25.4 那条「跨根 `pre_write` 备份未做」**至此解除**。现在可以宣称：
+
+> **内容分离启用时（Shirone external + 本地 `path` 源），对内容仓文章的改/删同样生成
+> `pre_write` 快照，且可经备份恢复真实还原；恢复前会校验当前受管根，配置已变则整批拒绝
+> 并指路，绝不往代码仓盲目倾倒。**
+
+**仍不可宣称的**：
+- **git 源**——工作副本随时被 `checkout --force` + `clean -ffdx`，既无 content 根也不提供备份/恢复；
+- **内容仓在**恢复时**不存在**——按闸门拒绝（这是有意的，不是缺陷）。
