@@ -24,6 +24,7 @@ import path from 'node:path';
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   Inject,
   Injectable,
   NotFoundException,
@@ -44,6 +45,11 @@ import {
   ImportPreviewResponseSchema,
   PostChangedPayload,
   langCodeSchema,
+  // [T4-3] Shirone 档写入口面 + null 删键集。⚠ **不是**构造面 schema：
+  // 构造面带 19 个 .default() 与 1 个 .transform()，直接当写入口会把默认值物化进用户文件、
+  // 并把 YAML 数字口令静默改写成字符串（逐条理由见该文件头）。
+  SHIRONE_NULL_DELETE_KEYS,
+  ShironePostFrontmatterWriteSchema,
 } from '@mizuki/shared';
 import { sha256Text } from '../../common/crypto/hash';
 import { atomicWriteFile } from '../../common/fs/atomic-write';
@@ -53,6 +59,9 @@ import { logger } from '../../common/logger';
 import { type ArticleStatus, deriveStatus, toArticleRow } from '../../common/markdown/article-row';
 import { parseMarkdown, stringifyMarkdown } from '../../common/markdown/frontmatter';
 import { type MagicFormat } from '../../common/security/magic-sniff';
+// [T4-3] 主题档位现探：与 collections/registry.ts 同款（不注入 provider、不缓存）
+import { resolvePostsWriteTarget } from '../../common/theme/posts-write-target';
+import { ThemeAdapter } from '../../common/theme/theme-adapter';
 import { parseOrBadRequest, safeParseIssues } from '../../common/validation/zod-issues';
 import { singleSegmentName } from '../../common/validation/segment-name';
 import { getAppConfig } from '../../config/app-config';
@@ -176,15 +185,136 @@ const NULL_DELETE_KEYS = [
   'sourceLink',
 ] as const;
 
-/** null 删键哨兵处理：浅拷贝后删除值为 null 的可删键（不原地修改入参，防共享引用污染） */
-function stripNullDeleteKeys(frontmatter: Record<string, unknown>): Record<string, unknown> {
+/** null 删键哨兵处理：浅拷贝后删除值为 null 的可删键（不原地修改入参，防共享引用污染）。
+ * [T4-3] 删键集改为**参数化**（原来硬绑 `NULL_DELETE_KEYS`）：Mizuki 12 键 / Shirone 16 键，
+ * 由 `postsFrontmatterFace()` 现探决定。语义零变化——同一循环、同一浅拷贝、同一「只删 null」。
+ */
+function stripNullDeleteKeys(
+  frontmatter: Record<string, unknown>,
+  keys: readonly string[],
+): Record<string, unknown> {
   const result = { ...frontmatter };
-  for (const key of NULL_DELETE_KEYS) {
+  for (const key of keys) {
     if (result[key] === null) {
       delete result[key];
     }
   }
   return result;
+}
+
+/**
+ * [T4-3b] 写盘前的**持久性闸门**（ADR-028 §21.7）。
+ *
+ * 为什么必须有：内容分离下代码仓的 `src/content/posts` 是**物化副本**，
+ * Shirone 档的 `content:sync` 用 `copyFileSync` + `prune` 默认 true ⇒ 写进去
+ * 要么被裁剪删掉、要么被内容仓的版本覆盖，**静默丢数据**。
+ * 在 T4-4（真正的路径跟随）落地前，把「静默丢」变成「一条带指路牌的拒绝」。
+ *
+ * 【为什么是 403 而不是 400/409】这不是「请求体写错了」（400）、也不是「和现有资源冲突」（409），
+ * 而是**当前部署形态下这个操作不可能成功**——语义上接近「禁止在此落点写」。
+ * 错误形状沿用全仓 `{ code, message, detail }`（异常过滤器自动补 code）。
+ *
+ * 【只拦写路径】`listPosts` / `getPost` / `scanPosts` / 导入**预览**一律不受影响：
+ * 读永远安全（读的是盘上现状），且预览明确「零落盘」。
+ */
+function assertPostsWritable(operation: string): void {
+  const target = resolvePostsWriteTarget(getAppConfig().mizukiRoot);
+  if (target.ok) {
+    // 非致命提醒（如 HEAD 的 symlink 降级风险）只进日志，不打断写入
+    for (const note of target.notes) {
+      logger.warn({ operation, note }, 'posts 写入口径提醒');
+    }
+    return;
+  }
+  // 证据只进 pino（含绝对路径也安全），**不进响应体**（仓规红线 6）
+  logger.warn(
+    { operation, reason: target.reason, materialization: target.materialization },
+    'posts 写入被拒绝：当前主题形态下写代码仓不持久',
+  );
+  throw new ForbiddenException({
+    message: target.message,
+    detail: {
+      reason: target.reason,
+      materialization: target.materialization,
+      themeKind: target.form,
+    },
+  });
+}
+
+/**
+ * [T4-3] posts frontmatter「主题面」—— 当前主题档位对应的**唯一**写入口契约。
+ *
+ * [为什么需要这一层] T4-3 之前本模块把 `PostFrontmatterSchema` 当「唯一 schema」硬写在 5 个消费点上。
+ * Shirone 档进入后，同一份文件面在三个维度上分叉：
+ *   ① **写入口 schema**：Shirone 用 `posts-frontmatter-shirone-write.ts` 的**写入口面**，
+ *      **不是** T4-2 那份构造面（构造面带 19 个 `.default()` + 1 个 `.transform()` + 必填
+ *      `published: z.date()`；读写不对称——读路径走裸 `parseMarkdown`、写路径走 `parse()`，
+ *      于是构造面当写入口会：把 19 个默认键**物化进用户文件**、把 `password: 12345` 静默改写成
+ *      `"12345"`、把 `series` 剪缘、并用 `z.date()` 拒掉 YAML 里的字符串日期）；
+ *   ② **null 删键集**：Mizuki 12 / Shirone 16（Shirone 独有 8 键在 Mizuki 面根本不存在）；
+ *   ③ **可纳管扩展名**：Mizuki 仅 `.md`，Shirone 为 `.md` + `.mdx`。
+ *
+ * [不缓存] 主题可在运行期被替换（面板改 mizukiRoot / 用户换主题），每次调用现探——
+ * 与 `collections/registry.ts` 的主题判档同款，不新增失效缓存这条失效面。
+ *
+ * [unknown 档兜底] 主题根缺失/非主题目录 ⇒ 能力面为 `unknown`（`extensions: []`、
+ * `frontmatterSchemaId: ''`）。此时回落 **Mizuki 面 + `.md`**：本模块全部调用点都在 Mizuki
+ * 行为上验证过，回落即「零行为变化」；若误用 Shirone 面，其必填 `published` 会在非 Shirone
+ * 目录上凭空产生 400，属更坏的失败方式。
+ */
+interface PostsFrontmatterFace {
+  schemaId: string;
+  writeSchema: z.ZodType<Record<string, unknown>>;
+  nullDeleteKeys: readonly string[];
+  extensions: readonly string[];
+}
+
+function postsFrontmatterFace(): PostsFrontmatterFace {
+  const appConfig = getAppConfig();
+  const { capabilities } = new ThemeAdapter().resolve(appConfig.mizukiRoot, appConfig.mode);
+  const { frontmatterSchemaId, extensions } = capabilities.posts;
+  if (frontmatterSchemaId === 'shirone-posts') {
+    return {
+      schemaId: frontmatterSchemaId,
+      writeSchema: ShironePostFrontmatterWriteSchema,
+      nullDeleteKeys: SHIRONE_NULL_DELETE_KEYS,
+      extensions: extensions.length > 0 ? extensions : ['.md'],
+    };
+  }
+  return {
+    schemaId: frontmatterSchemaId,
+    writeSchema: PostFrontmatterSchema,
+    nullDeleteKeys: NULL_DELETE_KEYS,
+    extensions: extensions.length > 0 ? extensions : ['.md'],
+  };
+}
+
+/**
+ * [T4-3] 目录式 `index` 文件探测：按扩展名**优先级**（`.md` 先于 `.mdx`）取第一个存在的。
+ * 两文件同时存在属用户侧歧义：按「先到先得」取 `.md` 并 warn（不静默、不报错），
+ * 与 `scanPosts` 既有的「同名冲突目录式优先」同款处置口径。
+ */
+function findIndexFile(
+  dirAbs: string,
+  extensions: readonly string[],
+): { name: string; fileAbs: string } | null {
+  let picked: { name: string; fileAbs: string } | null = null;
+  for (const ext of extensions) {
+    const name = `index${ext}`;
+    const fileAbs = path.join(dirAbs, name);
+    if (!fs.existsSync(fileAbs)) {
+      continue;
+    }
+    if (picked) {
+      logger.warn(
+        { dir: path.basename(dirAbs), picked: picked.name, ignored: name },
+        '文章目录内 index 文件同名冲突（多扩展名）：按扩展名优先级取首个，请清理其余以消除歧义',
+      );
+      continue;
+    }
+    picked = { name, fileAbs };
+  }
+  return picked;
 }
 
 /**
@@ -307,27 +437,44 @@ export class PostsService {
    * 写入后经统一管线（备份 + 原子写），事件 filePaths 投影实际盘上形态路径。
    */
   async createPost(body: z.infer<typeof CreatePostBodySchema>): Promise<PostView> {
+    // [T4-3b] 持久性闸门置于**最前**：连 slug 与 frontmatter 都还没校验就先拦，
+    // 免得用户对着一条「frontmatter 校验失败」反复改，却在改对之后才发现根本写不进去。
+    assertPostsWritable('createPost');
     const slug = validateSlug(body.slug);
     // [Phase4-D4/S5] description 可选（supersede B2.1/裁决 8，原「必填纵深防御」注释随
     // 写入口收紧一并拆除）；[Phase3-C1] 创建体中可删键为 null 等价于缺失（删除指令先于落盘）
-    const frontmatter = stripNullDeleteKeys(PostFrontmatterSchema.parse(body.frontmatter));
+    const face = postsFrontmatterFace();
+    // [T4-3] 写入口改用**主题面**，并以 parseOrBadRequest 取代裸 `.parse()`：
+    // 管道层已用 PostFrontmatterSchema（`.passthrough()`，接受任意 Shirone 键）验过一遍，
+    // 此处失败只可能因为「主题面比管道更严」（Shirone 必填 published、seriesOrder 必须整数…）。
+    // 裸 `.parse()` 会让这种失败抛 ZodError → 500；换 parseOrBadRequest → 400 + issues，
+    // 与全仓错误形状一致。Mizuki 档两面同 schema ⇒ 行为逐位不变。
+    const frontmatter = stripNullDeleteKeys(
+      parseOrBadRequest(face.writeSchema, body.frontmatter, 'frontmatter 校验失败'),
+      face.nullDeleteKeys,
+    );
     const dirAbs = this.postDirAbs(slug);
     if (fs.existsSync(dirAbs)) {
       throw new ConflictException(`文章已存在：${slug}`);
     }
     // [Phase4-D4/B2] 文件形态同名占用同样构成 slug 冲突（slug 即身份，与盘上形态无关）；
     // [Phase4-D4f/F2] 双向检测：dir/file 两分支共用（存在同名目录或同名 .md 均 409）
-    const fileFormAbs = this.postFileFormAbs(slug);
-    if (fs.existsSync(fileFormAbs)) {
+    // [T4-3] 文件形态占用改为**按主题面全部扩展名**检测：Shirone 档 `.md` 与 `.mdx` 同为
+    // 文件形态的合法盘上形态，只查 `.md` 会漏判 ⇒ 绕过 409 后在同一 slug 上出现两个文件。
+    const occupiedExt = face.extensions.find((ext) => fs.existsSync(this.postFileFormAbs(slug, ext)));
+    if (occupiedExt !== undefined) {
       throw new ConflictException(`文章已存在（文件形态）：${slug}`);
     }
     // [Wave-2/B2] 库内 slug 占用（富文本）必须在落盘前拦截，否则文件已写而索引插入失败
     await this.assertMarkdownSlugFree(slug);
     // [Phase4-D4f/F2] 形态分派：'file' → 单文件 posts/<slug>.md（同管线：safeJoin +
     // zod + preWriteBackup + 原子写 + post.changed/content.changed）；缺省 'dir' 原管线零变化
+    // [T4-3] 创建的落盘扩展名**恒取面内首个**（Mizuki `.md` / Shirone 亦 `.md`）——即「新建默认 .md」，
+    // 不做创建期扩展名开关（那属面板面 T6）；日后编辑既有 `.mdx` 一律**保留盘上原扩展名**。
+    const createExt = face.extensions[0] ?? '.md';
     const isFileForm = body.form === 'file';
-    const fileAbs = isFileForm ? fileFormAbs : this.postFileAbs(slug);
-    const relPath = isFileForm ? this.postFileFormRelPath(slug) : this.postRelFilePath(slug);
+    const fileAbs = isFileForm ? this.postFileFormAbs(slug, createExt) : this.postFileAbs(slug);
+    const relPath = isFileForm ? this.postFileFormRelPath(slug, createExt) : this.postRelFilePath(slug);
     if (!isFileForm) {
       fs.mkdirSync(dirAbs, { recursive: true });
     }
@@ -347,6 +494,9 @@ export class PostsService {
 
   /** 修改文章：frontmatter 增量合并后整体校验，正文缺省保留原值 */
   async updatePost(slug: string, body: z.infer<typeof UpdatePostBodySchema>): Promise<PostView> {
+    // [T4-3b] 闸门在 `readPostOrThrow` **之前**：读文章本身安全，但若注定写不进去，
+    // 让用户先看到「写不进」而不是先看到一篇内容、改完才被拒。
+    assertPostsWritable('updatePost');
     const existing = this.readPostOrThrow(slug);
     // [Wave-2/B2] 库内 slug 占用守卫（落盘前；同 createPost）
     await this.assertMarkdownSlugFree(slug);
@@ -358,14 +508,17 @@ export class PostsService {
     // [Phase3-C1] PATCH 删键语义（本批唯一合并规则变更，范围严格限四可删键）：
     // incoming 值为 null → 从合并结果删除该键（null 哨兵 = 删除指令，覆盖既有值）；
     // 非 null 行为不变；其余字段（含 passthrough 自定义键）合并语义零变化。
+    // [T4-3] 写入口与删键集一律走**主题面**；写回定位 `existing.fileAbs` 本就带盘上原扩展名，
+    // 故 `.mdx` 文章保存后**不会**被改写成 `.md`（扩展名只由 createPost 新建时决定）。
+    const face = postsFrontmatterFace();
     const mergedRaw =
       body.frontmatter !== undefined ? { ...existing.frontmatter, ...body.frontmatter } : existing.frontmatter;
-    const mergedFrontmatter = stripNullDeleteKeys(mergedRaw);
+    const mergedFrontmatter = stripNullDeleteKeys(mergedRaw, face.nullDeleteKeys);
     const frontmatter = parseOrBadRequest(
-      PostFrontmatterSchema,
+      face.writeSchema,
       mergedFrontmatter,
       `frontmatter 校验失败（${slug}）`,
-    ) as Record<string, unknown>;
+    );
     // [Phase4-D4/S5] 原此处的「PATCH description 拒空块」（B2.1/裁决 8）已随描述可选
     // 裁定拆除——空串现为合法存储值（p5b ② 锚钉版：PATCH description="" → 200 回读空）。
     const content = body.content ?? existing.content;
@@ -393,6 +546,9 @@ export class PostsService {
    * backupIds 语义同目录删除——可经备份恢复回滚）；目录形态原管线零变化。
    */
   async deletePost(slug: string): Promise<{ deleted: true; backupIds: string[] }> {
+    // [T4-3b] 删除同样受闸门约束：外部内容源下删代码仓副本没有意义（下次 sync 又回来），
+    // 而在内容仓未接通前，一条「已删除」的成功回执会是彻底的谎言。
+    assertPostsWritable('deletePost');
     const existing = this.readPostOrThrow(slug);
     const backupIds: string[] = [];
 
@@ -411,7 +567,9 @@ export class PostsService {
       return { deleted: true, backupIds };
     }
 
-    const fileHash = sha256Text(fs.readFileSync(this.postFileAbs(slug), 'utf8'));
+    // [T4-3] 哈希取自 `existing.fileAbs`（原为 `postFileAbs(slug)` 恒指 `index.md`）：
+    // 目录式 `.mdx` 文章在旧写法下会 ENOENT 抛 500，删不掉也报错不明。
+    const fileHash = sha256Text(fs.readFileSync(existing.fileAbs, 'utf8'));
     const dirAbs = this.postDirAbs(slug);
 
     for (const name of fs.readdirSync(dirAbs)) {
@@ -427,7 +585,9 @@ export class PostsService {
     fs.rmSync(dirAbs, { recursive: true, force: true });
 
     await this.softDeleteArticleRow(slug);
-    this.emitPostWrite(slug, existing.frontmatter, fileHash, true, this.postRelFilePath(slug));
+    // [T4-3] 事件路径投影改用 `existing.relPath`：原 `postRelFilePath(slug)` 恒指 `index.md`，
+    // 对目录式 `.mdx` 文章会下发**错误**路径，订阅方（articles 索引）据此写错 filePath。
+    this.emitPostWrite(slug, existing.frontmatter, fileHash, true, existing.relPath);
     logger.info({ slug, backupIds }, '文章删除完成（目录已备份，可恢复）');
     return { deleted: true, backupIds };
   }
@@ -437,6 +597,8 @@ export class PostsService {
    *   → sharp 转 JPG（顺带去 EXIF）→ 原子写 cover.jpg → frontmatter.image 更新。
    */
   async uploadCover(slug: string, file: UploadedFileLike): Promise<PostView> {
+    // [T4-3b] 封面上传会往目录里写 `cover.jpg` 并改 frontmatter ⇒ 同属写路径
+    assertPostsWritable('uploadCover');
     const existing = this.readPostOrThrow(slug);
     // [Wave-2/B2] 库内 slug 占用守卫（落盘前；同 createPost）
     await this.assertMarkdownSlugFree(slug);
@@ -468,15 +630,24 @@ export class PostsService {
     this.atomicWrite(coverAbs, jpegBuffer);
 
     // frontmatter.image 更新（随同一次写管线落盘）
-    const frontmatter = PostFrontmatterSchema.parse({ ...existing.frontmatter, image: 'cover.jpg' });
-    const fileAbs = this.postFileAbs(slug);
+    // [T4-3] 这里**刻意不换主题面**：入参不是作者输入，而是**盘上既有内容**。用 Shirone 写入口面
+    // （必填 published / seriesOrder 必须整数）去校验，会让「本来能跑的老文件」因一次封面上传变成
+    // 400 —— 元操作不得引入新的校验闸门。此处只把**删键集**切到主题面，image 之外的键一个不动。
+    const face = postsFrontmatterFace();
+    const frontmatter = stripNullDeleteKeys(
+      PostFrontmatterSchema.parse({ ...existing.frontmatter, image: 'cover.jpg' }),
+      face.nullDeleteKeys,
+    );
+    // [T4-3] 写回定位改用 `existing.fileAbs`：原 `postFileAbs(slug)` 恒指 `index.md`，
+    // 碰上目录式 `.mdx` 文章会在同目录**新建一个 index.md**（正文分身），属真写坏。
+    const fileAbs = existing.fileAbs;
     await this.backup.preWriteBackup(fileAbs, `post cover(fm): ${slug}`);
     const text = stringifyPostMarkdown(frontmatter, existing.content);
     this.atomicWrite(fileAbs, text);
 
     const fileHash = sha256Text(text);
-    const articleId = await this.upsertArticleRow(slug, frontmatter, fileHash, this.postRelFilePath(slug));
-    this.emitPostWrite(slug, frontmatter, fileHash, false, this.postRelFilePath(slug));
+    const articleId = await this.upsertArticleRow(slug, frontmatter, fileHash, existing.relPath);
+    this.emitPostWrite(slug, frontmatter, fileHash, false, existing.relPath);
     if (deriveStatus(frontmatter) === 'published') {
       this.emitPublished(articleId, slug, frontmatter);
     }
@@ -624,7 +795,10 @@ export class PostsService {
       });
     } else {
       // [K4] 条目级校验：safeParseIssues 返回 Result，失败只影响本条
-      const frontmatterCheck = safeParseIssues(PostFrontmatterSchema, mapping.frontmatter);
+      // [T4-3] 校验面随主题走：Shirone 档用写入口面 ⇒ 缺 `published` 的条目在此判 error。
+      // 这是**有意收紧**——上游 Shirone 的 postsCollection 里 `published: z.date()` 必填，
+      // 缺键的文件进仓后构建期即坏；在导入预览拦下比让用户构建失败更便宜。
+      const frontmatterCheck = safeParseIssues(postsFrontmatterFace().writeSchema, mapping.frontmatter);
       if (!frontmatterCheck.ok) {
         status = 'error';
         code = 'frontmatter-invalid';
@@ -804,54 +978,66 @@ export class PostsService {
 
   /**
    * 扫描文章目录（[Phase4-D4/B2] 扩文件形态，双遍扫描按 slug 升序）：
-   * - 第一遍目录式：每个含 index.md 的子目录即一篇文章（slug = 目录名）；
-   * - 第二遍文件式（规则①）：每个 `.md` 文件即一篇文章，slug = 文件名去 `.md` **直取**，
+   * - 第一遍目录式：每个含 `index.<ext>` 的子目录即一篇文章（slug = 目录名）；
+   * - 第二遍文件式（规则①）：每个 `<slug>.<ext>` 文件即一篇文章，slug = 文件名去扩展名 **直取**，
    *   禁二次 slugify（偏离官方命名即失配）；
    * - 同名冲突（规则②）：目录式优先，文件式跳过 + pino warn。
+   * [T4-3] `<ext>` 为**主题面扩展名集**（Mizuki：`.md`；Shirone：`.md` + `.mdx`，按优先级排序）。
    */
   private scanPosts(): ScannedPost[] {
     const postsDirAbs = this.resolveWithinRoot(POSTS_REL_DIR);
     if (!fs.existsSync(postsDirAbs)) {
       return [];
     }
+    // [T4-3] 扩展名随主题面（Mizuki `.md` / Shirone `.md`+`.mdx`）；盘上原扩展名一路带进 relPath，
+    // 使 article.filePath / 事件 filePaths / 写回定位三处同源，再无第二个「恒 .md」的隐式假设。
+    const { extensions } = postsFrontmatterFace();
     const posts: ScannedPost[] = [];
     const dirSlugs = new Set<string>();
+    const fileSlugs = new Set<string>();
     const entries = fs.readdirSync(postsDirAbs, { withFileTypes: true });
     for (const entry of entries) {
       if (!entry.isDirectory()) {
         continue;
       }
-      const fileAbs = path.join(postsDirAbs, entry.name, 'index.md');
-      if (!fs.existsSync(fileAbs)) {
+      const indexFile = findIndexFile(path.join(postsDirAbs, entry.name), extensions);
+      if (!indexFile) {
         continue;
       }
       dirSlugs.add(entry.name);
-      const parsed = parseMarkdown(fs.readFileSync(fileAbs, 'utf8'));
+      const parsed = parseMarkdown(fs.readFileSync(indexFile.fileAbs, 'utf8'));
       posts.push({
         slug: entry.name,
         frontmatter: parsed.frontmatter,
         content: parsed.content,
         form: 'directory',
-        fileAbs,
-        relPath: `${POSTS_REL_DIR}/${entry.name}/index.md`,
+        fileAbs: indexFile.fileAbs,
+        relPath: `${POSTS_REL_DIR}/${entry.name}/${indexFile.name}`,
       });
     }
     for (const entry of entries) {
-      if (!entry.isFile() || !entry.name.endsWith('.md')) {
+      if (!entry.isFile()) {
         continue;
       }
-      const slug = entry.name.slice(0, -3); // 规则①：去 .md 直取，禁二次 slugify
+      const ext = extensions.find((candidate) => entry.name.endsWith(candidate));
+      if (ext === undefined) {
+        continue;
+      }
+      const slug = entry.name.slice(0, -ext.length); // 规则①：去扩展名直取，禁二次 slugify
       if (slug === '') {
         continue;
       }
-      if (dirSlugs.has(slug)) {
-        // 规则②：同名冲突目录式优先，文件式跳过 + warn（不静默、不报错）
+      if (dirSlugs.has(slug) || fileSlugs.has(slug)) {
+        // 规则②：同名冲突目录式优先，文件式跳过 + warn（不静默、不报错）；
+        // [T4-3] 新增第二条冲突面：同 slug 的 `.md` 与 `.mdx` 同时存在（Shirone 档才可能），
+        // 按扩展名优先级取先到者，后来者跳过 + 同一 warn 处置。
         logger.warn(
           { slug, file: `${POSTS_REL_DIR}/${entry.name}` },
-          '文章同名冲突：目录式优先，文件式跳过（请清理其一以消除歧义）',
+          '文章同名冲突：目录式 / 高优先级扩展名优先，本条跳过（请清理其一以消除歧义）',
         );
         continue;
       }
+      fileSlugs.add(slug);
       const fileAbs = path.join(postsDirAbs, entry.name);
       const parsed = parseMarkdown(fs.readFileSync(fileAbs, 'utf8'));
       posts.push({
@@ -882,13 +1068,24 @@ export class PostsService {
    * 目录式优先（规则②），缺失时文件式回退；两者皆无 → null。
    */
   private resolvePostFile(validated: string): { fileAbs: string; form: PostForm; relPath: string } | null {
-    const dirFileAbs = this.postFileAbs(validated);
-    if (fs.existsSync(dirFileAbs)) {
-      return { fileAbs: dirFileAbs, form: 'directory', relPath: this.postRelFilePath(validated) };
+    // [T4-3] 目录式 index 文件与文件形态单文件**都**按主题面扩展名集探测：
+    // 原实现硬写 `index.md` / `<slug>.md`，Shirone 档的 `.mdx` 文章会一律「不存在」（404），
+    // 且 `.md` 分支的 relPath 走字面量拼接、与 scanPosts 的投影各写一份。
+    const { extensions } = postsFrontmatterFace();
+    const dirAbs = this.postDirAbs(validated);
+    const indexFile = fs.existsSync(dirAbs) ? findIndexFile(dirAbs, extensions) : null;
+    if (indexFile) {
+      return {
+        fileAbs: indexFile.fileAbs,
+        form: 'directory',
+        relPath: `${POSTS_REL_DIR}/${validated}/${indexFile.name}`,
+      };
     }
-    const fileFormAbs = this.postFileFormAbs(validated);
-    if (fs.existsSync(fileFormAbs)) {
-      return { fileAbs: fileFormAbs, form: 'file', relPath: `${POSTS_REL_DIR}/${validated}.md` };
+    for (const ext of extensions) {
+      const fileAbs = this.postFileFormAbs(validated, ext);
+      if (fs.existsSync(fileAbs)) {
+        return { fileAbs, form: 'file', relPath: `${POSTS_REL_DIR}/${validated}${ext}` };
+      }
     }
     return null;
   }
@@ -1007,14 +1204,14 @@ export class PostsService {
     return this.resolveWithinRoot(`${POSTS_REL_DIR}/${slug}/index.md`);
   }
 
-  /** [Phase4-D4/B2] 文件形态绝对路径：<posts>/<slug>.md */
-  private postFileFormAbs(slug: string): string {
-    return this.resolveWithinRoot(`${POSTS_REL_DIR}/${slug}.md`);
+  /** [Phase4-D4/B2] 文件形态绝对路径：<posts>/<slug><ext>（[T4-3] ext 由主题面注入，缺省 `.md`） */
+  private postFileFormAbs(slug: string, ext = '.md'): string {
+    return this.resolveWithinRoot(`${POSTS_REL_DIR}/${slug}${ext}`);
   }
 
   /** [Phase4-D4f/F2] 文件形态相对路径（POSIX 风格；与 scanPosts/resolvePostFile 投影同值） */
-  private postFileFormRelPath(slug: string): string {
-    return `${POSTS_REL_DIR}/${slug}.md`;
+  private postFileFormRelPath(slug: string, ext = '.md'): string {
+    return `${POSTS_REL_DIR}/${slug}${ext}`;
   }
 
   /** [Phase4-D4/B2] 目录形态相对路径（POSIX 风格；article.filePath / 事件 filePaths 投影源） */

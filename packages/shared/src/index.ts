@@ -47,3 +47,9 @@ export * from './theme-config-write';
 
 // [T4-1] posts frontmatter 两主题逐字段对照（转换摘要与面板提示的字段命运单源）
 export * from './posts-frontmatter-compat';
+
+// [T4-2] Shirone 主题 posts frontmatter schema（逐字转录上游 postsCollection.schema，28 字段）
+export * from './posts-frontmatter-shirone';
+
+// [T4-3] Shirone 写入口面 frontmatter schema + null 删键集（16 键；与构造面字段名恒等）
+export * from './posts-frontmatter-shirone-write';

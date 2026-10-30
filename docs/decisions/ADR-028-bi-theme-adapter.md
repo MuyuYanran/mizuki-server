@@ -1236,3 +1236,251 @@ Shirone 另有 `content:status` / `content:validate`（`--dry-run`）/ `content:
 `panelSupport:'none'` 告诉他去编辑内容仓的那个具体文件。⇒ 面板上不存在「一条死路」，
 每条拒绝都是**一条改道的指路牌**。若将来有人以「用户体验不好」为由想放宽这些拒绝，
 先读本节 20.1 第 1 条 —— **丢数据的挫败感远大于被指路的轻微不便**。
+
+---
+
+## 21. 追加（2026-10-30 第十四回合）：T4-3 交付 —— **读写面分叉**（构造面 schema 不得当写入口）+ 删键集的推导式 + 五处隐式 `.md` 假设
+
+### 21.1 一条自证（先说坏事）
+
+本回合我向 dj 宣告「我直接接着做 T4-3」后，**52 分钟内零落盘**——`git status` 与
+`find apps/server/src packages/shared/src -newermt ...` 双双为空。dj 追问「做完了嘛」时，
+事实是**一行都没写**。
+
+**教训（写进流程）**：宣告不是执行。**跨回合必须留盘上痕迹**（哪怕只是一个新文件的骨架），
+否则下一次被问时无法区分「在做」与「空转」。这条与 R6「数账只认全绿轮」同源 —— 都是
+**只认盘上证据、不认自述**。
+
+### 21.2 决定性发现：本模块的**读写路径不对称**，于是 T4-2 的构造面 schema 不能当写入口
+
+读完 `posts.service.ts` 后确认（两处都逐行核实，非推断）：
+
+| 路径 | 实现 | 是否过 schema |
+|---|---|---|
+| **读**（`scanPosts` / `readPostOrThrow`） | `common/markdown/frontmatter.ts` 的 `parseMarkdown()` | **不过** —— 裸 YAML 解析，产出 `Record<string, unknown>` |
+| **写**（`createPost` / `updatePost` / `uploadCover`） | `Schema.parse()` | **过** |
+
+⇒ 若把 T4-2 那份**上游构造面** schema（19 个 `.default()` + 1 个 `.transform()` + 必填
+`published: z.date()`）直接接进写路径，会造成**三类真实破坏**：
+
+1. **默认值物化进用户文件** —— 保存一篇最小文章会在磁盘上凭空长出 `draft:false` / `description:''` /
+   `image:''` / `tags:[]` / `category:''` / `lang:''` / `pinned:false` / `comment:true` /
+   `encrypted:false` / `passwordHint:''` / `prevTitle:''` / `prevSlug:''` / `nextTitle:''` /
+   `nextSlug:''` / `series:''` / `hideHomeContent:true` 等键。
+   **上游从不回写源文件**（它只在构建期于内存补默认值）—— 本服务若回写，就是**替用户改文件**。
+2. **转换器静默改写用户输入** —— `password` 的 `String()` 把 YAML 里的 `12345` 改写成 `"12345"`；
+   `series` 的 `.trim()` 剪掉用户写的空白。
+3. **`z.date()` 与读路径产物不同型** —— 读路径给的是 YAML 原物（裸日期 `Date`、带引号 `string`），
+   必填 `z.date()` 会把字符串形判死。Mizuki 那份 schema 早就为此放宽为
+   `union([boolean, string, date])`（`posts.service.ts:75` 注记），Shirone 面同样必须放宽。
+
+**⇒ R3（原为「保持构造面忠实 + 建一个加 `.nullable()` 的写入口变体」）因此升级为「两面制」**：
+
+| 面 | 实现 | 用途 |
+|---|---|---|
+| **构造面** | `ShironePostFrontmatterSchema`（T4-2，逐字转录上游，**本批一行未改**） | **上游契约锚**：与 `POSTS_FRONTMATTER_COMPAT` 交叉校验、将来承接构建期语义。**不入写路径** |
+| **写入口面** | `ShironePostFrontmatterWriteSchema`（T4-3，新文件 `packages/shared/src/posts-frontmatter-shirone-write.ts`） | **本服务写路径唯一入口**：零 `.default()`、零 `.transform()`、date-like 放宽为 `string｜Date`、可删键加 `.nullable()` |
+
+两面**字段名集合必须恒等（28 == 28）**，由单测钉住（字段面漂移即红）。
+构造面**一行未改** —— T4-2 的「逐字忠实」属性完整保留，T4-2 的 22 个用例原样全绿。
+
+### 21.3 删键集不是手挑的，是**推导式**（与 dj 的边界①严格吻合）
+
+dj 边界①指出 `NULL_DELETE_KEYS`（12 键）**缺全部 8 个 Shirone 新增可选字段**。核实后确认，
+并且发现它缺的**恰好只有这 8 个** —— 因为 12 键里另有 4 键在 Shirone 面**根本不存在**。于是：
+
+```
+SHIRONE_NULL_DELETE_KEYS = (NULL_DELETE_KEYS ∩ Shirone 字段面)  ∪  POSTS_FRONTMATTER_ADDED
+                         =  12 − 4 个被删键      ∪  8 个新增键
+                         =           8           ∪      8        =  16
+```
+
+| 段 | 键 |
+|---|---|
+| 幸存的 8 | `encrypted` `password` `comment` `permalink` `lang` `draft` `alias` `passwordHint` |
+| 新增的 8 | `publishedAt` `updatedAt` `series` `seriesOrder` `hideHomeContent` `prevUrl` `nextUrl` `license` |
+
+被删掉的 4 键（`licenseName` `licenseUrl` `priority` `sourceLink`）其语义归并进 `license` 对象
+（`POSTS_MIZUKI_TO_SHIRONE_FIELD_MAP` 的 4 条 `to` 后缀逐条对上）。
+注意 `POSTS_FRONTMATTER_DROPPED` 整体是 **5 键** —— 多出的 `author` 本就不在 Mizuki 删键集内
+（Mizuki 面亦无删键路径），两件事不要混算。
+
+**⚠ 一处与 Mizuki 面的有意不对称（已记账）**：`publishedAt` / `updatedAt` 是日期键，而 Mizuki 面对
+`date` / `pubDate` / `updated` **刻意不给删键路径**（口径：「空值不写键」，避免清空日期即销毁元数据）。
+这里仍把两者入集，因为 Shirone 这两个键在上游是**裸 `.optional()`、无伴生约定**，且
+「可写入却无法经 API 删除、只能手工删行」正是 Mizuki 那份集合一路在补的缺口（`:158-161`）。
+**Mizuki 面的排除规则不动**（ADR 锚定，冻结）。
+
+写入口面与删键集之间有一条**闭合性不变量**（单测钉住）：
+> 写入口面里**接受 `null` 的键集合 恰等于** 删键集 ∪ 上游原文可空键（仅 `category`）。
+> 即：删键集里每个键都能收到 `null`（哨兵**有入口**，不会到不了 `strip`）；
+> 集外的键收不到 `null`（哨兵**不蔓延**）。
+
+`category` 是唯一豁免：它的 `.nullable()` 是**上游原文**，不是本仓哨兵，两者不得混同。
+
+### 21.4 `.mdx` 支持之前，全模块藏着**五处**隐式 `.md` 假设（dj 边界②只点到一处）
+
+dj 边界②点到 `:824` 的目录式 `index.md`。逐处排查后实际是**五处**，且有两处的后果比边界②描述的更重：
+
+| # | 位置 | 原实现 | 漏改的后果 |
+|---|---|---|---|
+| 1 | `scanPosts` 目录式 | 硬写 `index.md` | `.mdx` 文章**不进列表**（静默消失） |
+| 2 | `scanPosts` 文件式 | `endsWith('.md')` + `slice(0, -3)` | 同上 |
+| 3 | `resolvePostFile` 双分支 | 硬写 `index.md` / `<slug>.md` | `.mdx` 文章**读不到**（404），编辑与删除全废 |
+| 4 | `createPost` 409 占用检测 | 只查 `<slug>.md` | 绕过 409 ⇒ 同一 slug 上出现 `.md` + `.mdx` **两个文件** |
+| 5 | `uploadCover` 写回 / `deletePost` 哈希 / 两者的事件 `relPath` | 恒指 `index.md` | 目录式 `.mdx` 文章：**封面上传会在同目录新建一个 `index.md`（正文分身）**；删除时 `readFileSync` ENOENT → 500；事件下发**错误** filePath ⇒ articles 索引写错 |
+
+⇒ 全部收口为「**扩展名只由主题面决定、盘上原扩展名一路带进 `relPath`**」，
+并新增 `findIndexFile(dir, extensions)` 单一探测点（优先级 `.md` 先于 `.mdx`；两文件同在则取首个 +
+pino warn，与既有「同名冲突目录式优先」同款处置口径）。
+创建期扩展名**恒取面内首个**（即新建默认 `.md`），**不做创建期扩展名开关**（那属面板面 T6）；
+日后编辑既有 `.mdx` 一律**保留原扩展名**（写回定位改用 `existing.fileAbs` / `existing.relPath`，
+不再有任何字面量拼接）。
+
+### 21.5 一处刻意的**不统一**：`uploadCover` 不换主题面
+
+`uploadCover` 的入参**不是作者输入**，而是**盘上既有内容**（`existing.frontmatter` + `image`）。
+若在此处用 Shirone 写入口面（必填 `published` / `seriesOrder` 必须整数）校验，会让
+「本来能跑的老文件」因一次封面上传变成 400 —— **元操作不得引入新的校验闸门**。
+故此处只把**删键集**切到主题面，其余保持原样。`createPost` / `updatePost` / 导入校验三处
+（真·作者输入面）才换主题面。
+
+同时 `createPost` 的裸 `.parse()` 换成 `parseOrBadRequest()`：管道层已用
+`PostFrontmatterSchema`（`.passthrough()`，接受任意 Shirone 键）验过一遍，服务层失败**只可能**
+因为主题面比管道更严 ⇒ 原实现会抛 `ZodError` → **500**，现为 400 + issues，与全仓错误形状一致。
+Mizuki 档两面同 schema ⇒ **行为逐位不变**（由 p5 面既有用例回归证明）。
+
+另：`postsFrontmatterFace()` 在 `unknown` 档（主题根缺失/非主题目录）**回落 Mizuki 面 + `.md`** ——
+全部调用点都在 Mizuki 行为上验证过，回落即「零行为变化」；若误用 Shirone 面，
+其必填 `published` 会在非 Shirone 目录上**凭空产生 400**，是更坏的失败方式。
+
+### 21.6 本回合验收
+
+| 项 | 结果 |
+|---|---|
+| 新增 `packages/shared/src/posts-frontmatter-shirone-write.ts` | 写入口面 + `SHIRONE_NULL_DELETE_KEYS` + `SHIRONE_UPSTREAM_NULLABLE_KEYS` |
+| 新增写入口面单测 | `apps/server/test/shared/posts-frontmatter-shirone-write.spec.ts` —— **18/18 绿** |
+| `posts.service.ts` 改动 | 6 处消费点换主题面 + 5 处扩展名收口 + 新增 `postsFrontmatterFace()` / `findIndexFile()` + `stripNullDeleteKeys()` 参数化 |
+| posts 面回归 | p2b-t6(8) / p5(13) / p5b(2) / p5c / p5d(4) / p5e / p5f(7) / p5g(9) / p7e(4) 合计 **72/72 绿** |
+| T4-2 面回归（构造面零改动） | shirone(22) + compat(26) 合计 **48/48 绿** |
+| `pnpm lint`（含 boundaries） | 0（`--max-warnings=0`） |
+| `tsc`（shared + server） | exit 0 |
+
+### 21.7 本回合**未做**（明确挂账）
+
+| 项 | 内容 | 为什么不在本批 |
+|---|---|---|
+| **T4-3b** | Shirone + 内容分离下 posts 写入的**条件性拒绝**（把「静默丢数据」变成带指路牌的 4xx） | 与 T4-3 是**两件事**：T4-3 是「同一份文件面在三种主题下怎么读写」，T4-3b 是「写到哪里才持久」。混做会让本批回归面翻倍 |
+| **T4-4** | 真正的**路径跟随**（挂 T5a 的 `content-source` 解析，读写内容仓真实目录） | 需先有 T4-3b 的拒绝兜底；且是对 `posts.service.ts` 路径面的第二类改动，独立批次独立验收 |
+
+📌 **在 T4-4 落地之前，posts 模块不得宣称在「Shirone + 内容分离」下可用** ——
+该组合下写入必然被 `content:sync` 的 prune 清掉（证据：`sync.mjs` 的 `ownedSegments`/prune 三道豁免
+均不覆盖 `src/content/posts/**`，见本回合相邻记录）。
+
+---
+
+## 22. 追加（2026-10-30 第十五回合）：T4-3b 交付 —— 拒绝判据按**物化方式**而非「是否 external」
+
+### 22.1 我先纠正了自己上一回合的一个错误结论
+
+§21.7 结尾我写的是「该组合下写入必然被 prune 清掉」——**方向对，覆盖面错了**。
+上一回合我按印象说过「Shirone + 内容分离下 posts 一律拒绝」，并在 T4-3b 开工前打算「一律拒绝」。
+
+**逐行读上游后，这个「一律」会造成整档误拒**：Mizuki HEAD 档在 external 下，
+`posts` 走的是 **junction 写穿内容仓**，写代码仓**恰恰是持久的**。
+
+⇒ **拒绝判据必须是「物化方式」，不是「是否 external」。** 这是本回合最重要的一条。
+
+| 档位 | 上游物化代码 | `posts` 的物化方式 | 写代码仓持久？ | 本批判定 |
+|---|---|---|---|---|
+| `mizuki-legacy` | 无内容分离 | —— | ✔ 代码仓即真源 | **放行** |
+| `mizuki-head` | `sync-content.js:96-103` `contentMappings` 中 `posts` **无 `copy: true`** ⇒ `:162` `fs.symlinkSync(relPath, destPath, 'junction')` | **链接（写穿）** | ✔ 持久 | **放行**（`needsSync: true`） |
+| `shirone` **local** | `SHIRONE_CONTENT_SYNC` 关闭 / 无清单 | 不物化，代码仓自持 | ✔ 持久 | **放行** |
+| `shirone` **external** | `sync.mjs:153` `copyPreservingMtime` = `copyFileSync`+`utimesSync`（全文件零 `symlink`/`linkSync`/`junction`）；`:69` `prune: !args.has("--no-prune")` ⇒ **prune 默认 true** | **复制 + 裁剪** | ✘ | **拒绝**（`durable-content-repo`） |
+
+### 22.2 裁剪豁免面三道，逐条核实「均不覆盖 `src/content/posts/**`」
+
+上一回合的结论是靠回忆写的，本回合把三道豁免都定位到了行：
+
+1. **`PROTECTED_PATHS`**（`resolve-source.mjs:58-62`）—— 只有三条，**全是构建期生成物**：
+   `public/assets/anime/covers/**`、`public/assets/moments/thumbnails/**`、`src/assets/fonts/.subset/**`。
+2. **`ownedSegments`**（`sync.mjs:338`）= `new Set(sourceFiles.map(topSegment))`。
+   关键细节：`topSegment`（`resolve-source.mjs:153`）= **相对路径首段**（根级文件返回 `''`），
+   而 `collectFiles(sourceAbsolute)` 产出的路径**相对本挂载源根**（无前缀）。
+   ⇒ 挂载 `content → src/content` 时 `ownedSegments ≈ {'posts','spec','data',...}`，
+   **Kova 新建的文章落在被裁剪范围内**。
+3. **`resolved.keep`** = 清单 `keep` 白名单（用户显式声明，默认空）。
+
+⇒ 裁剪循环 `sync.mjs:363-372` 对 `src/content/posts/新增.md` 逐条件**全不豁免** ⇒ `rmSync`。
+已存在于内容仓的文件虽不被删，但会被 `copyPreservingMtime` **用源覆盖** ⇒ 同样丢写入。
+**两条路都丢**，所以拒绝是唯一正确姿势。
+
+### 22.3 Mizuki HEAD 的两个「不持久」子情形（junction 不成立时上游自动退化）
+
+放行不是无条件的。逐行核对 `sync-content.js` 后发现两个早退分支：
+
+| 条件 | 上游行为 | 本批判定 |
+|---|---|---|
+| `ENABLE_CONTENT_SYNC === 'false'` | `:25-31` 打印提示后 `process.exit(0)`，**根本不物化** | 拒绝 `mizuki-head-content-sync-disabled` |
+| 内容目录不存在 **且** 未设 `CONTENT_REPO_URL` | `:32-42` 打印「将使用本地内容」后 `process.exit(0)` | 拒绝 `mizuki-head-no-content-dir` |
+| 内容目录不存在 **但** 设了 `CONTENT_REPO_URL` | `:44-55` 先 `git clone` 再建 junction | **放行** |
+
+**一处如实标注的残留风险**：`symlinkSync` 失败时上游 `:164-166` 会**降级为 `copyRecursive`**，
+此时写代码仓不再持久。本判定**不探测**这一点（需要 `lstatSync(destPath).isSymbolicLink()`），
+理由：那是盘上运行期状态、随时可被下一次 sync 改写，据它做拒绝判定会给出**不稳定**的答案
+（今天拒、明天放，用户无从理解）。⇒ 按上游**声明的物化意图**判定，并在 `notes` 里
+以 `symlink-fallback-risk:` 前缀如实标注（进 pino 与面板提醒，**不进错误 message**）。
+
+### 22.4 落地形态
+
+| 件 | 内容 |
+|---|---|
+| **新文件** `apps/server/src/common/theme/posts-write-target.ts` | `resolvePostsWriteTarget(root)` → 四档四格；`PostsMaterialization` 三值（`durable-code-repo` / `durable-content-repo` / `ephemeral`）；五个拒绝 reason |
+| **新文件** `apps/server/test/common/theme-posts-write-target.spec.ts` | **16/16 绿** —— 四档各一组，重点钉 **Mizuki HEAD 放行**（防误拒）与 **Shirone external 拒绝**（防漏拒） |
+| **新文件** `apps/server/test/p5h-posts-write-gate.e2e-spec.ts` | **6/6 绿** —— 真实 HTTP 路径：创建/修改/删除/封面四端点全 403 且**盘上零字节变化**；列表/详情照常 200 |
+| `posts.service.ts` | 新增 `assertPostsWritable(operation)`，接入 `createPost` / `updatePost` / `deletePost` / `uploadCover` 四个写路径**最前端** |
+
+**为什么必须补 e2e 而单测不够**：本项目已有一次同类教训 —— T3b-2b 的 `import type` 让 Nest DI 在
+装配期断裂，而单测用 `new` 实例化，**DI 从未被真正走过**。本批的闸门是模块级函数（不涉 DI），
+但仍需证明「守卫真的接在写路径上、且 HTTP 层确实吐出 403 + 固定错误形状」。⇒ 加 e2e 一层。
+
+**为什么是 403**：不是「请求体写错了」（400）、也不是「和现有资源冲突」（409），
+而是**当前部署形态下这个操作不可能成功** —— 语义上「禁止在此落点写」。
+
+**错误形状**沿用全仓 `{ code, message, detail }`，`detail` = `{ reason, materialization, themeKind }`。
+`message` 是**指路牌**（零绝对路径，红线 6）：告诉用户「真源在内容仓，去那里编辑然后跑一次内容同步」。
+
+**只拦写**：`listPosts` / `getPost` / `scanPosts` / 导入**预览**（本就零落盘）一律不受影响 ——
+读永远安全，且把读也拦掉会让用户连「我盘上现在有什么」都看不到，是更坏的产品。
+
+### 22.5 一处**刻意的不收敛**（已登记）
+
+`config-write-target.ts` 的 `makeEnvReader` / `resolveContentDir` 两个 helper 是 **module-private**，
+而 T4-3b 也需要「Mizuki HEAD 的 `.env` 口径」（文件键**压过**进程 env，与 Shirone 方向相反）。
+本批**没有**去 export 它们，而是在新文件内联同口径实现 + 双向注释互指。理由：
+
+- 改 `config-write-target.ts` 会把 T3b-1 的回归面混进本批（而 T3b-1 是被 ADR 锚定冻结的）；
+- 真正干净的收敛是把它们**提升为 `content-source.ts` 的导出**（L0 单源），那是一次独立小重构。
+
+⇒ 登记为待办，不在本批做。两处实现的一致性由**同一个上游事实**（`sync-content.js:17`）背书，
+并在两边注释里互相指向，避免后人以为是两份独立真源。
+
+### 22.6 本回合验收
+
+| 项 | 结果 |
+|---|---|
+| 新增判定单测 | `theme-posts-write-target.spec.ts` **16/16 绿** |
+| 新增闸门 e2e | `p5h-posts-write-gate.e2e-spec.ts` **6/6 绿** |
+| posts 面回归 | p5(13) / p5b(2) / p5c / p5d(4) / p5e / p5f(7) / p5g(9) / p2b-t6(8) / p7e(4) 全绿 |
+| `pnpm lint` | exit 0（`--max-warnings=0`，含 boundaries + 依赖 spec 守卫） |
+| `pnpm build` | shared → server → web 全绿，exit 0 |
+| `pnpm test` 全量 | 见提交报告 |
+
+### 22.7 T4-2 + T4-3 + T4-3b 合并落袋的理由（dj 裁定）
+
+**不在 T4-3 单独提交**，因为那会在 Git 历史上留下一个**半敞口**的提交点：
+T4-3 已经放开 Shirone 写入口面与 `.mdx`，但尚未拦截内容分离的静默丢数据。
+⇒ 三者捆成一个 commit，才能保证**历史上每一个提交点都满足「零静默丢数据」不变量**。
+
+📌 现在可以宣称的边界：**在 Shirone external 档下，posts 写入会被明确拒绝并指路** ——
+不再是静默丢失。**但仍不可宣称「可用」**，那要等 T4-4 接通内容仓路径跟随。

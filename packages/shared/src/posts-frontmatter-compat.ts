@@ -201,6 +201,9 @@ export interface PostsFrontmatterFieldMap {
  *
  * 覆盖范围：`licenseName` / `licenseUrl` / `author` / `sourceLink` 四条多对一（三合一 + 作者）
  * 与嵌套落位。`priority` **不在本表**：上游未给出落点（§2.4 无映射文案），需人工取舍。
+ *
+ * **[已源证 2026-10-30]** 上游 `content.config.ts` 的 `license` 对象键**恰为** `enable?/name?/url?/author?/source?`，
+ *   与本表 4 条的 `to` 后缀（`name`/`url`/`author`/`source`）逐条对上 ⇒ 本表由「推导」升格为**源证**，无需再复核。
  */
 export const POSTS_MIZUKI_TO_SHIRONE_FIELD_MAP: readonly PostsFrontmatterFieldMap[] = [
   {

@@ -259,6 +259,27 @@ describe('POSTS_MIZUKI_TO_SHIRONE_FIELD_MAP — 搬运轴', () => {
       expect(fields).toContain(entry.from);
     }
   });
+
+  it('㉖ [已源证 2026-10-30] 4 条 to 的后缀恰为 [name,url,author,source]，且逐条落在上游 license 对象键集内', () => {
+    // 上游键集字面量来源：`.test-tmp/upstream-Shirone-20261029/src/content.config.ts` 的
+    // `postsCollection.schema` 里 `license` 的**对象分支**（enable?/name?/url?/author?/source?），
+    // 架构师 2026-10-30 逐行核对，与 docs/refs/theme-compat/README.md §2 口径一致。
+    const UPSTREAM_LICENSE_OBJECT_KEYS: readonly string[] = [
+      'enable',
+      'name',
+      'url',
+      'author',
+      'source',
+    ];
+    const suffixes = POSTS_MIZUKI_TO_SHIRONE_FIELD_MAP.map((entry) =>
+      entry.to.slice('license.'.length),
+    );
+    expect([...suffixes].sort()).toEqual(['author', 'name', 'source', 'url']);
+    expect(suffixes).toEqual(['name', 'url', 'author', 'source']);
+    for (const suffix of suffixes) {
+      expect(UPSTREAM_LICENSE_OBJECT_KEYS).toContain(suffix);
+    }
+  });
 });
 
 describe('范围守卫 — 本表只讲 posts frontmatter', () => {
