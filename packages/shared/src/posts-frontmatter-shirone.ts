@@ -14,9 +14,9 @@
  *   **精确吻合**（该表 same ∪ changed ∪ added 的字段名集合 == 本 schema 的字段面，由单测交叉校验钉住）。
  *
  * ⚠ 两处**有意偏离**（相对上游裸图，两处都必须保留）：
- * ① **`.passthrough()`**（上游是裸 `z.object({...})` ⇒ zod 默认 **strip** 未知键）：
+ * ① **`.loose()`**（上游是裸 `z.object({...})` ⇒ zod 默认 **strip** 未知键）：
  *    本仓 Mizuki 那份 schema（`apps/server/src/modules/posts/posts.service.ts` 的
- *    `PostFrontmatterSchema`）用 `.passthrough()` 是**有意**取舍 —— 「未知字段原样保留」，
+ *    `PostFrontmatterSchema`）用 `.loose()` 是**有意**取舍 —— 「未知字段原样保留」，
  *    避免面板保存时**毁掉用户自定义键**。Shirone 这份**沿用同一取舍**。代价已知：
  *    上游会在**构建期** strip 未知键，我们在**文件层**不销毁（宁可留给构建期判，也不在保存时丢失用户数据）。
  * ② **不给任何字段加 `.nullable()`**（与 Mizuki 那份**刻意不同**）：
@@ -105,7 +105,7 @@ export const ShironePostFrontmatterSchema = z
       .optional(),
   })
   // 有意偏离 ①：未知键原样保留（上游构建期 strip，我们文件层不销毁用户自定义键）
-  .passthrough();
+  .loose();
 
 /** Shirone posts frontmatter 的解析结果类型（输出版，默认值均已落位） */
 export type ShironePostFrontmatter = z.infer<typeof ShironePostFrontmatterSchema>;

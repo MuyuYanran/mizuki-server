@@ -82,7 +82,7 @@ export const PostSlugSchema = singleSegmentName({
 
 /**
  * frontmatter 字段（P5 §3.2 逐字 + Phase3-C1 扩展 + [Phase3-C5] lang + [U3-P2/A-GAP-09] 七键）：
- * 23 个已知字段 + 未知字段原样保留（passthrough）。
+ * 23 个已知字段 + 未知字段原样保留（`.loose()`，zod 4 之前写作 `.passthrough()`）。
  * published ⚠ 类型以 Mizuki 为准（可能为日期），故放宽为 boolean | string | Date；
  * date/pubDate 允许 string 或 YAML 解析出的 Date。
  */
@@ -145,7 +145,7 @@ export const PostFrontmatterSchema = z
     passwordHint: z.string().nullable().optional(),
     alias: z.string().nullable().optional(),
   })
-  .passthrough();
+  .loose();
 
 /**
  * [Phase4-D4/S5] description 放宽为可选（架构师裁定 supersede B2.1/裁决 8 = P5b，
@@ -468,7 +468,7 @@ export class PostsService {
     // 写入口收紧一并拆除）；[Phase3-C1] 创建体中可删键为 null 等价于缺失（删除指令先于落盘）
     const face = postsFrontmatterFace();
     // [T4-3] 写入口改用**主题面**，并以 parseOrBadRequest 取代裸 `.parse()`：
-    // 管道层已用 PostFrontmatterSchema（`.passthrough()`，接受任意 Shirone 键）验过一遍，
+    // 管道层已用 PostFrontmatterSchema（`.loose()`，接受任意 Shirone 键）验过一遍，
     // 此处失败只可能因为「主题面比管道更严」（Shirone 必填 published、seriesOrder 必须整数…）。
     // 裸 `.parse()` 会让这种失败抛 ZodError → 500；换 parseOrBadRequest → 400 + issues，
     // 与全仓错误形状一致。Mizuki 档两面同 schema ⇒ 行为逐位不变。

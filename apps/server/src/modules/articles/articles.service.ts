@@ -40,7 +40,7 @@ import { article, articleContent } from '../../infra/db/schema';
  * doc_json 校验（取舍见交付报告）：对象且含 type 字段即视为合法 TipTap 文档，
  * 深层结构按「信任源」不过度约束；输出侧安全由转义渲染 + sanitize 兜底。
  */
-export const DocJsonSchema = z.object({ type: z.string() }).passthrough();
+export const DocJsonSchema = z.object({ type: z.string() }).loose();
 
 /** slug（richtext 可由调用方指定）：单段安全字符（穿越最小拒绝面单源） */
 export const ArticleSlugSchema = singleSegmentName({

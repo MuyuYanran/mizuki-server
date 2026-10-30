@@ -149,7 +149,7 @@ export const ShironePostFrontmatterWriteSchema = z
       .optional(),
   })
   // 与两面其余 schema 同一取舍：未知键原样保留，绝不在保存时销毁用户自定义键
-  .passthrough();
+  .loose();
 
 /** Shirone 写入口 frontmatter 解析类型（**不等同** `ShironePostFrontmatter`：无默认值落位） */
 export type ShironePostFrontmatterWrite = z.infer<typeof ShironePostFrontmatterWriteSchema>;

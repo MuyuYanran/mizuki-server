@@ -63,7 +63,7 @@ export const ShironeSeriesConstructSchema = z
     status: z.enum(['ongoing', 'completed']).optional().default('ongoing'),
     defaultCategory: z.string().optional().default(''),
   })
-  .passthrough();
+  .loose();
 
 /**
  * `moments` 构造面 —— 7 字段，与上游逐字一致（含 6 个 `.default()` 与必填 `z.date()`）。
@@ -88,7 +88,7 @@ export const ShironeMomentsConstructSchema = z
       .default([]),
     draft: z.boolean().optional().default(false),
   })
-  .passthrough();
+  .loose();
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 写入口面 —— 零默认、零转换、日期放宽、可选键配 null 删键哨兵
@@ -112,7 +112,7 @@ export const ShironeSeriesWriteSchema = z
     status: z.enum(['ongoing', 'completed']).nullable().optional(),
     defaultCategory: z.string().nullable().optional(),
   })
-  .passthrough();
+  .loose();
 
 /**
  * `moments` 写入口面 —— 7 字段。
@@ -137,13 +137,13 @@ export const ShironeMomentsWriteSchema = z
             src: z.string(),
             alt: z.string().optional(),
           })
-          .passthrough(),
+          .loose(),
       )
       .nullable()
       .optional(),
     draft: z.boolean().nullable().optional(),
   })
-  .passthrough();
+  .loose();
 
 // ─────────────────────────────────────────────────────────────────────────────
 // null 删键集（推导式，不手挑）
