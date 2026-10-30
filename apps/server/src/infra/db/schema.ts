@@ -173,3 +173,57 @@ export const taskRun = sqliteTable('task_run', {
   /** 环形缓冲全量日志（保尾截断 ≤256KB） */
   logText: text('log_text'),
 });
+
+/**
+ * [U4-AI3/A] AI 调用用量台账（每次上游调用一行）。
+ *
+ * [职责] 回答「这台机器在 AI 上花了多少、花在哪」。U4-AI1 当时**刻意不做**用量表
+ *   （只做单次 `maxOutputTokens` 上限 + 每分钟限流，见 u4-ai1 交付报告 §93），
+ *   本表补齐 token 计数与统计面。
+ *
+ * [为什么是「每次调用一行」而不是按天聚合]
+ *   聚合可以后算，原始行无法反推。保留每次调用才能回答「哪个动作最费 token」、
+ *   「哪个档案在失败」这类问题；体量由保留策略控制（见 `AI_USAGE_KEEP`）。
+ *
+ * [列设计要点]
+ *   - `action` 可空：非动作调用（如连通性测试 ping、自由聊天）没有 action；
+ *   - `status` 三态：`ok` / `error` / `aborted` —— **aborted 必须与 error 分开**：
+ *     用户主动停止或客户端断连不是故障，混进错误率会让统计失真；
+ *   - token 三列可空：上游不保证给 usage（拿不到时**不写 0** —— 0 是「零消耗」，
+ *     而 null 才是「未知」，两者对统计的意义完全不同）；
+ *   - `durationMs` 记录**实际耗时**（首字节到收流结束之外，含完整流），
+ *     用于发现「慢但成功」的退化；
+ *   - `errorCode` 存**结构化码**（如 `upstream_5xx` / `timeout`），不存上游原文
+ *     —— 后者可能含敏感信息，且行长不可控（仓规红线 6 的同精神）。
+ *
+ * [写入纪律] 用量写入是**旁路**：任何失败只 warn，绝不阻断或改变主响应
+ *   （见 `ai-usage.service.ts`）。这正是「台账不能成为单点故障」的要求。
+ */
+export const aiUsage = sqliteTable(
+  'ai_usage',
+  {
+    id: text('id').primaryKey(),
+    createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+    /** 写作动作名（AI_ACTIONS 之一）；自由聊天 / ping 为 null */
+    action: text('action'),
+    /** 调用场景：`chat`（流式聊天）/ `ping`（连通性测试） */
+    scene: text('scene').notNull(),
+    /** 使用的档案 id（配置被改后仍可追溯当时用的是哪个） */
+    profileId: text('profile_id'),
+    /** 上游模型名（档案快照，非实时读配置） */
+    model: text('model'),
+    promptTokens: integer('prompt_tokens'),
+    completionTokens: integer('completion_tokens'),
+    /** 上游未给 usage 时为 null（**不写 0**：0 是零消耗，null 是未知） */
+    totalTokens: integer('total_tokens'),
+    durationMs: integer('duration_ms').notNull(),
+    /** `ok` / `error` / `aborted`（用户停止或客户端断连，非故障） */
+    status: text('status').notNull(),
+    /** 结构化错误码（不含上游原文） */
+    errorCode: text('error_code'),
+  },
+  (table) => [
+    index('ai_usage_created_at_idx').on(table.createdAt),
+    index('ai_usage_action_idx').on(table.action),
+  ],
+);

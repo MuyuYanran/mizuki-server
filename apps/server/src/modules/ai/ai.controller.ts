@@ -22,6 +22,7 @@ import {
   HttpStatus,
   Post,
   Put,
+  Query,
   Req,
   Res,
 } from '@nestjs/common';
@@ -31,13 +32,18 @@ import type { Request, Response } from 'express';
 import {
   AiChatBodySchema,
   AiPutConfigBodySchema,
+  AiUsageQuerySchema,
   type AiChatBody,
   type AiConfigView,
   type AiPutConfigBody,
+  type AiUsageQuery,
+  type AiUsageView,
 } from '@mizuki/shared';
 import { ZodValidationPipe } from '../../common/pipes/zod-validation.pipe';
 import { AiChatService, type AiPingResult } from './ai-chat.service';
 import { AiConfigService } from './ai-config.service';
+// [U4-AI3/A] 用量台账服务（值导入：DI 依赖运行时元数据）
+import { AiUsageService } from './ai-usage.service';
 
 @ApiTags('管理')
 @ApiBearerAuth()
@@ -46,12 +52,26 @@ export class AiController {
   constructor(
     private readonly config: AiConfigService,
     private readonly chat: AiChatService,
+    // [U4-AI3/A] 用量台账（值导入：DI 依赖运行时元数据）
+    private readonly usage: AiUsageService,
   ) {}
 
   @ApiOperation({ summary: 'AI 配置（只读视图，key 只回掩码）' })
   @Get('config')
   getConfig(): AiConfigView {
     return this.config.view();
+  }
+
+  /**
+   * [U4-AI3/A] 用量台账查询（窗口内 totals + 按动作用量 + 最近明细）。
+   *
+   * 只读；`days` 由 query 传入（缺省 7 天，上限 365 天）。
+   * `aborted`（用户主动停止/断连）**不计入错误率**，见 shared/ai-usage.ts 文件头 ①。
+   */
+  @ApiOperation({ summary: 'AI 用量台账（按动作聚合 + 最近明细；aborted 不计入错误率）' })
+  @Get('usage')
+  getUsage(@Query(new ZodValidationPipe(AiUsageQuerySchema)) query: AiUsageQuery): Promise<AiUsageView> {
+    return this.usage.query(query.days);
   }
 
   @ApiOperation({ summary: '保存 AI 配置（部分更新：深合并 + keepApiKey 保留既有 key）' })

@@ -45,7 +45,7 @@ describe('P0a 骨架冒烟测试', () => {
     expect(res.body.status).toBe('ok');
   });
 
-  it('启动时迁移自动执行：注入路径下 mizuki.db 存在且含 12 张业务表（P0b §6.6；[Phase3-C5] 落盘点迁移至临时域；[U3-P3/K3] +task_run）', () => {
+  it('启动时迁移自动执行：注入路径下 mizuki.db 存在且含 13 张业务表（P0b §6.6；[Phase3-C5] 落盘点迁移至临时域；[U3-P3/K3] +task_run；[U4-AI3/A] +ai_usage）', () => {
     const dbPath = process.env['MIZUKI_DB_PATH'] as string;
     expect(fs.existsSync(dbPath)).toBe(true);
 
@@ -70,6 +70,7 @@ describe('P0a 骨架冒烟测试', () => {
           'media_file',
           'site_setting',
           'task_run',
+          'ai_usage',
         ]),
       );
     } finally {

@@ -39,6 +39,12 @@ export * from './posts-import';
 // [U4-AI1/K1] AI 接入契约（档案 / 代理三态 / 聊天请求 / SSE 事件名 / 限额单源）
 export * from './ai';
 
+// [U4-AI3/A] AI 用量台账契约（三态结果 / token 可空语义 / 统计视图）
+export * from './ai-usage';
+
+// [U4-AI3/B] meta 动作结构化契约 + 非破坏性回填计划（解析器与回填规则两端共用）
+export * from './ai-meta';
+
 // [T1] 主题适配层契约（mizuki / shirone 识别 + 能力画像；命名避让见文件头）
 export * from './theme-adapter';
 

@@ -41,6 +41,8 @@ import { AI_SSE, type AiChatBody } from '@mizuki/shared';
 import { getAppConfig } from '../../config/app-config';
 import { logger } from '../../common/logger';
 import { AiConfigService } from './ai-config.service';
+// [U4-AI3/A] 用量台账服务：值导入（Nest DI 依赖运行时元数据，import type 会擦除 design:paramtypes）
+import { AiUsageService } from './ai-usage.service';
 import {
   AI_FAILURE_MESSAGES,
   classifyFetchError,
@@ -103,16 +105,24 @@ function failureException(code: AiFailureCode): HttpException {
 
 @Injectable()
 export class AiChatService {
-  constructor(private readonly config: AiConfigService) {}
+  constructor(
+    private readonly config: AiConfigService,
+    // [U4-AI3/A] 用量台账（旁路写入：其失败绝不影响主响应，见 ai-usage.service 文件头）
+    private readonly usage: AiUsageService,
+  ) {}
 
   /**
    * 连通性测试：用 activeProfile 发一条最小请求（`max_tokens: 8`）。
    * 无论成功失败都**不抛**——失败也回 `{ ok: false, code, latencyMs }`（§4）。
+   *
+   * [U4-AI3/A] 同时记一笔用量：ping 也真实消耗上游额度（虽小），
+   * 且是「档案是否可用」的证据来源 —— 漏记会让用量面板看不到配置错误。
    */
   async ping(): Promise<AiPingResult> {
     const started = Date.now();
     const resolved = this.config.resolveActive();
     if (!resolved.ok) {
+      // 未发出请求：不记用量（没有消耗，记了反而污染统计）
       return { ok: false, code: resolved.code, latencyMs: Date.now() - started };
     }
     const { target } = resolved;
@@ -132,17 +142,17 @@ export class AiChatService {
         dispatcher,
       );
       if (!result.ok) {
+        await this.recordPing(target, Date.now() - started, 'error', result.code);
         return { ok: false, code: result.code, latencyMs: Date.now() - started };
       }
       // 只取消 body，不读：上游错误 body 可能含内部 URL/key 片段，读进来就有泄漏面
       await result.response.body?.cancel().catch(() => undefined);
       if (!result.response.ok) {
-        return {
-          ok: false,
-          code: classifyUpstreamStatus(result.response.status),
-          latencyMs: Date.now() - started,
-        };
+        const code = classifyUpstreamStatus(result.response.status);
+        await this.recordPing(target, Date.now() - started, 'error', code);
+        return { ok: false, code, latencyMs: Date.now() - started };
       }
+      await this.recordPing(target, Date.now() - started, 'ok', null);
       return {
         ok: true,
         latencyMs: Date.now() - started,
@@ -150,7 +160,9 @@ export class AiChatService {
         model: target.model,
       };
     } catch (error) {
-      return { ok: false, code: classifyFetchError(error), latencyMs: Date.now() - started };
+      const code = classifyFetchError(error);
+      await this.recordPing(target, Date.now() - started, 'error', code);
+      return { ok: false, code, latencyMs: Date.now() - started };
     } finally {
       clearTimeout(timer);
       if (dispatcher) {
@@ -161,6 +173,31 @@ export class AiChatService {
         }
       }
     }
+  }
+
+  /**
+   * [U4-AI3/A] ping 的用量记录。
+   * ping 是**非流式**且**不读响应体**（安全考虑），因此拿不到 token usage ⇒
+   * 三个 token 列一律 `null`（未知），**不写 0**（0 是「零消耗」，语义不同）。
+   */
+  private async recordPing(
+    target: { profileId: string; model: string },
+    durationMs: number,
+    status: 'ok' | 'error',
+    errorCode: string | null,
+  ): Promise<void> {
+    await this.usage.record({
+      scene: 'ping',
+      action: null,
+      profileId: target.profileId,
+      model: target.model,
+      promptTokens: null,
+      completionTokens: null,
+      totalTokens: null,
+      durationMs,
+      status,
+      errorCode,
+    });
   }
 
   /**
@@ -211,6 +248,15 @@ export class AiChatService {
     }, target.timeoutMs);
     const dispatcher = createProxyDispatcher(target.proxy);
     let firstByteSent = false;
+    // [U4-AI3/A] 流式用量收集器：由 pump 填充，在 finally 统一落账。
+    // 为什么用可变对象而不是让 pump 返回：pump 在异常路径下**不返回**（抛出），
+    // 而用量在异常时同样要记（那正是最需要记账的场景）⇒ 只有共享可变状态能覆盖全部出口。
+    const collected: { promptTokens: number | null; completionTokens: number | null } = {
+      promptTokens: null,
+      completionTokens: null,
+    };
+    let streamErrorCode: string | null = null;
+    const streamStarted = Date.now();
 
     try {
       const result = await requestChatCompletion(
@@ -245,12 +291,13 @@ export class AiChatService {
       // 到这里上游已确认可流式：此时才写头（首字节前错误已全部走完异常路径）
       startSse(res);
       firstByteSent = true;
-      await this.pump(upstream.body, res, () => clientGone);
+      await this.pump(upstream.body, res, () => clientGone, collected);
       endSse(res);
     } catch (error) {
       if (firstByteSent) {
         // 首字节后：状态码不可再改，只能发 error 帧（§5-2）
         const code: AiFailureCode = timedOut ? 'upstream_timeout' : classifyFetchError(error);
+        streamErrorCode = code;
         // 运维诊断：只记错误类型与分类码。**不记**上游 body / 请求头 / URL
         //（真链路排障必需——真上游在此分支失败时，对外只有一个分类码，没有这条日志
         // 就只能靠猜；U4-AI1 真链路验收时正是靠它定位到 undici stream 读端错误）。
@@ -271,6 +318,9 @@ export class AiChatService {
       if (clientGone) {
         return;
       }
+      // 首字节前失败：此时上游未产生可见输出，但仍可能已消耗 prompt token
+      // ⇒ 记 error（拿不到 usage 时 token 为 null，不写 0）
+      streamErrorCode = timedOut ? 'upstream_timeout' : classifyFetchError(error);
       throw error instanceof HttpException ? error : failureException(classifyFetchError(error));
     } finally {
       clearTimeout(timer);
@@ -283,6 +333,31 @@ export class AiChatService {
           // 同上：连接已结束，销毁失败仅属清理噪声
         }
       }
+      // [U4-AI3/A] 统一落账：三态判定一条规则，见 shared/ai-usage.ts 文件头 ①。
+      //   「客户端已断开」优先于「有错误码」：断连会让 classifyFetchError 把
+      //   AbortError 归成网络错误，但那**不是服务故障**，计进错误率会随用户操作习惯失真。
+      const status: 'ok' | 'error' | 'aborted' = clientGone
+        ? 'aborted'
+        : streamErrorCode === null
+          ? 'ok'
+          : 'error';
+      await this.usage.record({
+        scene: 'chat',
+        action: body.action ?? null,
+        profileId: target.profileId,
+        model: target.model,
+        promptTokens: collected.promptTokens,
+        completionTokens: collected.completionTokens,
+        // total 由两端相加得出：上游的 total 字段可能缺失，本仓不额外信任它
+        totalTokens:
+          collected.promptTokens === null && collected.completionTokens === null
+            ? null
+            : (collected.promptTokens ?? 0) + (collected.completionTokens ?? 0),
+        durationMs: Date.now() - streamStarted,
+        status,
+        // aborted 不记错误码：它不表达故障，记了会让「按错误码排查」出现噪声
+        errorCode: status === 'error' ? streamErrorCode : null,
+      });
     }
   }
 
@@ -309,6 +384,7 @@ export class AiChatService {
     upstreamBody: NodeReadableStream<Uint8Array>,
     res: Response,
     stopped: () => boolean,
+    collected?: { promptTokens: number | null; completionTokens: number | null },
   ): Promise<void> {
     const reader = upstreamBody.getReader();
     const decoder = new TextDecoder('utf-8');
@@ -353,6 +429,11 @@ export class AiChatService {
       // TypeError → 首字节后中断 → 用户看到 error 帧。假上游不模拟这一点就会漏检。
       if (usage !== undefined && usage !== null && !usageSent) {
         usageSent = true;
+        // [U4-AI3/A] 同步填充用量收集器（台账用），与发给前端的 usage 帧同源
+        if (collected !== undefined) {
+          collected.promptTokens = usage.prompt_tokens ?? 0;
+          collected.completionTokens = usage.completion_tokens ?? 0;
+        }
         writeSseFrame(res, AI_SSE.usage, {
           promptTokens: usage.prompt_tokens ?? 0,
           completionTokens: usage.completion_tokens ?? 0,

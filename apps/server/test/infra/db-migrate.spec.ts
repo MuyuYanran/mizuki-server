@@ -5,8 +5,12 @@ import Database from 'better-sqlite3';
 import { runMigrations } from '../../src/infra/db/migrate';
 
 /**
- * 12 张业务表（MASTER-PLAN §3 / P0b 提示词 §6.1 逐字核对）。
+ * 13 张业务表（MASTER-PLAN §3 / P0b 提示词 §6.1 逐字核对）。
  * [U3-P3/K3] +task_run（任务运行历史；控制台「历史记录」区）。
+ * [U4-AI3/A] +ai_usage（AI 调用用量台账；见 shared/ai-usage.ts）。
+ *
+ * ⚠ 这是**计数断言**：新增业务表时**必须**同时改这里与 `app.e2e-spec.ts` 的同名断言。
+ * 这是刻意的摩擦 —— 它逼着「加表」这件事被显式确认一次，而不是悄悄多出一张表。
  */
 const EXPECTED_BUSINESS_TABLES = new Set([
   'admin_user',
@@ -21,6 +25,7 @@ const EXPECTED_BUSINESS_TABLES = new Set([
   'media_file',
   'site_setting',
   'task_run',
+  'ai_usage',
 ]);
 
 function readTableNames(dbPath: string): string[] {
@@ -44,7 +49,7 @@ describe('P0b 启动迁移建表（§6.1）', () => {
     dbPath = path.join(dir, 'mizuki.db');
   });
 
-  it('runMigrations 后 sqlite_master 恰好含 12 张业务表', () => {
+  it('runMigrations 后 sqlite_master 恰好含 13 张业务表', () => {
     runMigrations(dbPath);
 
     const names = readTableNames(dbPath).filter((name) => !name.startsWith('sqlite_'));
@@ -52,7 +57,7 @@ describe('P0b 启动迁移建表（§6.1）', () => {
     const business = names.filter((name) => name !== '__drizzle_migrations');
 
     expect(new Set(business)).toEqual(EXPECTED_BUSINESS_TABLES);
-    expect(business).toHaveLength(12);
+    expect(business).toHaveLength(13);
     // 迁移记账表存在，证明走的是 drizzle migrator 而非手工建表
     expect(names).toContain('__drizzle_migrations');
   });
