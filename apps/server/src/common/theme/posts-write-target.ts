@@ -52,7 +52,13 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { type ThemeProbeEvidence } from '@mizuki/shared';
-import { type ContentSourceMode, resolveContentSource } from './content-source';
+import {
+  type ContentSourceMode,
+  resolveContentSource,
+  // [T5b-1] Mizuki HEAD 侧 env / 内容目录解析已收敛为 L0 单源（原为本文件内联副本）
+  resolveHeadContentDir,
+  resolveHeadEnv,
+} from './content-source';
 // [reuse] 主题形态枚举**不另立真源**：直接复用 T3b-1 的 `ConfigWriteForm`（四档同名同域）
 import { type ConfigWriteForm } from './config-write-target';
 import { ThemeAdapter } from './theme-adapter';
@@ -132,47 +138,13 @@ function reject(
 }
 
 /**
- * 内容目录解析（Mizuki HEAD 上游 `sync-content.js:17` 口径：**`CONTENT_DIR` 原样使用**）。
+ * [T5b-1] 内容目录解析已**完全收敛**为 L0 单源：本文件不再保留任何本地包装。
  *
- * 与 `config-write-target.ts` 的 `resolveContentDir` **同一条上游事实**，实现刻意保持一致：
- * 绝对值**原样**采用（上游全仓无二次 `join(rootDir, CONTENT_DIR)`），相对值按 CWD 解析 ——
- * 而上游由 pnpm 以主题根为 CWD 调用 ⇒ 等价于 `join(root, value)`。
- * ⚠ 勿改回「一律 join」：会把合法绝对路径拼成不存在的目录，造成把能同步的配置误拒。
- *
- * [为何此处重写而不 import] `config-write-target.ts` 那两个 helper 是 **module-private**
- * （`makeEnvReader` / `resolveContentDir` 均未 export），且它整文件由 T3b-1 钉死。
- * 本批**不改 T3b-1 的文件**（避免把两类改动的回归面混在一起），故在本文件内联同口径实现，
- * 并在两边的注释里互相指向。若将来要彻底收敛，应把它俩提升为 `content-source.ts` 的导出，
- * 属独立的小重构（已登记，不在本批）。
+ * 原先本文件内联了一份 `.env` 读取与 `CONTENT_DIR` 解析，靠注释与
+ * `config-write-target.ts` 互指保证一致（ADR-028 §22.5 记为「刻意的不收敛」）。
+ * T5b-1 把两者提升为 `content-source.ts` 的导出（`resolveHeadEnv` / `resolveHeadContentDir`），
+ * 四个调用点（config / posts / series / moments）直接调用同一实现，分叉隐患消除。
  */
-function resolveMizukiContentDir(root: string): string {
-  // Mizuki HEAD 上游唯一的环境文件是 `.env`（`scripts/load-env.js`），**没有 `.env.local`**；
-  // 且它是「文件键压过进程 env」（与 Shirone 侧相反）。`resolveThemeEnv` 的顺序是
-  // `.env` → `.env.local` 且**进程 env 优先**，方向相反 ⇒ 此处**不用它**，按 HEAD 口径自读。
-  const raw = readHeadEnvValue(root, 'CONTENT_DIR');
-  if (raw === undefined || raw === '') return path.join(root, 'content');
-  return path.isAbsolute(raw) ? raw : path.join(root, raw);
-}
-
-/** Mizuki HEAD `.env` 读取（`load-env.js` 解析器逐字复刻：文件键**压过**进程 env） */
-function readHeadEnvValue(root: string, name: string): string | undefined {
-  const values: Record<string, string> = {};
-  try {
-    const content = fs.readFileSync(path.join(root, '.env'), 'utf8');
-    for (const line of content.split('\\n')) {
-      const trimmed = line.trim();
-      if (!trimmed || trimmed.startsWith('#')) continue;
-      const match = trimmed.match(/^([^=]+)=(.*)$/);
-      if (match === null) continue;
-      const key = (match[1] ?? '').trim();
-      if (key === '') continue;
-      values[key] = (match[2] ?? '').trim().replace(/^["']|["']$/g, '');
-    }
-  } catch {
-    // 文件不存在 / 读不了 ⇒ 空表（上游静默跳过）
-  }
-  return Object.prototype.hasOwnProperty.call(values, name) ? values[name] : process.env[name];
-}
 
 /**
  * 判定当前主题档下「往代码仓 `src/content/posts` 写入」是否持久。
@@ -209,8 +181,9 @@ export function resolvePostsWriteTarget(root: string): PostsWriteTargetResolutio
   // ── mizuki HEAD：posts 走 junction 写穿内容仓 ⇒ 只要真物化过就持久 ─────────
   if (kind === 'mizuki' && layout.configFile === null && capabilities.config.strategy === 'overlay-ts') {
     const form: ConfigWriteForm = 'mizuki-head';
+    const readEnv = resolveHeadEnv(root);
 
-    if (readHeadEnvValue(root, 'ENABLE_CONTENT_SYNC') === 'false') {
+    if (readEnv('ENABLE_CONTENT_SYNC') === 'false') {
       evidence.push({
         name: 'content-sync',
         passed: false,
@@ -226,9 +199,9 @@ export function resolvePostsWriteTarget(root: string): PostsWriteTargetResolutio
       );
     }
 
-    const contentDir = resolveMizukiContentDir(root);
+    const contentDir = resolveHeadContentDir(root, readEnv);
     const contentDirOk = isDirectory(contentDir);
-    const hasRepoUrl = (readHeadEnvValue(root, 'CONTENT_REPO_URL') ?? '').trim() !== '';
+    const hasRepoUrl = (readEnv('CONTENT_REPO_URL') ?? '').trim() !== '';
     evidence.push({
       name: 'content-dir',
       passed: contentDirOk,

@@ -639,3 +639,205 @@ export function resolveContentSource(root: string): ContentSourceProfile {
     evidence,
   };
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// [T5b-1] 内容挂载点寻址底座（L0 单一来源）
+//
+// 背景：`config`（T3b）、`posts`（T4-3b）、将来的 `series` / `moments`（T5b）与 `T4-4`
+// 都要回答同一个问题 ——「这类内容在当前主题档下，**哪个目录**才是持久的落点」。
+// 此前 `config-write-target.ts` 与 `posts-write-target.ts` 各自内联了一份
+// `.env` 读取与 `CONTENT_DIR` 解析（靠注释互指保证一致），这是**分叉隐患**。
+// ⇒ 本节把它们收敛为 L0 导出，供四条线共用。
+//
+// 两条**方向相反**的上游事实必须分开表达，不能合用一个函数：
+//   - **Mizuki HEAD**（`scripts/load-env.js`）：唯一环境文件 `.env`，且**文件键压过进程 env**；
+//   - **Shirone**（`resolve-source.mjs:396-441`）：`.env` → `.env.local`，且**进程 env 优先**。
+// 若强行统一成一种，两边必有一边与上游劈叉。故提供两个具名读取器。
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Mizuki HEAD 侧环境读取器（`.env` 单文件；**文件键压过进程 env**） */
+export type HeadEnvReader = (name: string) => string | undefined;
+
+/**
+ * [T5b-1] Mizuki HEAD 口径的环境读取器（上游 `scripts/load-env.js` 解析器逐字复刻）：
+ * `split('\n')` 切行 · `trim` 后跳空行与 `#` · `/^([^=]+)=(.*)$/` 取第一个 `=` 前的键 ·
+ * 值 `trim` 后去掉「各一个」首尾引号（不校验配对）。
+ *
+ * ⚠ **文件键压过进程 env** —— 与 `resolveThemeEnv()`（Shirone 口径）**方向相反**。
+ * 上游是 `process.env[key] = value` 无条件赋值；本文件只构造只读视图，**不写 `process.env`**。
+ * 文件不存在 / 读不了 ⇒ 全部退回进程 env（不抛错）。
+ */
+export function resolveHeadEnv(root: string): HeadEnvReader {
+  const fileValues = new Map<string, string>();
+  if (typeof root === 'string' && root.trim() !== '') {
+    try {
+      const content = fs.readFileSync(path.join(root, '.env'), 'utf8');
+      for (const line of content.split('\n')) {
+        const trimmed = line.trim();
+        if (!trimmed || trimmed.startsWith('#')) continue;
+        const match = trimmed.match(/^([^=]+)=(.*)$/);
+        if (match === null) continue;
+        const key = (match[1] ?? '').trim();
+        if (key === '') continue;
+        fileValues.set(key, (match[2] ?? '').trim().replace(/^["']|["']$/g, ''));
+      }
+    } catch {
+      // 文件不存在 / 读不了 ⇒ 静默跳过（上游同样静默）
+    }
+  }
+  return (name: string): string | undefined =>
+    fileValues.has(name) ? fileValues.get(name) : process.env[name];
+}
+
+/**
+ * [T5b-1] Mizuki HEAD 侧「内容目录」解析（上游 `sync-content.js:17` 口径）。
+ *
+ * 上游：`const CONTENT_DIR = process.env.CONTENT_DIR || path.join(rootDir, "content")`，
+ * 随后把它**原样**用于 `existsSync` / `path.join(CONTENT_DIR, src)` / `git clone` / `cwd`
+ * ——全仓**没有**二次 `join(rootDir, CONTENT_DIR)`。
+ * ⇒ 绝对值**原样**采用；相对值按 CWD 解析（上游由 pnpm 以主题根为 CWD 调用 ⇒ 等价 `join(root, value)`）。
+ *
+ * **[勿改回「一律 `join(root, value)`」]** 那会把合法的绝对 `CONTENT_DIR` 拼成
+ * `<root>\<盘符>:\x` 这类不存在的路径，于是把**能正常同步**的配置误判成「无内容目录」而拒绝
+ * ——正是「Kova 判定的目录与上游实际读取的目录劈叉」那种错（ADR-028 §17 已记一次同类事故）。
+ */
+export function resolveHeadContentDir(root: string, readEnv: HeadEnvReader): string {
+  const raw = readEnv('CONTENT_DIR');
+  if (raw === undefined || raw === '') return path.join(root, 'content');
+  return path.isAbsolute(raw) ? raw : path.join(root, raw);
+}
+
+/** 内容子目录名（`series` / `moments` / `spec` / `posts` 均落在 `src/content/<名>` 之下） */
+export type ContentSubdir = 'posts' | 'series' | 'moments' | 'spec';
+
+/** 子目录寻址失败的原因（取值固定；调用方按它选文案，不做字符串推断） */
+export type ContentSubdirRejectionReason =
+  /** 主题形态不是 Shirone ⇒ 该子集合在本档不存在 */
+  | 'not-shirone'
+  /** 清单 `schemaVersion` 超支持上限 ⇒ 无法判断落点，一律拒绝 */
+  | 'manifest-unsupported-version'
+  /** `mounts.content` 被显式关闭（`null` / `false`）⇒ 该挂载点不参与同步 */
+  | 'content-mount-disabled'
+  /** `mounts` 有非法项 ⇒ 无法确定真实落点（宁可拒绝，不猜） */
+  | 'mounts-invalid'
+  /** 内容源是 git ⇒ 工作副本随时被 `checkout --force` + `clean -ffdx` 覆盖 */
+  | 'content-source-git'
+  /** 内容仓根无法确定（path 型但无可用路径，且 lock 无记录） */
+  | 'content-root-unknown';
+
+/** 子目录寻址成功 */
+export interface ContentSubdirOk {
+  ok: true;
+  /** 持久落点的绝对路径（内容仓内），**仅供后端内部使用**（仓规红线 6） */
+  dirAbs: string;
+  /** 写入后是否必须跑一次内容同步才在代码仓生效（内容仓落点恒 true） */
+  needsSync: boolean;
+  /** 是否落在内容仓（external）而非代码仓 */
+  inContentRepo: boolean;
+  /** 生效的挂载目标（代码仓侧），如 `src/content` */
+  mountTarget: string;
+}
+
+/** 子目录寻址失败 */
+export interface ContentSubdirRejected {
+  ok: false;
+  reason: ContentSubdirRejectionReason;
+  /** 人话说明**下一步怎么做**；不含任何绝对路径 */
+  message: string;
+}
+
+export type ContentSubdirResolution = ContentSubdirOk | ContentSubdirRejected;
+
+function rejectSubdir(
+  reason: ContentSubdirRejectionReason,
+  message: string,
+): ContentSubdirRejected {
+  return { ok: false, reason, message };
+}
+
+/**
+ * [T5b-1] 解析 `series` / `moments` / `spec` / `posts` 在 **Shirone 内容分离**下的持久落点。
+ *
+ * 语义（逐条对齐上游 `resolveMounts` + `syncMount`）：
+ * - 挂载键 `content` 的目标目录（默认 `src/content`）就是要找的代码仓侧落点；
+ *   内容仓侧对应 `<contentRoot>/content/<subdir>`。
+ * - `mounts.content === null | false` ⇒ 该挂载点被**显式关闭**：上游 `mounts.delete(key)`
+ *   后这个子目录根本不会被同步，写进去既不会被物化、也不会被裁剪 —— 是一条**死路**，
+ *   必须拒绝并说明（不能静默当作 local）。
+ * - `mounts` 有非法项 ⇒ 上游对非法项**保留默认值**，但本服务无从判断用户真实意图，
+ *   宁可拒绝也不猜（与 T3b-1 同口径，理由见 `config-write-target.ts` 头部 ③）。
+ * - git 源 ⇒ 工作副本每次 sync 被 `checkout --force` + `clean -ffdx`，写入必丢。
+ *
+ * @param root 主题根绝对路径
+ * @param subdir 内容子目录名
+ */
+export function resolveContentSubdirTarget(
+  root: string,
+  subdir: ContentSubdir,
+): ContentSubdirResolution {
+  const profile = resolveContentSource(root);
+
+  if (profile.mode === 'local') {
+    // local：主题仓自持内容，落点就是代码仓自己的 src/content/<subdir>
+    return {
+      ok: true,
+      dirAbs: path.join(root, 'src', 'content', subdir),
+      needsSync: false,
+      inContentRepo: false,
+      mountTarget: 'src/content',
+    };
+  }
+
+  if (!profile.supported) {
+    return rejectSubdir(
+      'manifest-unsupported-version',
+      `${MANIFEST_FILE} 声明的 schemaVersion 超出本服务支持的上限：本服务无法判断内容仓的真实落点，因此不能安全地读写该内容集合。下一步：把 ${MANIFEST_FILE} 的 schemaVersion 改回受支持的版本，或先升级本服务。`,
+    );
+  }
+
+  if (profile.invalidMounts.length > 0) {
+    return rejectSubdir(
+      'mounts-invalid',
+      `${MANIFEST_FILE} 的 mounts 存在 ${profile.invalidMounts.length} 项非法配置：本服务无从判断这些挂载点究竟指向哪里，写入可能落在不会被同步的目录里。下一步：按 ${MANIFEST_FILE} 的 mounts 规范修正这些键（必须是相对目录、不能含 ".."、不能指向保留目录），然后重试。`,
+    );
+  }
+
+  if (profile.disabledMounts.includes('content')) {
+    return rejectSubdir(
+      'content-mount-disabled',
+      `${MANIFEST_FILE} 把 mounts.content 显式关闭了（null / false）：内容同步不会处理 src/content 这个挂载点，写进去的文章既不会被物化到主题、也不会被裁剪——是一条死路。下一步：从 ${MANIFEST_FILE} 的 mounts 里删掉 content 那一项（恢复默认的 content → src/content 映射），然后重试。`,
+    );
+  }
+
+  const mountTarget = profile.mounts['content'];
+  if (mountTarget === undefined) {
+    // 理论上不可达（默认表含 content，且禁用分支已在上面拦截）；保持诚实的不可能分支
+    return rejectSubdir(
+      'content-mount-disabled',
+      `${MANIFEST_FILE} 未提供 content 挂载点的目标目录：本服务无法判断内容落点。下一步：在 mounts 里显式声明 content 的目标目录。`,
+    );
+  }
+
+  if (profile.source !== null && profile.source.type === 'git') {
+    return rejectSubdir(
+      'content-source-git',
+      '当前内容源是 git 仓库：内容仓工作副本每次同步都会被强制检出并清理（git checkout --force + git clean -ffdx），直接写进去的文件会消失。下一步：把内容仓克隆到本地并把内容源改成 path 类型（或在本地内容仓提交改动后让它自行拉取），本服务只对本地路径源提供写入。',
+    );
+  }
+
+  // path 型但 contentRoot 退回了主题根（resolveContentSource 无从得知内容仓位置时不会降级 mode）
+  if (profile.source === null) {
+    return rejectSubdir(
+      'content-root-unknown',
+      `${MANIFEST_FILE} 未声明可用的内容源路径，且 ${LOCK_FILE} 没有记录内容仓位置：本服务无从确定持久落点。下一步：在 ${MANIFEST_FILE} 的 source 里写明内容仓的本地路径（type: "path"），或先跑一次内容同步生成 ${LOCK_FILE}。`,
+    );
+  }
+
+  return {
+    ok: true,
+    dirAbs: path.join(profile.contentRoot, 'content', subdir),
+    needsSync: true,
+    inContentRepo: true,
+    mountTarget,
+  };
+}

@@ -44,6 +44,10 @@ import {
   OVERRIDES_DIR_IN_CONTENT,
   SUPPORTED_SCHEMA_VERSION,
   resolveContentSource,
+  // [T5b-1] env / 内容目录解析收敛为 L0 单源
+  resolveHeadContentDir,
+  resolveHeadEnv,
+  type HeadEnvReader,
   type InvalidMountEntry,
 } from './content-source';
 import { ThemeAdapter } from './theme-adapter';
@@ -122,43 +126,17 @@ function reject(
   return { ok: false, form, reason, message, invalidMounts };
 }
 
-/** Mizuki HEAD 上游唯一的环境文件（`scripts/load-env.js`；**没有 `.env.local`**） */
-const ENV_FILE = '.env';
-
 /**
- * 读取 `<主题根>/.env`（上游 `load-env.js` 解析器逐字复刻）：
- * `split('\n')` 切行 · `trim` 后跳空行与 `#` · `/^([^=]+)=(.*)$/` 取第一个 `=` 前的键 ·
- * 值 `trim` 后去掉「各一个」首尾引号（不校验配对）。
- * 文件不存在 / 读不了 ⇒ 返回空表，不抛错（与既有口径一致）。
+ * 生效环境读取器 —— **[T5b-1] 已收敛为 L0 单源**（`content-source.ts` 的 `resolveHeadEnv`）。
+ *
+ * 上游 `load-env.js` 把 `.env` 无条件灌进 `process.env` ⇒ **文件键压过进程 env**；
+ * 本实现只构造只读视图，**不写 `process.env`**。语义与上游逐字一致。
+ * 原先本文件内联了 `readRootEnvFile` + `makeEnvReader`，与 `posts-write-target.ts` 各存一份
+ * （ADR-028 §22.5 记为「刻意的不收敛」）；T5b-1 收敛后 config / posts / series / moments
+ * 四条线共用同一实现，分叉隐患消除。
  */
-function readRootEnvFile(root: string): Record<string, string> {
-  const values: Record<string, string> = {};
-  let content: string;
-  try {
-    content = fs.readFileSync(path.join(root, ENV_FILE), 'utf8');
-  } catch {
-    return values;
-  }
-  for (const line of content.split('\n')) {
-    const trimmedLine = line.trim();
-    if (!trimmedLine || trimmedLine.startsWith('#')) continue;
-    const match = trimmedLine.match(/^([^=]+)=(.*)$/);
-    if (match === null) continue;
-    const key = (match[1] ?? '').trim();
-    if (key === '') continue;
-    values[key] = (match[2] ?? '').trim().replace(/^["']|["']$/g, '');
-  }
-  return values;
-}
-
-/**
- * 生效环境读取器（上游 `load-env.js` 把 `.env` 无条件灌进 `process.env` ⇒ **文件键压过进程 env**）。
- * 只读视图，**不写 `process.env`**。
- */
-function makeEnvReader(root: string): (name: string) => string | undefined {
-  const fileEnv = readRootEnvFile(root);
-  return (name: string): string | undefined =>
-    Object.prototype.hasOwnProperty.call(fileEnv, name) ? fileEnv[name] : process.env[name];
+function makeEnvReader(root: string): HeadEnvReader {
+  return resolveHeadEnv(root);
 }
 
 /**
@@ -172,14 +150,14 @@ function makeEnvReader(root: string): (name: string) => string | undefined {
  *   调用 ⇒ 等价于 `join(root, value)`。
  *
  * **[勿改回「一律 `join(root, value)`」]** 那会把合法的绝对 `CONTENT_DIR` 拼成
- * `<root>\<盘符>:\x` 这类不存在的路径，于是把能正常同步的配置**误判成「无内容目录」而拒绝**——
- * 正是「Kova 判定的内容目录与上游实际读取的目录劈叉」那种错。
+ * `<root>/<盘符>:/x` 这类不存在的目录，于是把能正常同步的配置**误判成「无内容目录」而拒绝**
+ * ——正是「Kova 判定的内容目录与上游实际读取的目录劈叉」那种错。
  * 反之，绝对值不存在时上游 `fs.existsSync` 为假 ⇒ 早退不 sync ⇒ 本文件照旧拒绝（诚实）。
+ *
+ * [T5b-1] 实现已收敛为 L0 单源（`content-source.ts` 的 `resolveHeadContentDir`）。
  */
-function resolveContentDir(root: string, readEnv: (name: string) => string | undefined): string {
-  const raw = readEnv('CONTENT_DIR');
-  if (raw === undefined || raw === '') return path.join(root, 'content');
-  return path.isAbsolute(raw) ? raw : path.join(root, raw);
+function resolveContentDir(root: string, readEnv: HeadEnvReader): string {
+  return resolveHeadContentDir(root, readEnv);
 }
 
 /** mounts 交叉重叠项：上游把冲突键对以 `"A,B"` 形式放进 `invalidMounts`，reason 里带 overlap */

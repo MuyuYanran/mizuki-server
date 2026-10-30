@@ -1484,3 +1484,125 @@ T4-3 已经放开 Shirone 写入口面与 `.mdx`，但尚未拦截内容分离�
 
 📌 现在可以宣称的边界：**在 Shirone external 档下，posts 写入会被明确拒绝并指路** ——
 不再是静默丢失。**但仍不可宣称「可用」**，那要等 T4-4 接通内容仓路径跟随。
+
+---
+
+## 23. 追加（2026-10-30 第十六回合）：T5b-1 交付 —— 内容挂载寻址底座（L0 单源收敛）+ `series`/`moments` 两面制 schema
+
+### 23.1 一张即时自查表：本回合按源码纠正了两处记忆错误
+
+开工前我凭记忆写过两个事实，**都错**。逐行读上游 `src/content.config.ts` 后纠正：
+
+| 我记忆里的 | 源码实际 | 若照记忆写的后果 |
+|---|---|---|
+| `moments.image?: []` | **`images`**（复数）：`z.array(z.object({ src: z.string(), alt: z.string().optional().default("") }))` | 字段名错 ⇒ 写入口**拒掉所有真实 Shirone 数据**；且字符串数组会被误放行 |
+| `series`/`moments` 可含 `.mdx` | 上游 `glob({ pattern: "**/*.md" })` ⇒ **仅 `.md`** | 与 `posts`（`.md`+`.mdx`）混淆，扫描出幽灵文件 |
+
+⇒ 与 §21.2、§22.1 同一类病根：**记忆不是证据**。凡涉及上游契约，一律以
+`.test-tmp/upstream-Shirone-20261029/` 源码为准。
+
+### 23.2 第一部分：内容挂载寻址底座（L0 单源）
+
+**收敛前**的分叉现状（§22.5 记为「刻意的不收敛」）：
+
+| 文件 | 内联了什么 | 状态 |
+|---|---|---|
+| `config-write-target.ts` | `readRootEnvFile` + `makeEnvReader` + `resolveContentDir` | module-private，T3b-1 冻结 |
+| `posts-write-target.ts` | 同口径的 `readHeadEnvValue` + `resolveMizukiContentDir`（§22 内联） | 靠注释互指保证一致 |
+
+**收敛后**（`content-source.ts` 新增一节 L0 导出）：
+
+| 导出 | 职责 |
+|---|---|
+| `resolveHeadEnv(root): HeadEnvReader` | Mizuki HEAD 口径 env 读取（**`.env` 单文件；文件键压过进程 env**） |
+| `resolveHeadContentDir(root, readEnv)` | Mizuki HEAD 的「内容目录」解析（`CONTENT_DIR` **原样使用**） |
+| `resolveContentSubdirTarget(root, subdir)` | **按子目录参数化**的持久落点寻址（`posts`/`series`/`moments`/`spec`） |
+| `type ContentSubdir` / `ContentSubdirRejectionReason` | 子目录与六条拒绝原因枚举 |
+
+**两条方向相反的上游事实必须分开表达**，这是本底座最关键的接口决策：
+
+| 侧 | 环境文件 | 优先级 |
+|---|---|---|
+| **Mizuki HEAD**（`scripts/load-env.js`） | 仅 `.env` | **文件键压过进程 env**（上游 `process.env[key] = value` 无条件赋值） |
+| **Shirone**（`resolve-source.mjs:396-441`） | `.env` → `.env.local` | **进程 env 优先**（上游先快照 `inheritedEnvKeys`） |
+
+⇒ 保留**两个具名读取器**（`resolveHeadEnv` / 既有的 `resolveThemeEnv`），**不合用一个**。
+强行统一成一种，必有一边与上游劈叉。这不是冗余，是**两种真实事实的如实表达**。
+
+**`resolveContentSubdirTarget` 的六条拒绝原因**（与 T3b-1 的拒绝枚举同精神）：
+
+| reason | 触发条件 | 为什么必须拒绝 |
+|---|---|---|
+| `manifest-unsupported-version` | `schemaVersion > 支持上限` | 无法判断落点，不许猜 |
+| `mounts-invalid` | `mounts` 有非法项 | 上游对非法项「保留默认值」，但本服务无从判断用户真实意图 |
+| `content-mount-disabled` | `mounts.content === null \| false` | 上游 `mounts.delete(key)` 后该子目录**根本不被同步** ⇒ 写了既不被物化也不被裁剪，是**死路** |
+| `content-source-git` | `source.type === 'git'` | 工作副本每次 sync 被 `checkout --force` + `clean -ffdx` |
+| `content-root-unknown` | path 型但无可用路径且 lock 无记录 | 无从得知内容仓位置，不猜 |
+| `not-shirone`（预留） | 非 Shirone 形态 | 该子集合在本档不存在 |
+
+**放行两格**：
+
+| 条件 | `dirAbs` | `needsSync` | `inContentRepo` |
+|---|---|---|---|
+| `mode: 'local'` | `<root>/src/content/<subdir>` | `false` | `false` |
+| external + path 源 | `<contentRoot>/content/<subdir>` | `true` | `true` |
+
+`mounts.content` 被改到别处时，`dirAbs` 仍按**内容仓侧目录名**（挂载源键 `content`）推导，
+而 `mountTarget` 报告代码仓侧落点（如 `src/my-content`）—— 因为上游 `syncMount(sourceRoot, sourceDir, targetDir)`
+里 `sourceDir` 恒为 `content`，只有 `targetDir` 跟随 mounts。
+
+**等价性验证**：收敛前先跑基线（`theme-config-write-target` 21 + `theme-posts-write-target` 16 = **37/37 绿**），
+收敛后跑同一批 + `theme-content-source` = **54/54 绿**，无回归。这是「重构不改语义」的可证等价，
+不是「看着一样」。
+
+### 23.3 第二部分：`series` / `moments` 两面制 schema
+
+新文件 `packages/shared/src/shirone-content-collections.ts`，**一次性把两面都立好**，
+不让 T4-3 那种「先只做构造面、回头再补写入口面」的返工重演。
+
+| 面 | `series`（3 字段） | `moments`（7 字段） |
+|---|---|---|
+| **构造面** | 逐字转录：`status` 默认 `'ongoing'`、`defaultCategory` 默认 `''` | 逐字转录：`published: z.date()` 必填 + 6 个 `.default()`（含 `images` 的 `alt: ''`） |
+| **写入口面** | 零 `.default()`；`status` 保留 enum 约束 + `.nullable()`；`defaultCategory` `.nullable()` | `published` 放宽为 `string \| Date` **但保持必填**；其余 6 键零默认 + `.nullable()`；`images` 保留 `{src, alt?}` 结构但 `alt` 不补空串 |
+
+**删键集是推导式**（单测按此断言，不靠注释）：
+
+```
+SERIES_NULL_DELETE_KEYS  = series 字段面  − 必填键 {title}      = 2 个
+MOMENTS_NULL_DELETE_KEYS = moments 字段面 − 必填键 {published}  = 6 个
+```
+
+**一处与 `posts` 面的有意差异（必须记账，否则后人会以为是漏改）**：
+
+> `posts` 面对**可选**日期键（`date` / `pubDate` / `updated`）刻意**不给删键路径**
+> ——口径「空值不写键」，避免清空日期即销毁元数据。
+> 而 `moments.published` 是**必填**键，它既不能为空、更不能被删 ⇒ 不在删键集内、也不加 `.nullable()`。
+>
+> **这是两条各自成立的规则，不是同一规则的两个例外**：一条讲「可选日期键不做删键」，
+> 一条讲「必填键不可删」。勿混同。
+
+**身份标识**：两集合**都没有 frontmatter `id`**，身份 = 去掉 `.md` 的文件名。
+上游 `pattern: "**/*.md"` 理论上允许子目录，但集合语义是**扁平同名寻址** ⇒ 本仓一律按
+**单段文件名**处理，调用方必须 `singleSegmentName` + `safeJoin`，禁跨目录穿越（T5b-2 落实）。
+
+### 23.4 本回合验收
+
+| 项 | 结果 |
+|---|---|
+| 新增 `shirone-content-collections.spec.ts` | **21/21 绿**（五组钉子：构造面逐字 / 零默认物化 / 日期放宽 / 删键推导 / `images` 结构） |
+| 新增 `theme-content-subdir-target.spec.ts` | **15/15 绿**（含 `resolveHeadEnv` 解析器细节与「绝对值不二次 join」的 §17 回归锚） |
+| 收敛等价性 | 收敛前 37/37 → 收敛后 54/54，无回归 |
+| `pnpm lint` | exit 0（曾红 2 条：收敛后两个本地 helper 变成死代码，已清） |
+| `pnpm build` | 全绿 |
+| `pnpm test` 全量 | 见提交报告 |
+
+### 23.5 本回合**未做**（T5b-2 范围）
+
+| 项 | 内容 |
+|---|---|
+| **T5b-2** | `series` / `moments` 的读写服务、路由、（若有）索引表、e2e |
+| 删除/写入的 `safeJoin` 监狱根 | 需随 `resolveContentSubdirTarget` 的 `dirAbs` **动态切换**——写默认 `src/content/<subdir>` 是错的 |
+| 是否入 `article` 索引 | `series` 是「系列元数据」、`moments` 是「动态」——是否进统一文章索引需 T5b-2 时裁定 |
+| 面板面（T6） | 渲染与表单 |
+
+📌 边界：T5b-1 只立**底座与契约**，不提供任何 HTTP 端点 ⇒ 对现有行为零影响（全量套件可证）。

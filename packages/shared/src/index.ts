@@ -53,3 +53,6 @@ export * from './posts-frontmatter-shirone';
 
 // [T4-3] Shirone 写入口面 frontmatter schema + null 删键集（16 键；与构造面字段名恒等）
 export * from './posts-frontmatter-shirone-write';
+
+// [T5b-1] Shirone series / moments 内容集合：构造面 + 写入口面（两面制）+ 删键集
+export * from './shirone-content-collections';
