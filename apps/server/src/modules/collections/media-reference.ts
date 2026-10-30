@@ -13,7 +13,7 @@ import type { MediaReference } from '@mizuki/shared';
 import { normalizeUserPath } from '../../common/fs/posix';
 import { logger } from '../../common/logger';
 import { DataFileService } from '../data-files/data-file.service';
-import { REGISTRY } from './registry';
+import { currentThemeKind, getRegistryTable } from './registry';
 
 type Item = Record<string, unknown>;
 
@@ -25,7 +25,10 @@ export class CollectionsMediaReferenceContributor {
 
   async collectReferences(): Promise<MediaReference[]> {
     const refs: MediaReference[] = [];
-    for (const def of REGISTRY) {
+    // [T2] 按当前主题档位遍历（mizuki → Mizuki 表；shirone → Shirone 表，
+    //   避免去读 Mizuki 独有的 diary.ts 而产生无效告警；
+    //   unknown → 空表 —— 主题未识别/包模式时没有可读的数据文件，遍历自然为空）
+    for (const def of getRegistryTable(currentThemeKind())) {
       try {
         const value = this.dataFiles.readCollection(def.file, def.varName);
         if (def.type === 'diary') {

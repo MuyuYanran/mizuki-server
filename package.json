@@ -9,12 +9,12 @@
     "dev": "pnpm --filter @mizuki/server dev",
     "build": "pnpm -r build",
     "test": "pnpm --filter @mizuki/server test",
-    "lint": "eslint ."
+    "lint": "node scripts/check-dep-specs.mjs && eslint ."
   },
   "devDependencies": {
-    "eslint": "latest",
+    "eslint": "10.9.1",
     "eslint-import-resolver-typescript": "^4.4.5",
     "eslint-plugin-boundaries": "^7.2.0",
-    "typescript-eslint": "latest"
+    "typescript-eslint": "8.68.0"
   }
 }

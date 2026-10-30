@@ -46,7 +46,7 @@ docs/            规格、决策、台账、阶段提示词（见 §10）
 
 | 命令 | 作用 |
 |---|---|
-| `pnpm install` | 安装依赖（本机需 `--frozen-lockfile --config.node-linker=hoisted`） |
+| `pnpm install` | 安装依赖（本仓用**默认 isolated 布局**；**不要**加 `--config.node-linker=hoisted`，见下方警告） |
 | `pnpm dev` | 后端 watch 启动（20154） |
 | `pnpm --filter @mizuki/web dev` | 面板 dev（20155） |
 | `pnpm test` | 后端 vitest 全量（基线 **652 用例 / 74 文件**，其中 `p10d` 真链路默认跳过） |
@@ -55,9 +55,20 @@ docs/            规格、决策、台账、阶段提示词（见 §10）
 
 **工具链坑（Windows 本机实测，非猜测）**
 
-- 依赖安装要 `--config.node-linker=hoisted`（符号链接权限不足）；CI 用 pnpm 9，本机可能是 pnpm 12。
-- `@mizuki/shared` 必须**先 build**（`node node_modules/typescript/bin/tsc -p packages/shared/tsconfig.json`），
-  否则 server 报 `Cannot find module '@mizuki/shared'`。
+- **⚠ 不要给 `pnpm install` / `pnpm add` 加 `--config.node-linker=hoisted`**（2026-10-29 事故，实测）。
+  本仓是在**默认 isolated 布局**下开发与验收的（`node_modules/.pnpm/<pkg>@<ver>/...` 为实体目录），
+  而 `--config.node-linker=hoisted` 会改写 lockfile 的 settings 并**触发全量重解析**：
+  当时 `apps/server` 的 24 个依赖全是 `"latest"`，被重解析到最新（`vitest 4.1.11 → 5.0.5`、
+  `eslint 10.9.1 → 10.13.0`），并让 `zod` 在仓内出现**两份副本**（4.4.3 与 4.6.7）⇒
+  `pnpm build` 报 **34 条 `TS2739 ... missing validate, validateAsync`**（跨副本的 `ZodType` 与 `ZodObject`
+  不是同一个类型，与业务代码无关）。整次重装耗时 **59 分钟**；改回默认布局后**6.9 秒**完成。
+  另注：`--frozen-lockfile` 只在 CI 有意义，本机 `pnpm add` 必须允许更新 lockfile。
+  **同批加固**：全部 `latest` 已钉到精确版本，且 `pnpm lint` 前置 `scripts/check-dep-specs.mjs`
+  —— 浮动 spec（`latest` / `*` / `x` / 空 / open-ended 范围）会让守卫直接失败。CI 用 pnpm 9，本机可能是 pnpm 12。
+- `@mizuki/shared` 必须**先 build**，否则 server 报 `Cannot find module '@mizuki/shared'`。
+  **路径订正（2026-10-29 实测）**：根 `node_modules/typescript/bin/tsc` **不存在**（MODULE_NOT_FOUND），
+  可用路径是 `node packages/shared/node_modules/typescript/bin/tsc -p packages/shared/tsconfig.json`
+  或直接 `node_modules/.bin/tsc -p packages/shared/tsconfig.json`。
 - vitest 全并行在本机不可用（30 个 worker 异常退出）：分批 ≤6 个文件 + `--maxWorkers=1`；vitest 4 已无 `--reporter=basic`。
 - **定向跑测试用 `pnpm --filter @mizuki/server exec vitest run <spec> --maxWorkers=1`**（2026-10-23 实测）：
   **不要**直接调 `apps/server/node_modules/.bin/vitest` —— node_modules 布局在 `--config.node-linker=hoisted`

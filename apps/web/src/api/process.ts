@@ -29,8 +29,17 @@ import { getAccessToken } from '../stores/auth';
  */
 export type { TaskEnvEntry, TaskEnvView } from '@mizuki/shared';
 
-/** 任务白名单（与后端 TASK_WHITELIST 对齐） */
-export type ProcessTaskName = 'install' | 'dev' | 'build' | 'preview';
+/**
+ * 任务白名单 —— **直接引用 shared 单源**（与后端 `TASK_WHITELIST` 同一常量推导），
+ * 与同文件 `TaskEnvView` 的口径一致：前端零本地类型复制。
+ *
+ * ⚠ 此处曾手写 `'install' | 'dev' | 'build' | 'preview'` —— 后果是**白名单加项时前端静默落后**
+ *   （T3d 增补 `content:sync` / `sync-content` 时即暴露：后端已收，前端类型仍说只有四项，
+ *    且不报错）。故改为从 shared 推导，让「加了但不显示」变成编译期可发现的问题。
+ */
+import type { ProcessTaskName as SharedProcessTaskName } from '@mizuki/shared';
+
+export type ProcessTaskName = SharedProcessTaskName;
 
 /** 任务状态 */
 export type TaskStatus = 'running' | 'exited' | 'killed';

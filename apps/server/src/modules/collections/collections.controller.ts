@@ -16,7 +16,12 @@
 import { BadRequestException, Body, Controller, Delete, Get, HttpCode, HttpStatus, Param, Patch, Post } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { CollectionsService } from './collections.service';
-import { findCollectionDef, REGISTRY, type CollectionDef } from './registry';
+import {
+  currentThemeKind,
+  findCollectionDef,
+  unknownCollectionMessage,
+  type CollectionDef,
+} from './registry';
 
 @ApiTags('管理')
 @ApiBearerAuth()
@@ -55,11 +60,14 @@ export class CollectionsController {
     return { deleted: true };
   }
 
-  /** 注册表白名单校验：未知 type 一律 400，且不做任何文件读写 */
+  /** 注册表白名单校验：未知 type 一律 400，且不做任何文件读写。
+   * [T2] 按当前主题档位取表（mizuki → Mizuki 表，shirone → Shirone 表，
+   *   unknown → 空表：主题未识别 / 该形态不受支持，报文案而非猜主题） */
   private requireDef(type: string): CollectionDef {
-    const def = findCollectionDef(type);
+    const kind = currentThemeKind();
+    const def = findCollectionDef(type, kind);
     if (!def) {
-      throw new BadRequestException(`未知的集合类型：${type}（可用：${REGISTRY.map((d) => d.type).join('/')}）`);
+      throw new BadRequestException(unknownCollectionMessage(type, kind));
     }
     return def;
   }

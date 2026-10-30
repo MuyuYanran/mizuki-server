@@ -38,3 +38,12 @@ export * from './posts-import';
 
 // [U4-AI1/K1] AI 接入契约（档案 / 代理三态 / 聊天请求 / SSE 事件名 / 限额单源）
 export * from './ai';
+
+// [T1] 主题适配层契约（mizuki / shirone 识别 + 能力画像；命名避让见文件头）
+export * from './theme-adapter';
+
+// [T3b-2b] 主题配置域写入契约（PUT /admin/config/domains/:domain 请求体信封，ADR-028 §17.6）
+export * from './theme-config-write';
+
+// [T4-1] posts frontmatter 两主题逐字段对照（转换摘要与面板提示的字段命运单源）
+export * from './posts-frontmatter-compat';

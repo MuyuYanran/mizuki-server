@@ -1,5 +1,107 @@
 # 变更日志
 
+## 主题双兼容批（2026-10-29 · 主题适配层 + 配置域写入 + 内容同步任务）
+
+> 数账 **84 文件 / 836 用例**（较基线 74/652 新增 **10 文件 184 用例**；唯一失败为 `p9e` ⑥ 的 HTTP 429
+> —— 已登记的并行限流假失败，**单独跑 8/8 绿**），`pnpm build` 0、`pnpm lint` 0（含新增的依赖 spec 守卫）。
+> 全部依据 `docs/decisions/ADR-028-bi-theme-adapter.md`（§9–§20）。
+> ⚠ 本批**含一次依赖事故与两项永久加固**，见文末。
+> ⚠ 本批**新增一个运行时依赖**（`yaml@2.9.1`，理由见文末）—— 与前几批「零依赖变更」不同，特此标明。
+
+### 主题识别与能力画像（T1 / T3a）
+
+- 新增 L0 `common/theme/theme-adapter.ts`：**三档识别阶梯 + 证据链**，全部固定叶子 `statSync`（零递归）。
+  判据：`src/config.ts` 是文件 ⇒ **mizuki legacy**；`src/config/overrideLoader.ts` 是文件 ⇒ **mizuki HEAD**；
+  `src/config/integrationsConfig.ts` 或 `src/integration/index.ts` 是文件 ⇒ **shirone**；
+  仅 `shirones` 依赖 / `name==='shirone'` ⇒ **package 模式降级为 unknown**（Q2 裁定）。
+- **修掉一处误判 bug**：旧判据（`src/config/` 目录 + `siteConfig.ts`）会把 **Mizuki HEAD 判成 shirone**
+  —— 两者有 **12 个同名配置文件**。旧判据会把配置写进 Shirone 的落点（写错地方）。
+- `packages/shared/src/theme-adapter.ts`：`ThemeKind` / `ThemeLayout` / `ThemeConfigStrategy`（4 值）/
+  `ThemeCapabilities`（六组）/ `ThemeMode` 三档（`manage|additive|overwrite`，**声明式，当前零行为分支**）。
+- 新增 `GET /admin/theme/profile`（绝对路径 `layout.root` 逐键剔除，仓规红线 6）。
+
+### 配置写入落点单源（T3a / T5a）
+
+- 新增 L0 `common/theme/content-source.ts`：Shirone 内容分离清单解析（`shirone.content.json`）+ 挂载表校验
+  + **env 对齐**（与上游同库同源的三处解析差异逐字复刻；**零 `process.env` 写入**，spec 断言调用前后深等）。
+- 新增 L0 `common/theme/config-write-target.ts`：回答「这一档的**持久**落点在哪；不能安全落盘时为什么」，
+  **纯只读零写盘**，10 种拒绝原因各带人话「下一步怎么做」且**不含任何绝对路径**。
+- **修掉一处由架构师自身简报造成的误拒**：`CONTENT_DIR` 上游是**原样使用**（实测上游无二次 `join`），
+  曾按「一律 join」实现 ⇒ 会把合法的**绝对** `CONTENT_DIR` 拼成不存在的路径而误判为「无内容目录」。
+
+### 主题分档集合注册表（T2）
+
+- `modules/collections/registry.ts` 改为按主题 kind 取表：Mizuki 7 条 / **Shirone 8 条**（新增 `ShironeDeviceItemSchema`）。
+- **修掉一处与 Q2 冲突的回退**：`TABLES.unknown` 原会兜底成 Mizuki 表 ⇒ 未识别主题会去读写不存在的
+  `src/data/*.ts`。改为**空表**并给专属文案（不再拼出空的「可用：」把「主题没识别」误导成「类型拼错」）。
+- 新增 `packages/shared/src/collections/{compass,games}.ts`（`.strict()`）。
+
+### 配置域读写（T3b）
+
+- 新增 L0 **两张权威登记表**（`common/theme/config-domains.ts`，单一真源）：
+  Shirone **32 行** `{key,file,type,module,partial}`（**逐行对上游核过，零差异**）+
+  Mizuki HEAD **18 行** `{name,sourceFile,typeName,typeModule,panelSupport}`（**18 行逐文件源证**）。
+  ⇒ 终结「按 `key` 硬拼 `<key>.yaml`」的错误路线：**`key ≠ file` 有 5 个**（`navBar`→`nav-bar.yaml` 等），
+  硬拼会被上游判为「无此域」并 **`fail` ⇒ 弄挂用户构建**。
+- 新增 `common/theme/config-serde.ts`（HEAD 档）与 `common/theme/shirone-config-serde.ts`（Shirone 档）：
+  文本 ⟷ 值，纯函数零磁盘 IO；**两档规则相反且不得统一**——HEAD 允许 `null`（上游合并语义「标量、`null` 整体替换」），
+  Shirone **拒绝 `null`**（上游 `assertSerializable` 逐条镜像：`null` / 非有限数 / 非 JSON 类型 / 锚点循环）。
+- 新增 `modules/theme/config-writer.service.ts` + `config-write.controller.ts`：
+  `GET /admin/config/domains`、`GET/PUT/DELETE /admin/config/domains/:domain`。
+  顺序不可变：总闸 → 二维白名单 → `panelSupport` → 空对象 → serde → **路径监狱（根 = 内容目录）**
+  → `preWriteBackup` → `atomicWriteFile`。`DELETE` = 恢复该域全部上游默认值且**幂等**。
+- **`panelSupport` 按「主题档位 × 域」裁定**：Mizuki HEAD 的 `navBarConfig` 含 **TS 枚举成员** `LinkPreset.Home`
+  ⇒ 面板读不回写不出（`'none'`，但 **DELETE 仍放行**）；Shirone 的 `navBar` 用**字符串引用**
+  （`preset: "Home"` / `"$t:home"`）⇒ 可读写。**同一概念域、两档判决相反。**
+- **修掉一个四条闸都测不出的 DI 缺陷**：`import type { BackupService }` 在 `emitDecoratorMetadata: true` 下
+  会被擦除元数据 ⇒ Nest 装配期报错；而单元 spec 用 `new` 构造、**DI 从不被走过**。已改值导入并由新增 e2e 守住。
+
+### 内容同步任务（T3d，裁定 Q6）
+
+- `TASK_WHITELIST` **4 → 6**：新增 `content:sync` 与 `sync-content`。
+  **实测两档上游脚本名不同**（HEAD = `sync-content` / Shirone = `content:sync`），
+  只加其一会让「裁定 A 要迁过去的 HEAD 档」完全不可用。执行器零改动、**不引入任何新执行面**。
+- **不复制上游的 `|| true`**：它位于 HEAD 的 `predev`/`prebuild`（同步失败被静默吞掉）；
+  本服务的任务退出码由子进程原样上报，失败在面板上看得见。
+- 顺带修掉 `apps/web/src/api/process.ts` 的**前端重复真源**（手写 `ProcessTaskName` union
+  ⇒ 白名单加项时前端静默落后），改为从 shared 推导。
+
+### 依赖事故与两项永久加固（2026-10-29）
+
+- **事故**：给 `pnpm add` 误加 `--config.node-linker=hoisted` ⇒ 改写 lockfile settings 并**触发全量重解析**，
+  把 `apps/server` 的 24 个 `"latest"` 刷到最新（`vitest 4.1.11→5.0.5` 大版本跳），
+  并让 `zod` 在仓内出现**两份副本**（4.4.3 + 4.6.7）⇒ `pnpm build` 报 **34 条 `TS2739`**
+  （跨副本的 `ZodType` 与 `ZodObject` 名义类型不互认，与业务代码无关）。该次重装 **59 分钟**，恢复后 **6.9 秒**。
+- **加固①**：**25 处 `"latest"` 全部钉到精确版本**，`zod` 三处统一为 `4.4.3`
+  （实测：只要声明不一致，pnpm 必然解析出两份）。断言「零版本漂移」：specifier 变 29 处、version 仅 5 处
+  且全部是 yaml 入树带来的 peer 后缀。
+- **加固②**：新增 `scripts/check-dep-specs.mjs`，**挂进 `pnpm lint`**（直接搭上三连与 CI，无新 step），
+  拦截 `latest` / `*` / `x` / 空 / open-ended spec。**双向验证过**（干净放行；塞 `latest` 精确抓出并 `EXIT=1`）。
+- 新增依赖 **`yaml@2.9.1`** —— 与 Shirone 上游**同库同大版本**（`config-overlay.mjs:26`），
+  杜绝发射器/解析器方言劈叉。`AGENTS.md §3` 的误导项（「依赖安装要 `--config.node-linker=hoisted`」）
+  已改为实测警告。
+
+### posts frontmatter 两主题对照表（T4-1）
+
+- 新增 `packages/shared/src/posts-frontmatter-compat.ts`：**33 行逐字段对照表** + 4 个 `.filter().map()`
+  派生集合 + `postsFieldDisposition()` 查询。**两档 frontmatter 双向不兼容**，且**三个量必须分开数**：
+  仅 Shirone **+8** / 仅 Mizuki **−5** / 两档都有但**改型 1**（`password`）。
+- **把两个正交的轴拆开**（本批一处架构师自身的契约设计错误，由执行方挡下）：
+  `disposition` 只表**存在性**，另立 `POSTS_MIZUKI_TO_SHIRONE_FIELD_MAP` 表**搬运**
+  （`licenseName`/`licenseUrl`/`author`/`sourceLink` → `license.{name,url,author,source}`）。
+  压成一轴时 `license` 被计两次 ⇒ 「8/5/2」与「`field` 全表唯一」互斥。
+  **两轴正交的证据**：那 4 个名字**同时**出现在 `DROPPED` 与 `MAPPED` 里。
+- `priority` **刻意不承接 `seriesOrder`**（全站置顶权重 vs 系列内序号，不同概念；强行映射是语义污染）。
+
+### T3 封板：T3c 裁定为「维持拒绝，零新增代码」
+
+- dj 裁定 **不开 `src/config/overrides/` 的 local mode 写入口**，原 T3c 的**参数化 ts-morph 写入器取消**。
+  理由：`sync-content.js:111-118` 会在内容仓无 `overrides/` 时对**代码仓**该目录 `fs.rmSync(recursive)`
+  ⇒ 允许写入等于埋定时炸弹（用户日后启用内容分离时面板配好的配置瞬间归零）。
+- ⇒ **T3 主线（T3a/T3b/T3c/T3d）全部闭环**。本档三条拒绝（`mizuki-head-no-content-dir` /
+  `shirone-local-mode` / `panelSupport:'none'`）**每条都带可执行的下一步**，
+  面板上不存在死路 —— 「明确拒绝 + 清晰指路」本身即一种交付形态。
+
 ## UI-U3 批（2026-10-26，面板布局重构「Nebula Shell」· 前端视觉层）
 
 > 零新增依赖、零后端改动、零 API 契约变更。数账 **648 用例通过 + 4 跳过 / 74 文件 / 652 用例**，
