@@ -1606,3 +1606,97 @@ MOMENTS_NULL_DELETE_KEYS = moments 字段面 − 必填键 {published}  = 6 个
 | 面板面（T6） | 渲染与表单 |
 
 📌 边界：T5b-1 只立**底座与契约**，不提供任何 HTTP 端点 ⇒ 对现有行为零影响（全量套件可证）。
+
+---
+
+## 24. 追加（2026-10-30 第十七回合）：T5b-2 交付 —— `series` / `moments` 读写服务 + 路由 + 装配层 e2e
+
+### 24.1 dj 三项裁定已兑现
+
+| 裁定 | 落地 |
+|---|---|
+| ① `safeJoin` 监狱根随 `dirAbs` **动态切换** | 每次操作现调 `resolveContentSubdirTarget`，目标根即监狱根；slug 过 `singleSegmentName` + `itemAbs` 二次越界断言 |
+| ② **不进** `article` 统一索引 | 纯文件扫描 + `parseMarkdown`，零 DB 迁移、零 `article` 表改动 |
+| ③ 读写**第一天就对齐 `dirAbs`** | 无「先拒绝、后接通」的过渡版本；`series`/`moments` 从诞生起就能在 external 档真正可用 |
+
+### 24.2 一处**路线修正**：路由前缀从 `admin/:kind` 改为 `admin/content/:kind`
+
+我最初按「与 `/admin/posts` 风格对齐」写了 `@Controller()` + `admin/:kind`，随即自己否掉：
+
+**`admin/:kind` 会把 `/admin/*` 整段吸进这个控制器**——`/admin/backups`、`/admin/settings`、`/admin/theme-status`
+都会先撞上它，然后因 `kind` 过不了 enum 而返回 **400**（而不是它们本该有的 200）。
+这是**路由遮蔽**，属静态路由与参数路由的经典冲突。
+
+⇒ 改用 dj 提供的另一选项 `admin/content/:kind`，与既有的 `/admin/config/domains/:domain`（T3b 系列）
+同一分段风格：**既有路由零影响**，且 `content` 段天然表达「这是内容集合族」。
+
+⚠ 这里**刻意没有**照搬 `/admin/posts`（裸 `admin/<资源>`）。原因：`posts`/`collections`/`albums` 是
+**具体资源名**，而 `:kind` 是**通配位**——通配位放在一级段必然吞掉同级所有静态路由。
+「风格对齐」不能凌驾于「路由不冲突」。
+
+### 24.3 两条轴必须分开：**404「资源不存在」 vs 403「落点不安全」**
+
+| 情形 | 判据 | 状态码 | 理由 |
+|---|---|---|---|
+| 主题不是 Shirone | `capabilities.contentCollections.supported === false` | **404** | 集合在该主题下**根本不存在**（Mizuki 没有 series 概念）——是「找不到」，不是「不许」 |
+| 主题是 Shirone、但落点被拒 | `resolveContentSubdirTarget` 返回 `ok:false` | **403** | 集合存在，但当前内容源配置下无法确定安全落点 |
+
+混成一种会让面板无法给不同指引：404 该提示「换主题」，403 该提示「修 `shirone.content.json`」。
+
+### 24.4 唯一的读写分轴：**git 源**
+
+`content-source-git` 下**写必然丢失**（工作副本每次 sync 被 `checkout --force` + `clean -ffdx`），
+但**读是安全的**——工作副本里就是上次同步到的内容。故：
+
+| 操作 | 行为 |
+|---|---|
+| 写（create / update / delete） | **403** + `content-source-git` 指路牌 |
+| 读（list / read） | **200**，回退读 `<themeRoot>/.content-src/content/<subdir>`，响应带 `readOnly: true` |
+
+**为什么不在读侧也拒绝**：拒绝会让用户连「内容仓里现在有什么」都看不到，而那份工作副本
+本来就在盘上、只读不写不会造成任何破坏。**为什么必须标 `readOnly`**：否则用户会以为
+这是个可写落点，接着去写、再被 403，中间多绕一圈。
+
+**其余拒绝原因（`mounts.content` 禁用 / `mounts` 非法 / 版本超限）读写皆拒**：
+此时连「真实根在哪」都无法确定，展示一份可能陈旧的副本比明确拒绝更坏。
+
+### 24.5 `pre_write` 备份的**监狱约束**：一个如实记账的已知限制
+
+repo 红线 §4.1 要求写盘前置 `pre_write` 备份。但 `BackupService.preWriteBackup` 的监狱根是
+**mizukiRoot**（`joinWithinRoot` → 越界抛 403），而内容仓可以在主题根**之外**（`CONTENT_DIR`
+指向外部绝对路径）。这是 T4-4 也要面对的同一条约束。
+
+**本批的处理（明确、不静默）**：
+
+| 目标位置 | 备份 | 响应 |
+|---|---|---|
+| 主题根**内**（默认：`<root>/content`、`<root>/.content-src`） | 正常 `preWriteBackup` | `backupSkipped: false` |
+| 主题根**外**（`CONTENT_DIR` 指向外部绝对路径） | **跳过 + `logger.warn`** | `backupSkipped: true`（响应体透出，用户可见） |
+
+**为什么选择「跳过 + 显式标记」而不是「为它开一个跨根的备份通道」**：
+`preWriteBackup` 的 manifest 契约是「`files[].path` = 相对 mizukiRoot 的 POSIX 路径」
+（`backup.service.ts:11`），恢复侧 `joinWithinRoot(entry.path)` 依赖这一点。要让备份跨根，
+就得改 manifest 契约、改恢复语义、并处理「备份集里混了两个根的路径」——那是**一次独立的
+安全面重构**，不该塞进本批。而内容的**最终恢复通道本来就是内容仓自己的 git 历史**。
+
+📌 记为 T4-4 之后的一项**独立立项候选**（跨根备份），不在本轮。
+
+### 24.6 本回合验收
+
+| 项 | 结果 |
+|---|---|
+| 新增模块 `modules/shirone-content/`（service + controller + module） | 服务含四条轴的完整拒绝语义 |
+| 装配层 e2e `p12-shirone-content.e2e-spec.ts` | **20/20 绿**（四档：local / external-path / git / mizuki） |
+| e2e 关键断言 | external 档：写进内容仓 + **代码仓副本递归快照零字节变化** + `needsSync:true` + `backupSkipped:true`；git 档：写 403 且工作副本零字节变化、读 200 且 `readOnly:true`；mizuki 档：读写皆 404 且盘上不产生目录 |
+| `pnpm test` 全量 | **91 文件 / 955 用例（951 通过 + 4 跳过），exit 0，零失败** |
+| `pnpm lint` | exit 0 |
+| `pnpm build` | 全绿 |
+
+### 24.7 仍然挂账
+
+| 项 | 内容 |
+|---|---|
+| **T4-4** | `posts` 接入同一个寻址底座（本回合紧接着做） |
+| 跨根 `pre_write` 备份 | 见 §24.5，独立立项候选 |
+| 面板面（T6） | series / moments 的渲染与表单 |
+| `series` 的正文语义 | 上游 `glob` 只约束 `.md`，schema 只有 3 个元数据键、**无正文约束**；本批按「正文照存照回」处理（`content` 字段），不额外收紧 |

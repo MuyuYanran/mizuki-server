@@ -22,6 +22,7 @@ import { SettingsModule } from './modules/settings/settings.module';
 import { SiteConfigModule } from './modules/site-config/site-config.module';
 import { ThemeModule } from './modules/theme/theme.module';
 import { AiModule } from './modules/ai/ai.module';
+import { ShironeContentModule } from './modules/shirone-content/shirone-content.module';
 
 /**
  * [阶段 P0a] 应用根模块
@@ -70,6 +71,8 @@ import { AiModule } from './modules/ai/ai.module';
     ThemeModule,
     // [U4-AI1] AI 接入（配置 + 出站闸 + SSE 流式代理；模块内零领域依赖）
     AiModule,
+    // [T5b-2] Shirone 独有内容集合 series / moments（不进 article 索引，ADR-028 §25）
+    ShironeContentModule,
   ],
   providers: [
     // [P1] 全局 ThrottlerGuard（配合上方 ThrottlerModule 的 60 次/分/IP 配置）
