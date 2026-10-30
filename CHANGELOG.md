@@ -1,5 +1,75 @@
 # 变更日志
 
+## 双主题收口批（2026-10-30/31 · 跨根备份 + zod 弃用清理 + 面板能力感知）
+
+> 数账 **97 文件 / 1016 用例**（1012 通过 + 4 跳过，**零失败**），`pnpm build` 0、`pnpm lint` 0。
+> 依据 `docs/decisions/ADR-028-bi-theme-adapter.md`（§26–§27）。
+> 三个提交：`c7120c8`（跨根备份）、`1a6e407`（zod 弃用清理）、`b6b6d8d`（T6 面板）。
+
+### 跨根 `pre_write` 备份与恢复（补齐 T4-4 留下的安全面缺口）
+
+T4-4 之后 posts / config / series / moments 在内容分离下会写到**主题根之外**的内容仓，
+而 `BackupService` 的路径监狱只有单根 ⇒ `preWriteBackup` 只能跳过 + warn。
+**用户在面板上改内容没有悔棋** —— 这是 T4-4 之后最大的安全面缺口。
+
+- 新增 L0 `common/fs/backup-roots.ts`：**受管根闭集**（`theme` / `content`）解析、分类与
+  manifest 落点解析。**刻意不放开任意绝对路径** —— 那等于在最该保守的恢复通道上开任意写口子，
+  一份被篡改的 manifest 就能往宿主机任意位置回灌文件。
+- manifest 新增**可选** `files[].root`：存量备份与纯 theme 备份**零 root 字段、归档布局逐字节不变**；
+  涉及内容根的备份则**全部条目打标签**（`theme/<rel>` 与 `content/<rel>`），
+  否则 theme 侧一个恰好叫 `content/...` 的路径会与 content 条目撞名。
+  铁律：manifest **只存根标签 + 相对路径**，永不写宿主机绝对路径（由 e2e 对全部
+  manifest 做正则扫描断言）。
+- 恢复增加**写盘前整批校验**：含内容条目的备份在内容源已变（切回 local / 切 git / 目录被移走）时
+  **整批 400 拒绝并指路**，绝不往代码仓盲目倾倒。为什么不能跳过个别条目：
+  恢复是「把时间倒回去」的原子语义，悄悄跳过会让用户以为恢复成功而实际没回来。
+- 语义分轴：`rel-path-invalid`（manifest 篡改）⇒ **403**（与 safeJoin 同码）；
+  受管根不可用 ⇒ **400**（配置态问题，带「下一步」）。
+- **一处顺序陷阱**（代码注释已钉住）：分类必须 **content 优先于 theme**。默认形态下
+  `contentRoot = <themeRoot>/content` 在主题根之内，若先按 theme 判，内容仓文件会被标成
+  theme 条目 ⇒「内容仓已切走」的闸门永不触发。
+
+### zod 弃用 API 清理
+
+- `.passthrough()`（zod 4.4.3 已标 deprecated，推荐 `z.looseObject()` 或 `.loose()`）
+  → `.loose()`，**12 处**全清，src 侧零残留。选 `.loose()` 因其为一行式最小改动。
+- 等价性由**实证**给出：6 个真实 schema × 26 组输入，与 legacy 语义重建版
+  （`z.object(shape).catchall(z.unknown())`）比对 `safeParse` 结果与
+  `JSON.stringify(data)` **逐字节一致**。
+
+### 面板能力感知（T6）
+
+把「零静默丢数据」从后端贯彻到**用户第一次点击之前** —— 后端已做到不可写时 403 + 指路牌，
+但对用户来说「填完表单点保存才被拒」仍是一次挫败。
+
+- 新增 `stores/theme.ts`：主题能力的**唯一判定源**（五处消费：导航 / 集合类型 / 同步任务名 /
+  只读横幅 / 内容集合页）。**fail-open**：能力拉取失败 ⇒ 导航显示全部、同步按钮不显示、
+  只读横幅不显示（绝不把「网络抖动」放大成「面板坏了」）。
+- 导航改**数据驱动**：菜单项声明 `requires`（`collection:<type>` / `content-collection:<id>`），
+  按能力面过滤而非按档位名写死；并补「加载后当前页不被支持则重定向」守卫
+  （只对菜单里声明过却因能力被过滤的路径生效，不误伤 `/posts/new` 等合法子页）。
+- **同步按钮按形态单显**：同一概念两家上游脚本名完全不同且互不存在
+  （Mizuki HEAD → `sync-content`；Shirone → `content:sync`），两个按钮并列 = 请用户去点注定失败的那个。
+  判据用 `config.strategy`（legacy 与 HEAD 同为 `kind=mizuki`）。
+- 新增 `series` / `moments` 管理页（一个页面吃两个集合，字段表驱动）+ 字段表与**写入口面 schema**
+  的一致性单测（字段名集合必须恰好相等，双向漂移都会红）。
+  **提交跳过空值** —— 写入口面无默认值，提交空串会把键物化进用户文件。
+- 后端既有能力被前端真正消费：`/admin/theme/profile`、`/admin/theme/content-capabilities`。
+
+### 本批修掉的一处真实类型缺陷
+
+`PostListPage` 的 `computed` getter 里直接用了 ref —— Vue 的自动解包**只在模板里生效**，
+getter 里必须显式 `.value`。纯 `tsc --noEmit` **不检查 `.vue`**，只有 `vue-tsc` 能抓到。
+⇒ 记账：`pnpm build` 走的 `vue-tsc --noEmit` 才是前端类型检查的真闸门。
+
+### 已知限制（未做，如实记账）
+
+- **浏览器运行时手验未做**：bsk 会话未启动（需守护进程 + 浏览器扩展）。已完成的验证为
+  vue-tsc 真实类型检查 / 生产构建 / 字段表一致性单测 / 后端全部 e2e / 构建产物含新代码。
+- **git 源**下不提供写入与备份（工作副本随时被 `checkout --force` + `clean -ffdx`）。
+
+---
+
 ## 主题双兼容批（二）（2026-10-30 · 文章跨主题读写 + Shirone 内容集合 + 内容仓路径跟随）
 
 > 数账 **92 文件 / 972 用例**（968 通过 + 4 跳过，**零失败**），`pnpm build` 0、`pnpm lint` 0。
