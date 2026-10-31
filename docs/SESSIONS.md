@@ -1015,3 +1015,224 @@ U3-P4c（A-GAP-13★ + A-GAP-04 开关）。
   而这些分隔符元素只存在于 U4-UI1 的新结构里 ⇒ 文本上无法拆分，该文件整份随本批入库。
 - **报告**：`docs/audits/ui-u3/README.md`（含参考站「借鉴/不借鉴」清单、12 步手验表、5 处实现决策与踩坑）。
 - **提交纪律**：改动留在工作树，**未 commit / 未 push**，等候用户处置。
+
+## 13. 双主题兼容（ADR-028 · T1–T6）（2026-10-28 ~ 2026-10-30）
+
+- **触发（PM 裁定）**：主题重定向到上游 `LyraVoid/Mizuki` **HEAD**（裁定 A），且服务端须同时兼容
+  **Mizuki legacy / Mizuki HEAD / Shirone** 三个面。权威取值链 = `docs/decisions/ADR-028-bi-theme-adapter.md`（§1–§27）。
+- **一句话架构**：不写 `if (kind === 'shirone')` 分支（会散到 8 个模块 × N 个方法，加第三个主题成本线性上升），
+  改为**能力协商** —— 先探测主题画像（`ThemeKind` / `ThemeLayout` / `ThemeCapabilities`），
+  各域按 `capabilities` 决定读写策略。问「这个主题能做什么」，不问「这个主题叫什么」。
+- **三档识别**（不靠档位名硬编码）：`legacy` 与 `mizuki-head` 的 `kind` **同为** `mizuki`，
+  用 `capabilities.config.strategy === 'overlay-ts'` 区分。该判据同时决定内容同步任务选
+  `sync-content`（HEAD）还是 `content:sync`（Shirone）—— 两者在上游**互为不存在**。
+
+### 13.1 交付面（commit → 批次）
+
+| commit | 批次 |
+|---|---|
+| `6b714d6` | T1–T3 / T4-1：三档识别 + 配置域读写 + 内容同步任务（52 文件，+9823/-62） |
+| `33807a8` | T4-2 / T4-3 / T4-3b：跨主题文章写入口径（双面制 schema + `.mdx` 全链路 + 写入持久性闸门） |
+| `4346cc4` | T4-4：`posts` 真正跟随内容仓（**逻辑路径 vs 物理落点解耦**）+ 解除 external 封条 |
+| `965e517` | T5b-1：内容挂载寻址底座（L0 单源收敛）+ `series` / `moments` 两面制 schema |
+| `21b3d1f` | T5b-2：`series` / `moments` 读写服务与路由（`admin/content/:kind` 五端点） |
+| `69e01a7` | 内容能力速查端点（`GET /admin/theme/content-capabilities`）+ CHANGELOG 终态对齐 |
+| `c7120c8` | 跨根 `pre_write` 备份（见 §14） |
+| `1a6e407` | zod 4 弃用 API 清理（见 §15） |
+| `b6b6d8d` | T6a / T6b：面板侧能力感知底座 + `series` / `moments` 管理页 |
+| `279fa12` / `c6fbf3e` | 前向清洁既有 HEAD 残留绝对路径；ADR-028 §26–§27 + CHANGELOG 收口 |
+
+### 13.2 三条贯穿全批的架构口径
+
+1. **构造面 ≠ 写入口面**（ADR-028 §21）。Astro `content.config.ts` 的 schema 是**构建期内存归一化器**
+   （默认值 / `transform` / `z.date()`）。本仓**读路径**走裸 `parseMarkdown`（不带 schema），
+   **写路径**走 `Schema.parse()`。把构造面当写入口会同时造成三件事：
+   ① 把约 19 个默认键**物化进用户文件**；② 静默改写输入（`password: 12345` → `"12345"`、`series` 被 trim）；
+   ③ 拒收字符串日期。
+   ⇒ 为 Shirone 单建**写入口面** `packages/shared/src/posts-frontmatter-shirone-write.ts`；
+   删键集按 `SHIRONE_NULL_DELETE_KEYS`（**16** = 8 存活键 + 8 新增键）**推导**而非手抄；
+   上游唯一允许为 null 的 `category` 单列 `SHIRONE_UPSTREAM_NULLABLE_KEYS`。
+2. **拒绝判据按「物化方式」而非「是否 external」**（ADR-028 §22）。Mizuki HEAD 的 `posts` 是
+   `symlinkSync(..., 'junction')` ⇒ **写透、持久**，必须放行；Shirone 外部内容仓走
+   `copyPreservingMtime`（copyFileSync + utimesSync）且 `prune` 默认 true ⇒ 写入**不持久**，必须拒绝。
+   若按「external 就拒」判，会把整个 Mizuki HEAD 档误杀。
+3. **逻辑路径 vs 物理落点**（ADR-028 §25）。`article.filePath` / 事件 `filePaths` / 响应体里一律是**逻辑路径**
+   （`src/content/...`，常量 `LOGICAL_CONTENT_ROOT`），物理落点由 `resolveContentLogicalPath()` 按部署现算。
+   ⇒ 面板与 API 契约不随部署形态漂移；**读路径降级、写路径 403**（判据劈叉时留 error 日志）。
+
+### 13.3 自行发现并修掉的 6 处自身缺陷（据实）
+
+| # | 缺陷 | 性质 |
+|---|---|---|
+| 1 | T4-3 的 R3 前提是错的：我按「读写同一面」立论 | 实测读走 `parseMarkdown`、写走 `parse()` ⇒ R3 升格为**两面制**（设计错误，非笔误） |
+| 2 | 「external ⇒ 拒绝」判据 | 会误杀整个 Mizuki HEAD 档（见 §13.2②） |
+| 3 | 路由 `admin/:kind` 会吞掉 `/admin/*` | 改 `admin/content/:kind`（否则 `/admin/backups` 等一律 400） |
+| 4 | `classifyManagedTarget` 判定顺序 | 必须**先 content 后 theme**（默认 `contentRoot` 嵌在 theme 根内，倒过来则该门禁永不触发） |
+| 5 | `preWriteBackup` 语义混一 | 未配置根 ⇒ 400「未配置」；已配置但在受管根之外 ⇒ 403。由既有 spec 抓出 |
+| 6 | `computed` getter 里用了 ref 却没写 `.value` | **只有 `vue-tsc` 抓得到，`tsc` 抓不到** ⇒ 实证「前端类型门禁不能退化成 `tsc`」 |
+
+### 13.4 已裁定不做（据实登记）
+
+- **T3c = ②：维持拒绝、零新增代码**（ADR-028 §20）。Shirone 源码模式的配置覆盖落点无法在
+  「不侵入主题源码」的前提下保证 ⇒ 宁可不做，也不做半套。
+- **T5b-2 裁定②：`series` / `moments` 不入 `article` 索引**（ADR-028 §24）。这两类是主题侧内容集合、
+  不是「文章」；混进统一索引会让公开分页语义变糊。
+- **T7（建 Shirone 测试工程跑 init→内容→配置→构建）未做**，仍在 ADR §5 分期表内挂账。
+
+### 13.5 已知缺口（登记，不追补）
+
+- Shirone **npm 包模式**（用户仓无 `src/pages` / `src/config`，只有 `astro.config.mjs`）未支持（Q2 未结）。
+- `capabilities.config.domains` 维持 **keys-only**：装 32 个 key，**写不出正确的文件名**（ADR-028 §16.4）——
+  T3b-2 之前必须校验「请求域名 ∈ `capabilities.config.domains`」（legacy / unknown 为空 ⇒ 一律拒）。
+- **未在真 Shirone 站点上端到端跑过一次 `astro build`**（能力分支只在隔离实例上走过）。
+
+## 14. 跨根 `pre_write` 备份与恢复 —— 受管根闭集双根化（ADR-028 §26）（2026-10-30）
+
+- **背景**：内容挂载（`shirone.content.json` 的 mounts）让「主题根」不再是唯一受管根 ——
+  内容可能落在**另一个仓**里。原备份实现只认主题根 ⇒ 跨根写入会**静默跳过** `pre_write` 备份，
+  即「已放开写入，但没有回退路径」。
+- **交付**（`c7120c8`）：新增 `apps/server/src/common/fs/backup-roots.ts`（+196 行：
+  `BackupRootTag` / `ManagedRoots` / `resolveManagedRoots()` / `classifyManagedTarget()` /
+  `resolveManifestEntryPath()` / `archiveSubPath()`）；`infra/backup/backup.service.ts` 双根化（+227/-83）；
+  manifest `files[]` 增可选 `root: 'theme' | 'content'`；新增 e2e `p14-cross-root-backup`（3 用例）
+  与单测 `backup-roots.spec`（24 用例）。
+- **三条设计要点**：
+  1. **闭集双根 + 全有或全无打标**。根集合是**闭集**（只有 theme / content 两个），
+     每条 manifest 记录必须且只能归入其中之一 —— 不允许「两个都没标」的条目（那正是静默丢备份的形态）。
+  2. **content 先于 theme 判定**（见 §13.3 缺陷 4）。
+  3. **恢复侧门禁独立**：`findRestoreBlocker()` + `blockerToException()`
+     （`rel-path-invalid` ⇒ 403，其余 ⇒ 400）。
+- **一处刻意保留的旧语义**：`preWriteBackup` 里「主题根未配置」仍是 **400「未配置」**
+  （由 `requireMizukiRoot()` 先判），而不是 403 —— 「没配」和「配了但不许写」是两件事。
+  这条是既有 spec 抓出来的，不是我先想到的。
+
+## 15. zod 4 弃用 API 清理：`.passthrough()` → `.loose()`（2026-10-30）
+
+- **交付**（`1a6e407`）：12 处 `.passthrough()` 改为 `.loose()`（涉及 `articles.service` / `posts.service` /
+  `posts-frontmatter-shirone` / `shirone-content-collections` 等共 5 文件，+13/-13）。
+- **为什么值得单独一个 commit**：zod **4.4.3** 上 `z.looseObject()` 与 `.loose()` 都可用，
+  `.loose()` 是 `.passthrough()` 的**一 token 替换**、语义完全一致 ⇒ 这次改动**应当是零行为变化**。
+  单独成提交，才能让「行为无变化」这件事**可被审阅** —— 混进功能批里就没人能验证了。
+- **等价性证据**：迁移由 `.test-tmp/loose-migration.cjs` 执行，等价性由 `.test-tmp/verify-loose-equivalence.cjs`
+  逐文件比对。本机 zod 位于 `packages/shared/node_modules/zod`（isolated 布局）。
+
+## 16. AI 接入第三期（U4-AI3 · 用量台账 + 非破坏性回填）（2026-10-31）
+
+- **本批补齐两处已登记缺口**：`docs/audits/u4-ai1/README.md` §93「无 `ai_usage` 用量表」、
+  `docs/audits/u4-ai2/README.md` §112「`meta` 动作只显示在聊天里、不回填表单」。
+- **执行方式（PM 裁定）**：「先不 push，视环境做轻量级运行时冒烟（bsk 未就绪则秒跳过）→ 直接切入
+  U4-AI3 长任务 → 终盘统一评估推送」。`bsk status --json` 返回 exit 2
+  （automatic daemon startup is disabled ⇒ 守护进程未运行）⇒ 按裁定 **0 耗时跳过**并记账，
+  不折腾环境。长任务模式：不碎片化节奏，两个切片连同后端收尾一次做完，跑通四闸后分批落袋再总汇报。
+
+### 16.1 切片 A：`ai_usage` 台账（`f7c46e3`）
+
+业务表 **12 → 13**（迁移 `0003_special_texas_twister.sql`，drizzle-kit 生成；两个索引
+`ai_usage_created_at_idx` / `ai_usage_action_idx`）。三条口径，逐条有理由、逐条有单测：
+
+| # | 口径 | 理由 |
+|---|---|---|
+| ① | `aborted` 与 `error` **分开**，**不算失败** | 用户主动停止 / 客户端断连都不是服务故障；计入错误率会让指标**随用户操作习惯失真**（活跃用户看起来错误率更高）。成功率分母只含 `ok + error`；分母为 0 返回 **`null`**（「无样本」≠「成功率为零」） |
+| ② | token **可空**，`null ≠ 0` | 上游不保证每帧都给 usage（`ping` 出于安全考虑根本不读响应体）。写 `0` 表示「确实零消耗」，与「未知」对求平均 / 算费用的意义完全不同。聚合另暴露 `tokenSamples`（有 token 的调用数）让调用方知道样本量 |
+| ③ | 错误只存**结构化码**，不存上游原文 | 上游错误体可能含内部 URL / key 片段（`ping` 特意不读错误 body 是同一考虑） |
+
+- **接线**：`AiChatService` 注入 `AiUsageService`（**值导入**，DI 需要运行时元数据），
+  在 `ping` 与 `stream` 两个出口记账。`stream` 用**可变收集器**而非返回值 —— `pump` 在异常路径下不返回，
+  而异常时同样要记账；只有共享可变状态能覆盖全部**四个出口**
+  （成功 / 首字节后中断 / 首字节前失败 / 客户端断连）。
+- **写入纪律：旁路，绝不阻断主业务**。`record()` 内部全 `try/catch`，失败只 `warn`
+  （用户来润色文章，不该因为「记账失败」而拿不到结果 —— 台账不能成为单点故障）。
+  单测用「DB 已关闭」构造**真实**失败路径并断言不抛。
+- **保留策略**：`AI_USAGE_KEEP = 5000`，超出后**批量**删最旧（非逐行）。
+- **端点**：`GET /admin/ai/usage?days=N`（缺省 7 / 上限 365）→ `totals` + `byAction` + `recent` +
+  `retainedRows` + `keepLimit`。**聚合在 SQL 里做**，不随台账行数线性变慢。
+
+### 16.2 切片 B：`meta` 结构化契约与非破坏性回填（`f7c46e3` + `b990148`）
+
+- **解析器放 L0**（`packages/shared/src/ai-meta.ts`）而非服务端：`meta` 走的是与其他动作同一条 **SSE 流式**通道，
+  文本在浏览器里逐帧累积。若只在服务端解析，就得为它单开一条非流式端点 ⇒ 同时带来
+  「同一动作两套实现」与「前端还得再拼一次」两个问题。放 shared 后两端共用同一份解析与回填规则，
+  且**可被单测直接覆盖**。
+- **核心铁律：绝不静默覆盖用户已写内容**（用户可能已手写标题、摘要与标签，「一键生成」直接写入就是摧毁用户劳动）。
+  三层共同保证：
+
+| 层 | 机制 |
+|---|---|
+| ① `planMetaBackfill()`（**纯函数**） | 四态：`fill`（原为空，可安全填）/ `conflict`（原非空且不同，须确认）/ `same` / `empty`（本次无建议，**不动**现有内容） |
+| ② 界面 | `conflict` 项**默认不勾选** + 显式文案「将覆盖你已写的内容 —— 请确认」+ 删除线并排展示「原值 → 新值」 |
+| ③ `apply(patch)` | **只提交被勾选的键** —— 未勾选字段一个字节都不动（不是「部分更新」，是「只改这些」） |
+
+  把判定做成**纯函数**是关键：它不依赖界面，也就不可能被界面改坏；单测有专门用例断言
+  「非空且不同时绝不产生 `fill`」。回填后**仅改前端响应式状态**，用户显式点保存才落盘（提示语明说）。
+- **解析容错立场**：模型输出**不是**可靠的结构化数据（可能行首加「第一行：」标签、用 Markdown 粗体包裹、
+  多空行、少标签行）。解析器一律**尽力而为**，且**完全解析不出时返回全 `null` 而不抛错**
+  （调用方据此提示「未能识别，请重试」，而不是把整段原文塞进标题）。
+  **不做「按关键词猜哪行是标题」这类花活** —— 提示词已明确行序，按序取比按内容猜更稳、也更好解释。
+- **发布前检查清单**（`packages/shared/src/publish-check.ts`，纯函数；编辑器页接入）：
+
+| 级别 | 项 | 行为 |
+|---|---|---|
+| `error` | 标题为空 / 正文为空 /（Shirone）缺发布日期 | **阻止发布** |
+| `warning` | 缺摘要 / 缺标签 / 摘要过长 / 正文过短 | 只提示 |
+| `info` | 分类未设 /（Mizuki）未设发布日期 | 仅告知 |
+
+  **只有 `error` 阻止发布** —— 把 warning 也做成阻止项，会让用户为了发一篇文章被迫编造摘要与标签，
+  那是坏产品。检查项**按主题能力分化**而非按档位名写死：Shirone 的构建期 schema 把 `published` 定为必填
+  （缺它 `astro build` 直接 `throw InvalidContentEntryDataError`），故 Shirone 下缺发布日期是 `error`、
+  Mizuki 下只是 `info`；与后端 `capabilities` 保持同一口径。清单**已通过项也展示**
+  （让用户知道系统确实检查了这一项，而不是只看到一堆红字）。
+- **发布助手只做检查与提示，不代用户提交** —— 发布是不可逆的外部动作，不该由清单代劳。
+- **用量面板**：AI 设置页新增**折叠区**（旁路信息，不打断配置主任务）：totals 摘要 + 按动作分组表 +
+  窗口选择（1/7/30/90 天）。口径**不在前端重算** —— `successRate` 由服务端给出且分母不含 `aborted`，
+  前端只展示，避免两处口径漂移；表格对「部分调用未返回 token」显式标注 `（n/m 有计数）`，
+  因为 `tokens` 只是**已知样本之和**、不是全部消耗。用量拉取失败只 `warn`，不打断配置页。
+
+### 16.3 一处刻意的测试摩擦（记账）
+
+新增业务表会同时命中两处「恰好 N 张表」计数断言（`test/app.e2e-spec.ts`、
+`test/infra/db-migrate.spec.ts`），本次 **12 → 13**。**这是刻意的摩擦**：它逼着「加表」这件事
+被显式确认一次，而不是悄悄多出一张表。两处注释均已写明这一点。
+
+### 16.4 未做（如实记账）
+
+| 项 | 说明 |
+|---|---|
+| **浏览器运行时手验** | bsk 守护进程未运行（需守护进程 + 浏览器扩展，属已知的重量级环境搭建）。按 PM 裁定 **0 耗时跳过**。**回填卡片与检查清单的运行时渲染行为未实证**（静态验证覆盖情况见 §17） |
+| 发布助手「一键发布」 | 本批只做**检查与提示**，不代用户提交 |
+| `ai_usage` 导出 / 手动清理 UI | 端点已提供聚合；面板未做导出与手动清理 |
+| 费用估算 | 需各 provider 单价配置（计价各不相同），未做；当前只报 token 数 |
+
+## 17. 待推送段总账（2026-10-31）
+
+- **段内提交数**：`origin/main`（`dba6266` = v1.1.0 发布台账）之后 **20 个**提交。
+  （PM 口述为 19，**据实订正为 20** —— 已逐个核过 `git log origin/main..HEAD` 与 `rev-list --count`。）
+  加本节所在台账提交 = 推送时共 **21 个**。
+- **段内清单（新 → 旧）**：`f9a5cfe` `b990148` `f7c46e3` `c6fbf3e` `b6b6d8d` `1a6e407` `c7120c8` `69e01a7`
+  `4346cc4` `21b3d1f` `965e517` `33807a8` `279fa12` `6b714d6` `d239fe9` `5b38368` `f668960` `bed4c6e`
+  `699e908` `8bbbd3f`。
+- **§12 的状态订正**：UI-U3（Nebula Shell）该节原记「改动留在工作树，未 commit / 未 push」，
+  现已由 `d239fe9` 落袋（含其中标注的 `AiSettingsPage.vue` 边界说明）。
+- **数账终态**：**101 文件 / 1074 用例（1070 通过 + 4 跳过，零失败）**；`pnpm lint` exit 0；
+  `pnpm build` exit 0（shared → server → web，含 `vue-tsc --noEmit` 真实前端类型检查）。
+  基线链：652/74（UI-U3）→ … → **1074/101**。`p10d` 真链路按设计跳过
+  （无 `MIZUKI_AI_LIVE_KEY` 门禁；**刻意不进 CI**，不依赖外部付费服务）。
+- **文档提交未碰代码**：`git diff --stat b990148..HEAD -- ':!*.md'` 为空 ⇒ 上一轮全绿三连仍描述最终树。
+- **本轮复核（2026-10-31，架构师实跑）**：先按**单批全量**跑 → 出现 2 例失败，**均非回归**：
+  `p6-auth` §6.6 `connect ENOBUFS 127.0.0.1:65533`（101 文件单批下的临时端口/套接字压力）与
+  `p9e` ⑥ `expected 429 to be 200`（限流器）。按 `AGENTS.md` §3 既定判据先单独重跑 ——
+  **`p6-auth` 17/17、`p9e` 8/8 全绿**；再按 **≤6 文件 × 17 批 + `--maxWorkers=1`** 逐批相加复核全量：
+  **101 文件（100 passed + 1 skipped）/ 1070 通过 + 4 跳过 = 1074 用例，零失败**，
+  与 §16 及 `docs/audits/u4-ai3/README.md` 的数账**逐字一致**。
+- **方法论陷阱（本轮踩到，值得固化）**：本仓测试文件有**两套互不相交**的命名 —— `*.spec.ts`（45 个）
+  与 `*-spec.ts`（56 个，e2e 主体）。`apps/server/vitest.config.ts` 的 `include` 把两条模式都列了；
+  但用 `find … -name '*.spec.ts'` **自己拼批次**时只会跑到 45 文件 / 594 用例，而且**结果是全绿的**
+  —— 口径错了不报错，只会**静默少跑一半**。本轮第一次分批复核即中此坑（已订正为
+  `\( -name '*.spec.ts' -o -name '*-spec.ts' \)`）。**建议后续写进 `AGENTS.md` §3**（本轮未越权改动）。
+- **诚实边界（必须与成果一起读）**：
+  1. **前端运行时未实证**。ADR-028 T6 的 `series` / `moments` 管理页、U4-AI3 的回填卡片与检查清单、
+     用量面板，**都只经过静态验证**（`vue-tsc` + 生产构建 + 后端全量 e2e + 纯函数单测）。
+     「界面长什么样、点下去对不对」**未被机器验证过**，待宿主机（有 bsk 守护进程 + 浏览器扩展）人工点按。
+  2. **T7 未做**：未建 Shirone 测试工程跑 init → 内容 → 配置 → 构建的端到端。
+  3. **未在真 Shirone 站点上端到端跑过一次 `astro build`**。
+- **推送**：本节落袋后按 PM 授权执行 `git push origin main`；推送后按 R8 口径补记
+  remote HEAD 哈希与 CI run（在会话回报中给出）。
