@@ -335,7 +335,7 @@ describe('resolveConfigWriteTarget — unknown 与路径纪律', () => {
     }
   });
 
-  it('message 不含绝对路径（root 串与盘符），可写分支的 dirAbs 是绝对路径', () => {
+  it('message 不含绝对路径（root 串与盘符，平台无关判据），可写分支的 dirAbs 是绝对路径', () => {
     const legacy = makeLegacy();
     const head = makeMizukiHead();
     ensureDir(path.join(head, 'content', '.git'));
@@ -345,21 +345,18 @@ describe('resolveConfigWriteTarget — unknown 与路径纪律', () => {
       source: { type: 'path', path: makeRoot('shirone-content-') },
     });
 
-    const cases: Array<{ root: string; prefix: string }> = [
-      { root: legacy, prefix: path.parse(legacy).root },
-      { root: head, prefix: path.parse(head).root },
-      { root: shirone, prefix: path.parse(shirone).root },
-      { root: okRoot, prefix: path.parse(okRoot).root },
-    ];
+    const cases = [legacy, head, shirone, okRoot];
 
-    for (const item of cases) {
-      const resolution = resolveConfigWriteTarget(item.root);
+    for (const root of cases) {
+      const resolution = resolveConfigWriteTarget(root);
       if (resolution.ok) {
         expect(path.isAbsolute(resolution.dirAbs)).toBe(true);
         continue;
       }
-      expect(resolution.message).not.toContain(item.root);
-      expect(resolution.message).not.toContain(item.prefix);
+      expect(resolution.message).not.toContain(root);
+      // 要挡的是「盘符 / 绝对路径」，不是「本平台的根前缀」：POSIX 下 path.parse(root).root 就是单个 "/"，
+      // 而合法相对投影 config/<域>.yaml 天然含 "/" ⇒ 用它当判据在 POSIX 恒失败（CI run 41165961289）。
+      expect(resolution.message).not.toMatch(/[A-Za-z]:[\\/]/);
       expect(resolution.message).not.toContain(':\\');
       for (const key of resolution.invalidMounts) {
         expect(path.isAbsolute(key)).toBe(false);

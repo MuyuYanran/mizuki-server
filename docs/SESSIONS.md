@@ -1227,7 +1227,7 @@ U3-P4c（A-GAP-13★ + A-GAP-04 开关）。
   与 `*-spec.ts`（56 个，e2e 主体）。`apps/server/vitest.config.ts` 的 `include` 把两条模式都列了；
   但用 `find … -name '*.spec.ts'` **自己拼批次**时只会跑到 45 文件 / 594 用例，而且**结果是全绿的**
   —— 口径错了不报错，只会**静默少跑一半**。本轮第一次分批复核即中此坑（已订正为
-  `\( -name '*.spec.ts' -o -name '*-spec.ts' \)`）。**建议后续写进 `AGENTS.md` §3**（本轮未越权改动）。
+  `\( -name '*.spec.ts' -o -name '*-spec.ts' \)`）。**已写进 `AGENTS.md` §3**（PM 破例授权同批写入，见 §18.3）。
 - **诚实边界（必须与成果一起读）**：
   1. **前端运行时未实证**。ADR-028 T6 的 `series` / `moments` 管理页、U4-AI3 的回填卡片与检查清单、
      用量面板，**都只经过静态验证**（`vue-tsc` + 生产构建 + 后端全量 e2e + 纯函数单测）。
@@ -1236,3 +1236,97 @@ U3-P4c（A-GAP-13★ + A-GAP-04 开关）。
   3. **未在真 Shirone 站点上端到端跑过一次 `astro build`**。
 - **推送**：本节落袋后按 PM 授权执行 `git push origin main`；推送后按 R8 口径补记
   remote HEAD 哈希与 CI run（在会话回报中给出）。
+
+## 18. 首次推送后的 CI 红灯与修复（2026-10-31）
+
+> 诚实前提：§17 记的「1074 用例零失败」是**本机 Windows** 口径。推上去之后**远端 Linux CI 红了**，
+> 本节记录它红在哪、为什么本机看不见、以及如何证明修复真的有效。
+
+### 18.1 首次推送（`1938299`）与 CI 首跑结果
+
+- `git push origin main`：`dba6266..1938299`，**21 个提交**（§17 段内 20 个 + 本节之前的台账提交）。
+- CI run **`41165961289`**（main / `1938299`，push 触发）：**failure**。
+
+```
+Test Files  1 failed | 99 passed | 1 skipped (101)
+     Tests  1 failed | 1069 passed | 4 skipped (1074)
+```
+
+- CI 是 `pnpm lint && pnpm test && pnpm build` 一条 `&&` 链，故实际验到的边界是：
+  `install --frozen-lockfile` ✓ → `shared build` ✓ → `lint` ✓ → `test` ✗ → **`build` 未执行**。
+  也就是说 **`pnpm build`（含 Linux 下的 `vue-tsc`）在本段从未被 CI 验过**，不能宣称它绿。
+
+### 18.2 根因（已定位到具体一行，且已实证）
+
+失败点唯一：`test/common/theme-config-write-target.spec.ts:362`
+
+```
+AssertionError: expected '当前主题仓自持内容（未启用内容分离…）：此时 config/<域>.yaml 是死文件…'
+                not to contain '/'
+```
+
+原断言：
+
+```ts
+expect(resolution.message).not.toContain(item.prefix);   // prefix = path.parse(item.root).root
+```
+
+| 平台 | `path.parse(root).root` | 结果 |
+|---|---|---|
+| Windows | 盘符 + 反斜杠（形如 `<盘符>:\`） | 文案不含该形态 ⇒ **通过** |
+| POSIX | **单个 `'/'`** | 文案含合法相对投影 `config/<域>.yaml` ⇒ **恒失败** |
+
+**这条断言的本意（用例名写得很清楚）是「文案不含绝对路径（root 串与盘符）」，但实现把它退化成了
+「不含本平台的根前缀」** —— POSIX 下根前缀就是 `/`，任何合法相对投影都含它。
+
+**责任归属**：`6b714d6`（ADR-028 T1–T3 批）里我自己写下的缺陷。它只在本机跑、只跑 Windows，
+所以**从我这边任何次数的本机全绿都看不见它**。这直接削弱了「本机三连全绿即批次可靠」这句话。
+
+### 18.3 修复与实证（不靠「看着对了」）
+
+**修复**（`theme-config-write-target.spec.ts`）：去掉 `prefix` 维度，改平台无关判据。
+
+```ts
+const cases = [legacy, head, shirone, okRoot];
+for (const root of cases) {
+  const resolution = resolveConfigWriteTarget(root);
+  if (resolution.ok) { expect(path.isAbsolute(resolution.dirAbs)).toBe(true); continue; }
+  expect(resolution.message).not.toContain(root);
+  // 要挡的是「盘符 / 绝对路径」，不是「本平台的根前缀」：POSIX 下 path.parse(root).root 就是单个 "/"
+  expect(resolution.message).not.toMatch(/[A-Za-z]:[\\/]/);
+  expect(resolution.message).not.toContain(':\\');
+  ...
+}
+```
+
+**实证方式（关键：不是改完就宣称修好）**：临时探针 spec 用**真实** `resolveConfigWriteTarget`
+产出**真实** message，在 POSIX 路径语义下把新旧两条判据同时套上去，结果：
+
+| 根 | 旧判据（`includes('/')` 等价） | 新判据（盘符/绝对路径） |
+|---|---|---|
+| legacy | **会判失败** | 通过 |
+| head | **会判失败** | 通过 |
+| shirone | **会判失败** | 通过 |
+| shirone-content | **会判失败** | 通过 |
+
+并断言 `message` **不含** `root` 全串 —— 即**生产文案本身是干净的、合规的（红线 6），错的只是判据形态**。
+探针文件验证后按「残骸留档不删除」的规矩移入 `.test-tmp/_attic/`，不入库。
+
+**全仓同类隐患排查**（PM 指定的 `posts-write-target.spec.ts` / `content-source.spec.ts` /
+`theme-config-write.e2e-spec.ts` 等）：
+
+| 检查项 | 结果 |
+|---|---|
+| `path.parse(...).root` | **仅 4 处，全在本文件**，已随修复移除（现为 0 处） |
+| `theme-posts-write-target.spec.ts` | 已是正确写法（`not.toMatch(/[A-Za-z]:[\\\/]/)`）—— 同批里这一处没踩坑 |
+| `theme-content-source.spec.ts` | `not.toContain(root)` + `not.toContain(posixRoot)` + `isAbsolute`，**安全无副作用**（拦的是随机 mkdtemp 全串，不是根前缀） |
+| `theme-config-write.e2e-spec.ts` | 拦 `tmp` 全串 + 关键词，安全 |
+| 全仓「含分隔符的 `toContain`」断言 | 逐条看过：全是 HTML / content-type / YAML 转义 / URL 形态，**无第二处路径前缀误杀** |
+
+### 18.4 纪律固化（PM 破例授权同批写入 `AGENTS.md` §3）
+
+- **测试文件双命名陷阱**：`*.spec.ts`（45）与 `*-spec.ts`（56）并存，**严禁** `find -name '*.spec.ts'` 手拼；
+  分批相加的文件数必须等于两条后缀合计（当前 **101**），不等就是漏跑。
+- **跨平台断言陷阱**：`path.parse(p).root` 在 POSIX 是 `/`；**本机 Windows 三连全绿 ≠ 跨平台可靠**，
+  真正的 POSIX 门禁只有 CI 的 `ubuntu-latest`。新增「文案不得出现某形态」类断言时，
+  必须先问「这个判据在另一种路径分隔符下还成立吗」。

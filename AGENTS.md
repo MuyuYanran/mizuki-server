@@ -86,6 +86,21 @@ docs/            规格、决策、台账、阶段提示词（见 §10）
   已按 **ADR-027** 绕开（`build: { target: 'esnext', minify: false, cssMinify: 'esbuild' }`），`pnpm build`
   现可全绿；**改回默认压缩或给 element-plus 加 `manualChunks` 之前先读 ADR-027（后者实测运行期 TDZ 崩）**。
 - **验收三连 = test + build + lint 全绿**；数账只认全绿轮（流程规则 R6，`docs/PROCESS-RULES.md` §三）。
+- **⚠ 测试文件双命名陷阱（2026-10-31 实测踩中）**：`apps/server/test/` 下同时存在两套**互不相交**的命名 ——
+  `*.spec.ts`（45 个）与 `*-spec.ts`（56 个，e2e 主体），`vitest.config.ts` 的 `include` 把两条模式都列了。
+  **严禁**用 `find test -name '*.spec.ts'` 手拼文件列表分批跑：只会跑到 45 文件 / 594 用例，
+  **而且结果是全绿的** —— 口径错了不报错，只**静默少跑一半**。要么走 `pnpm test`，
+  要么两条后缀都覆盖：`find test -type f \( -name '*.spec.ts' -o -name '*-spec.ts' \)`。
+  判据：分批相加的「文件数」必须等于 `find … \( 两条后缀 \)` 的计数（当前 **101**），不等就是漏跑。
+- **⚠ 跨平台断言陷阱（2026-10-31 实测，CI run 41165961289 因此红掉）**：
+  `path.parse(p).root` 在 Windows 是**「盘符 + 反斜杠」两字符**（形如 `<盘符>:\`），
+  **在 POSIX 上是单个 `'/'`**。
+  所以**严禁**用 `expect(msg).not.toContain(path.parse(p).root)` 断言「不含绝对路径」——
+  POSIX 下它等于「不含 `/`」，会把一切含合法相对路径（如 `config/<域>.yaml`）的生产文案**全部误杀**，
+  而且**本机 Windows 永远绿、只在 CI 红**。正确写法是平台无关的绝对路径/盘符判据：
+  `expect(msg).not.toMatch(/[A-Za-z]:[\\/]/)`。
+  **推论：本机（Windows）三连全绿 ≠ 跨平台可靠**，真正的 POSIX 门禁只有 CI 的 `ubuntu-latest`；
+  凡新增「文案里不得出现某形态」类断言，先问一句「这个判据在另一种路径分隔符下还成立吗」。
 
 ## 4. 硬性红线（改动前必读）
 
